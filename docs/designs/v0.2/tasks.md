@@ -288,7 +288,7 @@
   2. `test -z "$(rg -n "yt-dlp\.js" src/download-worker.ts)"` → 下载 worker 不含底层模块直连。
 
 ## task-14 · 精确验收下载服务的受控元数据探测
-- 状态: pending
+- 状态: done
 - 依赖: task-04
 - 文件范围:
   - src/services/download.ts
