@@ -19,6 +19,7 @@ export interface FetchOptions extends CommonOptions {
   readonly dateAfter?: string;
   readonly allowEmpty?: boolean;
   readonly flatPlaylist?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 export interface DownloadOptions extends CommonOptions {
@@ -321,7 +322,7 @@ async function fetchJsonLines(
     fetchArgs(options, singleVideo),
     FETCH_PROCESS_TIMEOUT_MILLISECONDS,
     undefined,
-    undefined,
+    options.signal,
     undefined,
     options.dateAfter === undefined ? [] : [101],
   );

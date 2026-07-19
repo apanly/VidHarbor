@@ -1,7 +1,7 @@
 # Tasks - v0.2
 
 ## task-01 · 统一底层 yt-dlp 取消协议
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/yt-dlp.ts

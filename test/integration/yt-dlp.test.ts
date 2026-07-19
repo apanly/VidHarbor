@@ -19,6 +19,53 @@ beforeAll(async () => {
   await chmod(executablePath, 0o755);
 });
 
+async function expectCompleteProcessTreeCancellation(
+  start: (signal: AbortSignal) => Promise<unknown>,
+): Promise<void> {
+  const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-process-tree-'));
+  const pidPath = join(sandbox, 'child.pid');
+  process.env.VIDHARBOR_FAKE_CHILD_PID_PATH = pidPath;
+  const controller = new AbortController();
+  const operation = start(controller.signal).catch((error: unknown) => error);
+
+  let childPid = 0;
+  try {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        await access(pidPath);
+        childPid = Number(await readFile(pidPath, 'utf8'));
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+    expect(childPid).toBeGreaterThan(0);
+    controller.abort();
+    const settled = await Promise.race([
+      operation.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 500)),
+    ]);
+    if (!settled) process.kill(childPid, 'SIGKILL');
+    expect(settled).toBe(true);
+    expect(() => process.kill(childPid, 0)).toThrow();
+    await expect(operation).resolves.toSatisfy(
+      (error: unknown) =>
+        error instanceof Error && error.message === 'yt-dlp download cancelled',
+    );
+  } finally {
+    delete process.env.VIDHARBOR_FAKE_CHILD_PID_PATH;
+    if (childPid > 0) {
+      try {
+        process.kill(childPid, 'SIGKILL');
+      } catch {
+        // The process group cancellation already removed it.
+      }
+    }
+    await operation;
+    await rm(sandbox, { recursive: true, force: true });
+  }
+}
+
 describe('yt-dlp argument protocol', () => {
   it('passes fetch arguments as an array with one proxy option', async () => {
     const proxyUrl = 'http://alice:s3cret@proxy.example:8080';
@@ -140,50 +187,34 @@ describe('yt-dlp argument protocol', () => {
 
 describe('yt-dlp process results', () => {
   it('cancels the complete download process tree', async () => {
-    const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-process-tree-'));
-    const pidPath = join(sandbox, 'child.pid');
-    process.env.VIDHARBOR_FAKE_CHILD_PID_PATH = pidPath;
-    const controller = new AbortController();
-    const operation = downloadMedia({
-      executablePath,
-      url: 'fixture://child-tree-download',
-      outputTemplate: '/temporary/%(id)s.%(ext)s',
-      signal: controller.signal,
-    }).catch((error: unknown) => error);
+    await expectCompleteProcessTreeCancellation((signal) =>
+      downloadMedia({
+        executablePath,
+        url: 'fixture://child-tree-download',
+        outputTemplate: '/temporary/%(id)s.%(ext)s',
+        signal,
+      }),
+    );
+  });
 
-    let childPid = 0;
-    try {
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        try {
-          await access(pidPath);
-          childPid = Number(await readFile(pidPath, 'utf8'));
-          break;
-        } catch {
-          await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-      }
-      expect(childPid).toBeGreaterThan(0);
-      controller.abort();
-      const settled = await Promise.race([
-        operation.then(() => true),
-        new Promise<false>((resolve) => setTimeout(() => resolve(false), 500)),
-      ]);
-      if (!settled) process.kill(childPid, 'SIGKILL');
-      expect(settled).toBe(true);
-      expect(() => process.kill(childPid, 0)).toThrow();
-      await expect(operation).resolves.toBeInstanceOf(Error);
-    } finally {
-      delete process.env.VIDHARBOR_FAKE_CHILD_PID_PATH;
-      if (childPid > 0) {
-        try {
-          process.kill(childPid, 'SIGKILL');
-        } catch {
-          // The process group cancellation already removed it.
-        }
-      }
-      await operation;
-      await rm(sandbox, { recursive: true, force: true });
-    }
+  it('cancels the complete channel fetch process tree', async () => {
+    await expectCompleteProcessTreeCancellation((signal) =>
+      fetchChannelEntries({
+        executablePath,
+        url: 'fixture://child-tree-channel-fetch',
+        signal,
+      }),
+    );
+  });
+
+  it('cancels the complete video metadata process tree', async () => {
+    await expectCompleteProcessTreeCancellation((signal) =>
+      fetchVideoMetadata({
+        executablePath,
+        url: 'fixture://child-tree-video-metadata',
+        signal,
+      }),
+    );
   });
 
   it('surfaces a process-group termination failure', async () => {
