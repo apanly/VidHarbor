@@ -359,7 +359,7 @@ describe('single download worker', () => {
 
     expect(row(downloadId)).toMatchObject({
       status: 'canceled',
-      failure_reason: 'yt-dlp download cancelled',
+      failure_reason: 'yt-dlp task canceled',
     });
     expect(taskManager?.getSnapshot()).toEqual([
       expect.objectContaining({ type: 'media_download', status: 'canceled' }),
@@ -399,7 +399,7 @@ describe('single download worker', () => {
       expect(row(downloadId)).toMatchObject({
         status: 'canceled',
         output_path: null,
-        failure_reason: 'yt-dlp download cancelled',
+        failure_reason: 'yt-dlp task canceled',
       });
       expect(taskManager?.getSnapshot()).toEqual([
         expect.objectContaining({ type: 'media_download', status: 'canceled' }),
@@ -450,7 +450,7 @@ describe('single download worker', () => {
     expect(row(downloadId)).toMatchObject({
       status: 'canceled',
       output_path: null,
-      failure_reason: 'yt-dlp download cancelled',
+      failure_reason: 'yt-dlp task canceled',
     });
     expect(taskManager?.getSnapshot()).toEqual([
       expect.objectContaining({ type: 'media_download', status: 'canceled' }),
@@ -594,6 +594,9 @@ describe('single download worker', () => {
       status: 'completed',
       thumbnail_path: null,
     });
+    expect(taskManager?.getSnapshot()).toEqual([
+      expect.objectContaining({ type: 'media_download', status: 'succeeded' }),
+    ]);
     expect(await readdir(join(downloadRoot, String(downloadId))))
       .toEqual([`${FIRST_VIDEO_ID}.mp4`]);
   });
@@ -632,19 +635,62 @@ if (args.includes('--skip-download')) {
     try {
       worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://thumbnail-cancel'));
       await waitForFile(join(sandbox, 'thumbnail.running'));
-      await taskManager?.cancel(1);
-      await worker.waitForIdle();
+      await expect(taskManager?.cancel(1)).rejects.toThrow(
+        'thumbnail termination exploded',
+      );
+      await expect(worker.waitForIdle()).rejects.toThrow(
+        'thumbnail termination exploded',
+      );
+      await expect(worker.failure).rejects.toThrow(
+        'thumbnail termination exploded',
+      );
     } finally {
       killSpy.mockRestore();
     }
 
     expect(row(downloadId)).toMatchObject({
-      status: 'canceled',
+      status: 'failed',
       output_path: null,
       failure_reason: expect.stringContaining('thumbnail termination exploded'),
     });
+    expect(taskManager?.getSnapshot()).toEqual([
+      expect.objectContaining({
+        type: 'media_download',
+        status: 'failed',
+        failureReason: expect.stringContaining('thumbnail termination exploded'),
+      }),
+    ]);
     await expect(readdir(join(downloadRoot, String(downloadId))))
       .rejects.toMatchObject({ code: 'ENOENT' });
+    await expectTaskDirectoryRemoved(downloadId);
+  });
+
+  it('persists and reports thumbnail directory cleanup failure', async () => {
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const worker = createWorker();
+    fsControl.rejectedRmPath = join(
+      await realpath(downloadRoot),
+      '.vidharbor-tmp',
+      String(downloadId),
+      '.thumbnail',
+    );
+
+    worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success'));
+
+    await expect(worker.waitForIdle()).rejects.toThrow(/EACCES|EPERM/);
+    await expect(worker.failure).rejects.toThrow(/EACCES|EPERM/);
+    expect(row(downloadId)).toMatchObject({
+      status: 'failed',
+      output_path: null,
+      failure_reason: expect.stringMatching(/EACCES|EPERM/),
+    });
+    expect(taskManager?.getSnapshot()).toEqual([
+      expect.objectContaining({
+        type: 'media_download',
+        status: 'failed',
+        failureReason: expect.stringMatching(/EACCES|EPERM/),
+      }),
+    ]);
     await expectTaskDirectoryRemoved(downloadId);
   });
 

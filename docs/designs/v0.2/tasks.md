@@ -536,7 +536,7 @@
   2. `rg -n "YtDlpTaskCancellationError|isYtDlpTaskCancellationError" src/yt-dlp-task-cancellation.ts src/yt-dlp.ts src/yt-dlp-task-manager.ts` → 共享取消类型及两层使用均命中。
 
 ## task-25 · 按错误类型收紧下载 worker 失败边界
-- 状态: pending
+- 状态: done
 - 依赖: task-24
 - 文件范围:
   - src/download-worker.ts
