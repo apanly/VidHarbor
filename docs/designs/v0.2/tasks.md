@@ -265,3 +265,47 @@
   1. `npx vitest run test/integration/pages.test.ts` → 页面、导航、标签、状态、空状态、移动端及脱敏测试通过。
   2. `test "$(rg -l "from ['\"](?:\.\.?/)*yt-dlp\.js['\"]" src --glob '*.ts' | sort)" = "src/yt-dlp-task-manager.ts"` → 生产代码只有管理器导入底层模块。
   3. `npm test -- --run` → 全部单元与集成测试通过。
+
+## task-13 · 复验唯一 yt-dlp 底层导入
+- 状态: done
+- 依赖: task-03
+- 文件范围:
+  - src/download-worker.ts
+  - src/yt-dlp-task-manager.ts
+- 关键约束:
+  - 不能为通过静态验收而隐藏、拼接或间接构造导入路径，也不能改动相邻无关功能。
+  - 必须基于当前最终代码验证 `src/yt-dlp-task-manager.ts` 是生产代码中唯一直接导入 `yt-dlp.js` 的模块。
+- 任务目的: 修复 bugfix-01 描述的问题
+- 实现入口: `src/download-worker.ts`（已由 task-03 移除的旧底层直连）、`src/yt-dlp-task-manager.ts:1`（唯一底层导入）
+- 问题描述原文: task-02 的管理器实现及测试均通过，但执行当时 src/download-worker.ts 仍直接导入 src/yt-dlp.ts；该旧导入已由后续 task-03 移除，需要按当前最终代码重新执行唯一入口静态验收并关闭失败状态。
+- 期望行为: 当前生产源码的底层 `yt-dlp.js` 直接导入列表仅包含 `src/yt-dlp-task-manager.ts`，`src/download-worker.ts` 不再绕过管理器。
+- 范围边界:
+  - 必须: 使用覆盖 `src/**/*.ts` 的静态命令按文件名精确复验唯一入口。
+  - 不能: 不能改动与本 bug 无关的模块，不能通过字符串拼接、改名或动态导入规避检查。
+  - 不做: 不重构管理器、下载 worker 或 yt-dlp 执行协议，不新增兼容逻辑。
+- 验收标准:
+  1. `test "$(rg -l "from ['\"](?:\.\.?/)*yt-dlp\.js['\"]" src --glob '*.ts' | sort)" = "src/yt-dlp-task-manager.ts"` → 唯一底层导入复验通过。
+  2. `test -z "$(rg -n "yt-dlp\.js" src/download-worker.ts)"` → 下载 worker 不含底层模块直连。
+
+## task-14 · 精确验收下载服务的受控元数据探测
+- 状态: pending
+- 依赖: task-04
+- 文件范围:
+  - src/services/download.ts
+  - src/yt-dlp-task-manager.ts
+  - test/integration/download-service.test.ts
+- 关键约束:
+  - 不能为通过静态验收而拆分 `fetchVideoMetadata` 字符串、重命名已确认的 operation 或改动相邻无关功能。
+  - 必须区分下载服务对底层函数的直接导入与通过管理器注入的 `operations.fetchVideoMetadata` 受控调用。
+- 任务目的: 修复 bugfix-02 描述的问题
+- 实现入口: `src/services/download.ts:582`（`createDirectDownload`）、`src/services/download.ts:594`（`metadata_probe` 提交及受控 operation 调用）、`src/yt-dlp-task-manager.ts:42`（`YtDlpOperations.fetchVideoMetadata` 契约）
+- 问题描述原文: task-04 已移除下载服务对底层 fetchVideoMetadata 的直接导入和可选 cancel，并通过 20 个集成测试；失败来自静态命令同时匹配管理器契约要求的 operations.fetchVideoMetadata 方法名，需要在不使用字符串拼接等投机规避的前提下，使验收检查准确区分底层直连与受控 operation 调用。
+- 期望行为: 静态验收只拒绝 `src/services/download.ts` 对 `yt-dlp.js` 的直接导入和可选 `cancel` 声明，同时允许且确认 `metadata_probe` 内的 `operations.fetchVideoMetadata` 调用；既有 20 个下载服务集成测试继续通过。
+- 范围边界:
+  - 必须: 分别验证无底层导入、无可选 cancel，以及存在固定的受控元数据探测调用。
+  - 不能: 不能改动与本 bug 无关的模块，不能删除或绕开 `operations.fetchVideoMetadata`，不能放宽下载服务行为测试。
+  - 不做: 不改变直接下载输入、响应、错误码、重试语义或管理器 operations 契约。
+- 验收标准:
+  1. `npx vitest run test/integration/download-service.test.ts` → 下载服务集成测试全部通过。
+  2. `test -z "$(rg -n "from ['\"](?:\.\.?/)*yt-dlp\.js['\"]|cancel\\?" src/services/download.ts)"` → 下载服务无底层直连且 cancel 为异步必需方法。
+  3. `rg -n "type: 'metadata_probe'|operations\.fetchVideoMetadata" src/services/download.ts` → 固定探测任务及受控 operation 调用均命中。
