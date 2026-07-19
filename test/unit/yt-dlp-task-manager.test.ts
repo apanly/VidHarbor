@@ -192,9 +192,11 @@ describe('YtDlpTaskManager', () => {
     ytDlp.downloadMedia.mockResolvedValueOnce('/output/video.mp4');
     ytDlp.downloadThumbnail.mockResolvedValueOnce(undefined);
     const manager = createManager();
+    let taskSignal: AbortSignal | undefined;
     const handle = manager.submit({
       type: 'metadata_probe',
       execute: async (operations) => {
+        taskSignal = operations.signal;
         await operations.fetchChannelEntries({ url: 'channel' });
         await operations.fetchVideoMetadata({ url: 'video' });
         await operations.downloadMedia({ url: 'video', outputTemplate: 'media' });
@@ -219,6 +221,7 @@ describe('YtDlpTaskManager', () => {
       '/fixture/yt-dlp',
     ]);
     expect(new Set(calls.map((options) => options.signal)).size).toBe(1);
+    expect(calls.every((options) => options.signal === taskSignal)).toBe(true);
   });
 
   it('records a redacted failure and cannot rewrite the terminal state', async () => {
@@ -351,6 +354,30 @@ describe('YtDlpTaskManager', () => {
       status: 'canceled',
       failureReason: null,
     });
+  });
+
+  it('exposes manager cancellation to post-processing through the task signal', async () => {
+    const postProcessing = deferred<void>();
+    const manager = createManager();
+    let taskSignal: AbortSignal | undefined;
+    const handle = manager.submit({
+      type: 'media_download',
+      execute: async (operations) => {
+        taskSignal = operations.signal;
+        await postProcessing.promise;
+      },
+    });
+    const result = handle.result.catch((error: unknown) => error);
+    await schedulingTurn();
+
+    const cancel = manager.cancel(handle.id);
+    expect(taskSignal?.aborted).toBe(true);
+    expect(manager.getSnapshot()[0]?.status).toBe('running');
+
+    postProcessing.resolve();
+    await cancel;
+    expect(await result).toEqual(new Error('yt-dlp task canceled'));
+    expect(manager.getSnapshot()[0]?.status).toBe('canceled');
   });
 
   it('stops once, cancels all active tasks, and rejects later submissions', async () => {

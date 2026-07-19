@@ -36,6 +36,7 @@ type ManagedThumbnailDownloadOptions = Omit<
 >;
 
 export interface YtDlpOperations {
+  readonly signal: AbortSignal;
   readonly fetchChannelEntries: (
     options: ManagedFetchOptions,
   ) => Promise<readonly unknown[]>;
@@ -349,6 +350,7 @@ export class YtDlpTaskManager {
 
   #createOperations(signal: AbortSignal): YtDlpOperations {
     return {
+      signal,
       fetchChannelEntries: (options) =>
         fetchChannelEntries({
           ...options,

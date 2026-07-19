@@ -309,3 +309,69 @@
   1. `npx vitest run test/integration/download-service.test.ts` → 下载服务集成测试全部通过。
   2. `test -z "$(rg -n "from ['\"](?:\.\.?/)*yt-dlp\.js['\"]|cancel\\?" src/services/download.ts)"` → 下载服务无底层直连且 cancel 为异步必需方法。
   3. `rg -n "type: 'metadata_probe'|operations\.fetchVideoMetadata" src/services/download.ts` → 固定探测任务及受控 operation 调用均命中。
+
+## task-15 · 取消下载时阻断后处理成功落库
+- 状态: done
+- 依赖: task-02, task-03
+- 文件范围:
+  - src/yt-dlp-task-manager.ts
+  - src/download-worker.ts
+  - test/unit/yt-dlp-task-manager.test.ts
+  - test/integration/download-worker.test.ts
+- 关键约束:
+  - 不能只在 `DownloadWorker.cancel` 中记录取消，也不能让管理器直接取消与 worker 取消形成两个不可互见的状态源。
+  - 不能在取消已请求后继续归档文件或将下载记录写为 `completed`。
+- 任务目的: 修复 bugfix-03 描述的问题
+- 实现入口: `src/yt-dlp-task-manager.ts:238`（`cancel`）、`src/yt-dlp-task-manager.ts:350`（`#createOperations`）、`src/download-worker.ts:336`（`cancel`）、`src/download-worker.ts:379`（`#run`）、`src/download-worker.ts:619`（后处理取消检查）
+- 问题描述原文: review-1 在 src/download-worker.ts:619 发现管理器直接取消只设置 task cancelRequested，DownloadWorker 的后处理检查无法观察该取消；若取消发生在 yt-dlp 完成后的校验或归档阶段，下载仍可能归档并写为 completed，而管理器快照为 canceled。所有取消来源必须共享可观察取消状态，并在校验、归档和成功落库前阻断。
+- 期望行为: 无论取消来自 `DownloadWorker.cancel` 还是管理器直接取消，运行中的下载在媒体进程结束后的校验、归档及成功落库边界都能观察同一取消状态；取消任务最终保持管理器快照 `canceled`、下载记录 `canceled`，且不保留归档产物或写入 `completed`。
+- 范围边界:
+  - 必须: 统一取消可观察状态，并覆盖取消发生在校验、归档和成功落库前的回滚与状态收敛测试。
+  - 不能: 不能改动与本 bug 无关的模块，不能新增第二套取消控制器、调度队列或下载状态。
+  - 不做: 不改变下载目录布局、进度字段、普通失败映射或管理器并发协议。
+- 验收标准:
+  1. `npx vitest run test/unit/yt-dlp-task-manager.test.ts test/integration/download-worker.test.ts` → 管理器取消与下载后处理取消、回滚及状态收敛用例全部通过。
+  2. `rg -n "cancelRequested|signal\.aborted|throwIfCancel" src/yt-dlp-task-manager.ts src/download-worker.ts` → 管理器取消状态与 worker 后处理取消检查均有明确实现。
+
+## task-16 · 正常停机取消不得上报 runtime 故障
+- 状态: pending
+- 依赖: task-02, task-05, task-06
+- 文件范围:
+  - src/yt-dlp-task-manager.ts
+  - src/routes/channels.ts
+  - src/scheduler.ts
+  - test/unit/scheduler.test.ts
+  - test/integration/channel-notification-api.test.ts
+- 关键约束:
+  - 不能通过错误消息字符串匹配识别取消，也不能吞掉业务失败、持久化失败或非取消系统异常。
+  - 不能让正常停机触发的首次同步或定时检查取消进入 runtime 故障上报。
+- 任务目的: 修复 bugfix-04 描述的问题
+- 实现入口: `src/yt-dlp-task-manager.ts:101`（`cancellationError`）、`src/yt-dlp-task-manager.ts:238`（`cancel`）、`src/routes/channels.ts:40`（首次同步任务错误边界）、`src/scheduler.ts:148`（定时检查结果分类）
+- 问题描述原文: review-1 在 src/routes/channels.ts:41 发现管理器取消以普通 Error 拒绝，首次同步和 scheduler 会把正常停机取消当作系统故障上报，可能让 RunningServer.failure 拒绝并导致非零退出。必须提供可识别的取消错误，并在这些错误边界排除正常取消，同时保留任务和频道业务状态收敛。
+- 期望行为: 管理器以稳定、可类型识别的取消错误拒绝任务结果；首次同步与 scheduler 在正常停机取消时不调用 runtime 故障上报，而业务失败、持久化失败和其他系统异常继续沿现有边界上报，任务及频道业务状态仍完整收敛。
+- 范围边界:
+  - 必须: 为管理器取消错误提供明确识别契约，并在首次同步与定时检查错误分类处仅排除该取消错误。
+  - 不能: 不能改动与本 bug 无关的模块，不能使用消息文本、宽松 catch 或静默忽略未知错误。
+  - 不做: 不新增频道 `canceled` 业务状态，不改变 scheduler 到期、防重、停止等待或 runtime failure 协议。
+- 验收标准:
+  1. `npx vitest run test/unit/scheduler.test.ts test/integration/channel-notification-api.test.ts` → 正常取消不报告故障，业务与持久化失败仍按原契约报告。
+  2. `rg -n "cancel|cancell" src/yt-dlp-task-manager.ts src/routes/channels.ts src/scheduler.ts` → 可识别取消契约及两个错误边界均有明确处理。
+
+## task-17 · 页面任务测试失败路径必须释放 gate
+- 状态: pending
+- 依赖: task-12
+- 文件范围:
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 不能仅在断言成功路径释放 `runningGate` 与 `queuedGate`，也不能删除或弱化现有页面、快照和脱敏断言。
+- 任务目的: 修复 bugfix-05 描述的问题
+- 实现入口: `test/integration/pages.test.ts:697`（固定任务类型与状态快照用例）、`test/integration/pages.test.ts:794`（gate 释放与任务等待）
+- 问题描述原文: review-1 在 test/integration/pages.test.ts:697 发现任务页面用例只在断言成功后释放两个 gate；任一断言失败会让 afterEach 的 taskManager.stop() 永久等待。必须用 try/finally 无条件释放 gate 并等待两个任务 allSettled。
+- 期望行为: 固定任务类型与状态快照用例无论断言成功或抛错都释放两个 gate，并等待运行与排队任务全部 settled，使 `afterEach` 的 `taskManager.stop()` 不会永久阻塞，同时保留原断言覆盖范围。
+- 范围边界:
+  - 必须: 使用 `try/finally` 包围可能失败的断言路径，在 `finally` 中无条件释放两个 gate 并等待两个任务 `Promise.allSettled`。
+  - 不能: 不能改动与本 bug 无关的模块，不能以超时、跳过清理或捕获并吞掉断言错误规避挂起。
+  - 不做: 不改变生产代码、任务页面契约或测试套件的全局清理顺序。
+- 验收标准:
+  1. `npx vitest run test/integration/pages.test.ts` → 页面任务快照及其余页面回归测试全部通过且进程正常退出。
+  2. `rg -n "try|finally|Promise\.allSettled" test/integration/pages.test.ts` → gate 用例包含无条件清理与任务收敛逻辑。

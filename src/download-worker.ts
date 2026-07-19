@@ -298,7 +298,6 @@ export class DownloadWorker implements DownloadQueue {
   readonly #database: DatabaseConnection;
   readonly #taskManager: YtDlpTaskManager;
   readonly #taskIds = new Map<number, number>();
-  readonly #cancelingDownloads = new Set<number>();
   readonly #idleWaiters: Array<{
     readonly resolve: () => void;
     readonly reject: (error: Error) => void;
@@ -336,7 +335,6 @@ export class DownloadWorker implements DownloadQueue {
   async cancel(downloadId: number): Promise<void> {
     const taskId = this.#taskIds.get(downloadId);
     if (taskId === undefined) return;
-    this.#cancelingDownloads.add(downloadId);
     await this.#taskManager.cancel(taskId);
   }
 
@@ -367,7 +365,6 @@ export class DownloadWorker implements DownloadQueue {
   #finishTrackedTask(downloadId: number, taskId: number): void {
     if (this.#taskIds.get(downloadId) === taskId) {
       this.#taskIds.delete(downloadId);
-      this.#cancelingDownloads.delete(downloadId);
     }
     if (this.#taskIds.size === 0) this.#settleIdleWaiters();
   }
@@ -447,11 +444,12 @@ export class DownloadWorker implements DownloadQueue {
         taskDirectory,
         download,
       );
-      this.#throwIfCanceling(download.downloadId);
+      this.#throwIfCanceled(operations.signal);
       const downloadedFiles = await validateDownloadedFiles(
         taskDirectory,
         reportedPath,
       );
+      this.#throwIfCanceled(operations.signal);
       const targetDirectory = join(realDownloadRoot, String(download.downloadId));
       try {
         await mkdir(targetDirectory);
@@ -463,7 +461,7 @@ export class DownloadWorker implements DownloadQueue {
       }
       archivedDirectory = targetDirectory;
       for (const filename of downloadedFiles.filenames) {
-        this.#throwIfCanceling(download.downloadId);
+        this.#throwIfCanceled(operations.signal);
         const archivedPath = join(targetDirectory, filename);
         try {
           await link(join(taskDirectory, filename), archivedPath);
@@ -474,24 +472,25 @@ export class DownloadWorker implements DownloadQueue {
           throw error;
         }
         archivedFiles.push(archivedPath);
+        this.#throwIfCanceled(operations.signal);
       }
       const targetPath = join(targetDirectory, downloadedFiles.mainFilename);
       const thumbnailPath = thumbnailFilename === undefined
         ? null
         : join(targetDirectory, thumbnailFilename);
 
-      this.#throwIfCanceling(download.downloadId);
-      const completed = this.#database
-        .prepare(
-          `UPDATE downloads
-           SET status = 'completed', output_path = ?, thumbnail_path = ?,
-               output_size_bytes = ?,
-               progress_percent = 100,
-               speed_text = NULL, eta_seconds = NULL, exit_code = 0,
-               finished_at = ?
-           WHERE id = ? AND status = 'running'`,
-        )
-        .run(
+      this.#throwIfCanceled(operations.signal);
+      const completeDownload = this.#database.prepare(
+        `UPDATE downloads
+         SET status = 'completed', output_path = ?, thumbnail_path = ?,
+             output_size_bytes = ?,
+             progress_percent = 100,
+             speed_text = NULL, eta_seconds = NULL, exit_code = 0,
+             finished_at = ?
+         WHERE id = ? AND status = 'running'`,
+      );
+      this.#throwIfCanceled(operations.signal);
+      const completed = completeDownload.run(
           targetPath,
           thumbnailPath,
           downloadedFiles.mainSizeBytes,
@@ -523,8 +522,7 @@ export class DownloadWorker implements DownloadQueue {
       if (started) {
         const reason = failureMessage(failure, download.proxyUrl);
         const failedStatus =
-          this.#cancelingDownloads.has(download.downloadId) ||
-          isCancellationError(failure)
+          operations.signal.aborted || isCancellationError(failure)
             ? 'canceled'
             : 'failed';
         const exitCode =
@@ -616,7 +614,7 @@ export class DownloadWorker implements DownloadQueue {
     if (taskFailure !== undefined) throw taskFailure;
   }
 
-  #throwIfCanceling(downloadId: number): void {
-    if (this.#cancelingDownloads.has(downloadId)) throw cancellationError();
+  #throwIfCanceled(signal: AbortSignal): void {
+    if (signal.aborted) throw cancellationError();
   }
 }

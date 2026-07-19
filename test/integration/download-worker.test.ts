@@ -22,6 +22,8 @@ const fsControl = vi.hoisted(() => ({
   rejectLink: false,
   linkPaths: [] as Array<readonly [string, string]>,
   copyPaths: [] as Array<readonly [string, string]>,
+  afterStat: undefined as ((path: string) => void) | undefined,
+  afterLink: undefined as ((path: string) => void) | undefined,
 }));
 
 vi.mock('node:fs/promises', async () => {
@@ -48,7 +50,13 @@ vi.mock('node:fs/promises', async () => {
         code: 'EXDEV',
       });
     }
-    return actual.link(oldPath, newPath);
+    await actual.link(oldPath, newPath);
+    fsControl.afterLink?.(String(newPath));
+  };
+  const controlledStat: typeof actual.stat = async (path, options) => {
+    const result = await actual.stat(path, options as never);
+    fsControl.afterStat?.(String(path));
+    return result;
   };
   const controlledCopyFile: typeof actual.copyFile = async (
     source,
@@ -63,6 +71,7 @@ vi.mock('node:fs/promises', async () => {
     copyFile: controlledCopyFile,
     link: controlledLink,
     rm: controlledRm,
+    stat: controlledStat,
   };
 });
 
@@ -173,6 +182,27 @@ function rejectCompletedUpdates(connection: DatabaseConnection): DatabaseConnect
   return rejectingConnection;
 }
 
+function cancelBeforeCompletedUpdate(
+  connection: DatabaseConnection,
+): DatabaseConnection {
+  const cancelingConnection: DatabaseConnection = {
+    close: () => connection.close(),
+    exec: (sql) => {
+      connection.exec(sql);
+      return cancelingConnection;
+    },
+    pragma: (source, options) => connection.pragma(source, options),
+    prepare: (sql) => {
+      const statement = connection.prepare(sql);
+      if (sql.includes("SET status = 'completed'")) {
+        void taskManager?.cancel(1);
+      }
+      return statement;
+    },
+  };
+  return cancelingConnection;
+}
+
 function rejectUpdates(
   connection: DatabaseConnection,
   sqlFragment: string,
@@ -251,6 +281,8 @@ afterEach(async () => {
   fsControl.rejectLink = false;
   fsControl.linkPaths.length = 0;
   fsControl.copyPaths.length = 0;
+  fsControl.afterStat = undefined;
+  fsControl.afterLink = undefined;
   delete process.env.VIDHARBOR_FAKE_YT_DLP_DIR;
   try {
     database.close();
@@ -330,6 +362,48 @@ describe('single download worker', () => {
     ]);
     await expectTaskDirectoryRemoved(downloadId);
   });
+
+  it.each(['validation', 'archive', 'completion'] as const)(
+    'observes manager cancellation at the %s boundary and rolls back',
+    async (boundary) => {
+      const downloadId = insertPending(FIRST_VIDEO_ID);
+      const worker = createWorker(
+        boundary === 'completion'
+          ? cancelBeforeCompletedUpdate(database)
+          : database,
+      );
+      const targetDirectory = join(downloadRoot, String(downloadId));
+      const mediaFilename = `${FIRST_VIDEO_ID}.mp4`;
+      if (boundary === 'validation') {
+        fsControl.afterStat = (path) => {
+          if (!path.endsWith(mediaFilename)) return;
+          fsControl.afterStat = undefined;
+          void taskManager?.cancel(1);
+        };
+      }
+      if (boundary === 'archive') {
+        fsControl.afterLink = (path) => {
+          if (!path.endsWith(join(String(downloadId), mediaFilename))) return;
+          fsControl.afterLink = undefined;
+          void taskManager?.cancel(1);
+        };
+      }
+
+      worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success'));
+      await worker.waitForIdle();
+
+      expect(row(downloadId)).toMatchObject({
+        status: 'canceled',
+        output_path: null,
+        failure_reason: 'yt-dlp download cancelled',
+      });
+      expect(taskManager?.getSnapshot()).toEqual([
+        expect.objectContaining({ type: 'media_download', status: 'canceled' }),
+      ]);
+      await expect(readdir(targetDirectory)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expectTaskDirectoryRemoved(downloadId);
+    },
+  );
 
   it('cancels a queued manager task without starting its process', async () => {
     const firstId = insertPending(FIRST_VIDEO_ID);
