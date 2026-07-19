@@ -806,12 +806,14 @@ describe('server-rendered pages', () => {
       .toThrow('未知任务状态：unknown');
   });
 
-  it('keeps the task table readable on mobile and wraps long failure reasons', async () => {
+  it('keeps the task table reachable on narrow desktops and readable on mobile', async () => {
     const styles = await readFile(
       new URL('../../src/styles/main.scss', import.meta.url),
       'utf8',
     );
 
+    expect(styles).toMatch(/\.yt-dlp-tasks-table-shell\s*\{[^}]*overflow-x: auto;[^}]*overflow-y: hidden;/s);
+    expect(styles).toMatch(/\.yt-dlp-tasks-table\s*\{[^}]*min-width: 68rem;/s);
     expect(styles).toMatch(/\.yt-dlp-task-failure\s*\{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/s);
     expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.yt-dlp-tasks-table thead\s*\{[^}]*display: none;/);
     expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.yt-dlp-tasks-table td\s*\{[^}]*grid-template-columns: 6\.5rem minmax\(0, 1fr\);[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/);

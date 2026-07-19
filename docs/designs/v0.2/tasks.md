@@ -448,7 +448,7 @@
   2. `rg -n "failureReason|errorMessage|redactFailureReason" src/yt-dlp-task-manager.ts` → 失败原因规范化与脱敏边界均有明确实现。
 
 ## task-21 · 恢复窄桌面任务表格横向可达性
-- 状态: pending
+- 状态: done
 - 依赖: task-11
 - 文件范围:
   - src/styles/main.scss

@@ -1179,7 +1179,8 @@ body {
 }
 
 .yt-dlp-tasks-table-shell {
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: bootstrap.$border-width solid rgba(15, 23, 42, 0.1);
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.94);
