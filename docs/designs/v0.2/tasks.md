@@ -587,7 +587,7 @@
   2. `rg -n "status = 'canceled'|status = \?" src/download-worker.ts` → 排队取消的原子业务状态更新有明确实现。
 
 ## task-27 · 频道流程保留类型化取消身份
-- 状态: pending
+- 状态: done
 - 依赖: task-24
 - 文件范围:
   - src/services/channel.ts

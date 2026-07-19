@@ -25,6 +25,7 @@ import type {
   YtDlpOperations,
   YtDlpTaskManager,
 } from '../yt-dlp-task-manager.js';
+import { isYtDlpTaskCancellationError } from '../yt-dlp-task-cancellation.js';
 
 export interface Channel {
   readonly id: number;
@@ -414,7 +415,7 @@ function loadInitialConfiguration(
   }
 }
 
-function failureReason(error: BusinessError, proxyUrl: string | undefined): string {
+function failureReason(error: Error, proxyUrl: string | undefined): string {
   return formatFailureReason(
     error.message,
     proxyUrl === undefined ? [] : [proxyUrl],
@@ -989,6 +990,7 @@ async function completeChannelCreation(
       businessError,
       configuration.proxyUrl,
     );
+    if (isYtDlpTaskCancellationError(error)) throw error;
     throw businessError;
   }
 
@@ -1018,6 +1020,7 @@ async function completeChannelCreation(
       businessError,
       configuration.proxyUrl,
     );
+    if (isYtDlpTaskCancellationError(error)) throw error;
     throw businessError;
   }
 
@@ -1233,8 +1236,11 @@ async function completeInitialSync(
       earliestPublishedDate,
     );
   } catch (error) {
-    const businessError = error instanceof BusinessError ? error : persistenceError();
-    const reason = failureReason(businessError, configuration.proxyUrl);
+    const failure =
+      error instanceof BusinessError || isYtDlpTaskCancellationError(error)
+        ? error
+        : persistenceError();
+    const reason = failureReason(failure, configuration.proxyUrl);
     try {
       database
         .prepare(
@@ -1246,7 +1252,7 @@ async function completeInitialSync(
     } catch {
       throw persistenceError();
     }
-    throw businessError;
+    throw failure;
   }
 }
 
@@ -1334,6 +1340,7 @@ async function executeChannelCheck(
       error instanceof Error ? error.message : 'channel fetch failed',
     );
     recordScheduledFailure(database, channel, checkId, businessError);
+    if (isYtDlpTaskCancellationError(error)) throw error;
     throw businessError;
   }
 
@@ -1359,6 +1366,7 @@ async function executeChannelCheck(
         ? error
         : asChannelMetadataError('channel metadata is invalid');
     recordScheduledFailure(database, channel, checkId, businessError);
+    if (isYtDlpTaskCancellationError(error)) throw error;
     throw businessError;
   }
 

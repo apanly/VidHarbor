@@ -10,7 +10,9 @@ import { createApiRouter, createApp } from '../../src/app.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { initialSyncChannel } from '../../src/services/channel.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
+import { isYtDlpTaskCancellationError } from '../../src/yt-dlp-task-cancellation.js';
 import type { DownloadQueue } from '../../src/services/download.js';
 
 const NOW = '2026-07-17T08:30:00.000Z';
@@ -76,13 +78,27 @@ async function installFakeYtDlp(): Promise<void> {
     'https://www.youtube.com/@blocking/videos': [
       metadata('bL_12-cK345', 'UC-blocking', utcDateDaysAgo(1)),
     ],
+    'https://www.youtube.com/@blocking-metadata/videos': [{
+      extractor_key: 'Youtube',
+      id: 'mE_12-tA345',
+      channel_id: 'UC-blocking-metadata',
+      title: 'Video mE_12-tA345',
+      webpage_url: 'https://www.youtube.com/watch?v=mE_12-tA345',
+      live_status: 'not_live',
+    }],
+    'https://www.youtube.com/watch?v=mE_12-tA345': [
+      metadata('mE_12-tA345', 'UC-blocking-metadata', utcDateDaysAgo(1)),
+    ],
   };
   await writeFile(
     executablePath,
     `#!/usr/bin/env node
 const fixtures = ${JSON.stringify(fixtures)};
 const url = process.argv.at(-1);
-if (url === 'https://www.youtube.com/@blocking/videos') {
+if (
+  url === 'https://www.youtube.com/@blocking/videos' ||
+  url === 'https://www.youtube.com/watch?v=mE_12-tA345'
+) {
   const { access, writeFile } = await import('node:fs/promises');
   await writeFile(${JSON.stringify(blockingSyncStartedPath)}, '');
   for (;;) {
@@ -419,31 +435,30 @@ describe('channel API', () => {
     expect(taskManager.getSnapshot().at(-1)?.type).toBe('channel_initial_sync');
   });
 
-  it('does not rewrite a stopped initial synchronization rejection as cancellation', async () => {
+  it('preserves typed cancellation while stopping initial-sync metadata loading', async () => {
     const savedResponse = await request('/channels', 'POST', {
-      url: 'https://www.youtube.com/@blocking',
+      url: 'https://www.youtube.com/@blocking-metadata',
       customName: 'Canceled channel',
       proxyId: null,
       checkIntervalMinutes: null,
     });
     const saved = (await savedResponse.json()) as { channel: { id: number } };
 
-    const response = await request(
-      `/channels/${saved.channel.id}/initial-sync`,
-      'POST',
+    const synchronization = initialSyncChannel(
+      database,
+      taskManager,
+      saved.channel.id,
       { historyMonths: 1 },
-    );
-    expect(response.status).toBe(202);
+    ).catch((error: unknown) => error);
     await waitForFile(blockingSyncStartedPath);
 
-    await expect(taskManager.stop()).rejects.toMatchObject({
-      code: 'CHANNEL_FETCH_FAILED',
-    });
+    await expect(taskManager.stop()).resolves.toBeUndefined();
+    expect(await synchronization).toSatisfy(isYtDlpTaskCancellationError);
 
     expect(taskManager.getSnapshot().at(-1)).toMatchObject({
       type: 'channel_initial_sync',
-      status: 'failed',
-      failureReason: 'yt-dlp download cancelled',
+      status: 'canceled',
+      failureReason: null,
     });
     expect(
       database
