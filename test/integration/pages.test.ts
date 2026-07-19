@@ -3,6 +3,12 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 
+import {
+  createScanner,
+  LanguageVariant,
+  SyntaxKind,
+  type SyntaxKind as TypeScriptSyntaxKind,
+} from 'typescript/unstable/ast';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApiRouter, createApp } from '../../src/app.js';
@@ -166,27 +172,133 @@ async function typeScriptFiles(directory: string): Promise<string[]> {
   return nested.flat();
 }
 
-const stringLiteralPattern = /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$])*`/g;
+interface ScannedToken {
+  readonly kind: TypeScriptSyntaxKind;
+  readonly value: string;
+}
 
-function lowLevelYtDlpReferences(source: string): string[] {
-  const literals = [...source.matchAll(stringLiteralPattern)];
-  const references: string[] = [];
+interface ConstantExpression {
+  readonly kind: 'StringLiteral' | 'TemplateExpression' | 'BinaryExpression' | 'Identifier' | 'ParenthesizedExpression';
+  readonly value: string;
+  readonly next: number;
+}
 
-  for (let index = 0; index < literals.length; index += 1) {
-    let modulePath = literals[index][0].slice(1, -1);
-    let end = index;
+type ConstantBindings = ReadonlyMap<string, number | undefined>;
 
-    while (end + 1 < literals.length) {
-      const currentEnd = literals[end].index! + literals[end][0].length;
-      const nextStart = literals[end + 1].index!;
-      const between = source.slice(currentEnd, nextStart);
-      if (!/^\s*\+\s*$/.test(between)) break;
-      end += 1;
-      modulePath += literals[end][0].slice(1, -1);
+function scanTypeScript(source: string): ScannedToken[] {
+  const scanner = createScanner(true, LanguageVariant.Standard, source);
+  const tokens: ScannedToken[] = [];
+  const templateBraceDepths: number[] = [];
+
+  for (let kind = scanner.scan(); kind !== SyntaxKind.EndOfFile; kind = scanner.scan()) {
+    if (scanner.getTokenEnd() === scanner.getTokenStart()) {
+      scanner.resetTokenState(scanner.getTokenStart() + 1);
+      continue;
+    }
+    if (kind === SyntaxKind.TemplateHead) templateBraceDepths.push(0);
+
+    if (kind === SyntaxKind.OpenBraceToken && templateBraceDepths.length > 0) {
+      const last = templateBraceDepths.length - 1;
+      templateBraceDepths[last] += 1;
+    } else if (kind === SyntaxKind.CloseBraceToken && templateBraceDepths.length > 0) {
+      const last = templateBraceDepths.length - 1;
+      if (templateBraceDepths[last] === 0) {
+        kind = scanner.reScanTemplateToken(false);
+        if (kind === SyntaxKind.TemplateTail) templateBraceDepths.pop();
+      } else {
+        templateBraceDepths[last] -= 1;
+      }
     }
 
-    if (/^(?:\.\.?\/)*yt-dlp\.js$/.test(modulePath)) references.push(modulePath);
-    index = end;
+    tokens.push({ kind, value: scanner.getTokenValue() });
+  }
+
+  return tokens;
+}
+
+function constantString(
+  tokens: readonly ScannedToken[],
+  start: number,
+  bindings: ConstantBindings,
+  resolving = new Set<string>(),
+): ConstantExpression | undefined {
+  const token = tokens[start];
+  if (token === undefined) return undefined;
+
+  let expression: ConstantExpression | undefined;
+  if (token.kind === SyntaxKind.StringLiteral
+    || token.kind === SyntaxKind.NoSubstitutionTemplateLiteral) {
+    expression = { kind: 'StringLiteral', value: token.value, next: start + 1 };
+  } else if (token.kind === SyntaxKind.TemplateHead) {
+    let value = token.value;
+    let next = start + 1;
+    while (true) {
+      const interpolation = constantString(tokens, next, bindings, resolving);
+      if (interpolation === undefined) return undefined;
+      const templateToken = tokens[interpolation.next];
+      if (templateToken?.kind !== SyntaxKind.TemplateMiddle
+        && templateToken?.kind !== SyntaxKind.TemplateTail) return undefined;
+      value += interpolation.value + templateToken.value;
+      next = interpolation.next + 1;
+      if (templateToken.kind === SyntaxKind.TemplateTail) break;
+    }
+    expression = { kind: 'TemplateExpression', value, next };
+  } else if (token.kind === SyntaxKind.OpenParenToken) {
+    const nested = constantString(tokens, start + 1, bindings, resolving);
+    if (nested === undefined || tokens[nested.next]?.kind !== SyntaxKind.CloseParenToken) {
+      return undefined;
+    }
+    expression = {
+      kind: 'ParenthesizedExpression',
+      value: nested.value,
+      next: nested.next + 1,
+    };
+  } else if (token.kind === SyntaxKind.Identifier && !resolving.has(token.value)) {
+    const initializer = bindings.get(token.value);
+    if (initializer === undefined) return undefined;
+    const resolved = constantString(
+      tokens,
+      initializer,
+      bindings,
+      new Set(resolving).add(token.value),
+    );
+    if (resolved === undefined) return undefined;
+    expression = { kind: 'Identifier', value: resolved.value, next: start + 1 };
+  }
+
+  if (expression === undefined || tokens[expression.next]?.kind !== SyntaxKind.PlusToken) {
+    return expression;
+  }
+
+  const right = constantString(tokens, expression.next + 1, bindings, resolving);
+  if (right === undefined) return undefined;
+  return {
+    kind: 'BinaryExpression',
+    value: expression.value + right.value,
+    next: right.next,
+  };
+}
+
+function lowLevelYtDlpReferences(source: string): string[] {
+  const tokens = scanTypeScript(source);
+  const mutableBindings = new Map<string, number | undefined>();
+  for (let index = 0; index < tokens.length - 3; index += 1) {
+    if (tokens[index]?.kind === SyntaxKind.ConstKeyword
+      && tokens[index + 1]?.kind === SyntaxKind.Identifier
+      && tokens[index + 2]?.kind === SyntaxKind.EqualsToken) {
+      const name = tokens[index + 1]!.value;
+      mutableBindings.set(name, mutableBindings.has(name) ? undefined : index + 3);
+    }
+  }
+  const bindings: ConstantBindings = mutableBindings;
+  const references: string[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const expression = constantString(tokens, index, bindings);
+    if (expression !== undefined && /^(?:\.\.?\/)*yt-dlp\.js$/.test(expression.value)) {
+      references.push(expression.value);
+      index = expression.next - 1;
+    }
   }
 
   return references;
@@ -820,17 +932,16 @@ describe('server-rendered pages', () => {
     const helpers = taskPageHelpers(
       await getPublicScript('yt-dlp-tasks.js'),
       async () => new Response(
-        JSON.stringify({ error: { code: 'TASK_SNAPSHOT_FAILED', message: 'snapshot unavailable' } }),
-        { status: 503 },
+        JSON.stringify({ error: { code: 'PERSISTENCE_ERROR', message: 'database unavailable' } }),
+        { status: 500 },
       ),
     );
 
     await helpers.loaded;
+    const pageDom = [...helpers.nodes.values()].map(taskNodeText).join(' ');
 
-    expect(helpers.nodes.get('page-error')).toMatchObject({
-      hidden: false,
-      textContent: 'TASK_SNAPSHOT_FAILED: snapshot unavailable',
-    });
+    expect(helpers.nodes.get('page-error')?.hidden).toBe(false);
+    expect(pageDom).toContain('PERSISTENCE_ERROR: database unavailable');
     expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
     expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);
   });
@@ -890,6 +1001,9 @@ describe('server-rendered pages', () => {
     ['dynamic import', "const module = await import('../yt-dlp.js');"],
     ['require', "const module = require('../yt-dlp.js');"],
     ['renamed concatenated loader', "const load = require; load('../yt-' + 'dlp.js');"],
+    ['escaped string literal', String.raw`const module = await import('../yt\x2ddlp.js');`],
+    ['template expression', "const module = await import(`../yt-${'dlp'}.js`);"],
+    ['variable concatenation', "const suffix = 'dlp.js'; const module = await import('../yt-' + suffix);"],
   ])('rejects a low-level yt-dlp bypass using %s', (_name, source) => {
     expect(lowLevelYtDlpReferences(source)).toEqual(['../yt-dlp.js']);
   });

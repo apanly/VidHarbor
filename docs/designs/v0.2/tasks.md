@@ -632,7 +632,7 @@
   2. `rg -n "allSettled|AggregateError|stop" src/yt-dlp-task-manager.ts` → 全量等待及错误聚合实现均命中。
 
 ## task-29 · 修正唯一入口扫描与页面错误测试契约
-- 状态: pending
+- 状态: done
 - 依赖: task-23
 - 文件范围:
   - test/integration/pages.test.ts
