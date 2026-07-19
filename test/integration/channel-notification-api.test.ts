@@ -10,6 +10,7 @@ import { createApiRouter, createApp } from '../../src/app.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const NOW = '2026-07-17T08:30:00.000Z';
 
@@ -36,6 +37,7 @@ function isoDateDaysAgo(days: number): string {
 let sandbox: string;
 let executablePath: string;
 let database: DatabaseConnection;
+let taskManager: YtDlpTaskManager;
 let baseUrl: string;
 let stopServer: (() => Promise<void>) | undefined;
 let blockingSyncStartedPath: string;
@@ -171,6 +173,7 @@ beforeEach(async () => {
   await mkdir(mountPath);
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
+  taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
   database
     .prepare(
       `UPDATE settings
@@ -180,7 +183,12 @@ beforeEach(async () => {
     .run(NOW);
 
   const server = createApp(
-    createApiRouter(database, mountPath, new RuntimeCoordinator(() => undefined), executablePath),
+    createApiRouter(
+      database,
+      mountPath,
+      new RuntimeCoordinator(() => undefined),
+      taskManager as never,
+    ),
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
     server.once('listening', resolve);
@@ -199,6 +207,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopServer?.();
+  await taskManager.stop();
   try {
     database.close();
   } catch {
@@ -400,6 +409,7 @@ describe('channel API', () => {
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({ accepted: true });
     await waitForInitialSync(saved.channel.id, 'succeeded');
+    expect(taskManager.getSnapshot().at(-1)?.type).toBe('channel_initial_sync');
   });
 
   it('accepts only the four initial history ranges and keeps failures retryable', async () => {

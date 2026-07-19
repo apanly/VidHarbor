@@ -86,7 +86,7 @@
   3. `rg -n "fetchVideoMetadata|cancel\?" src/services/download.ts` → 无匹配。
 
 ## task-05 · 将三类频道流程收口为固定任务
-- 状态: pending
+- 状态: done
 - 依赖: task-02
 - 文件范围:
   - src/services/channel.ts

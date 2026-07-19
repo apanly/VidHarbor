@@ -23,6 +23,7 @@ import { createChannelDownloads, type QueuedDownload } from '../../src/services/
 import { listNotifications } from '../../src/services/notification.js';
 import { updateSettings } from '../../src/services/settings.js';
 import { fetchChannelEntries } from '../../src/yt-dlp.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
 const HISTORICAL_VIDEO_ID = 'hI_12-aB345';
@@ -41,17 +42,18 @@ let downloadRoot: string;
 let statePath: string;
 let ytDlpPath: string;
 let database: DatabaseConnection;
+let taskManager: YtDlpTaskManager;
 
 async function createChannel(
   connection: DatabaseConnection,
-  executablePath: string,
+  manager: YtDlpTaskManager,
   input: unknown,
   startedAt: Date,
 ) {
   const channel = saveChannel(connection, input, startedAt);
   return initialSyncChannel(
     connection,
-    executablePath,
+    manager,
     channel.id,
     { historyMonths: 12 },
     startedAt,
@@ -186,9 +188,11 @@ beforeEach(async () => {
   await installFakeYtDlp();
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
+  taskManager = new YtDlpTaskManager(ytDlpPath, 1, (message) => message);
 });
 
 afterEach(async () => {
+  await taskManager.stop();
   try {
     database.close();
   } catch {
@@ -206,7 +210,7 @@ describe('offline v0.1 end-to-end contract', () => {
     });
     const created = await createChannel(
       database,
-      ytDlpPath,
+      taskManager,
       {
         url: CHANNEL_URL,
         customName: 'Harbor Channel',
@@ -220,8 +224,12 @@ describe('offline v0.1 end-to-end contract', () => {
 
     await writeFile(statePath, 'updated');
     await expect(
-      checkChannel(database, ytDlpPath, created.channel.id, STARTED_AT),
+      checkChannel(database, taskManager, created.channel.id, STARTED_AT),
     ).resolves.toEqual({ newVideoCount: 1 });
+    expect(taskManager.getSnapshot().map((task) => task.type)).toEqual([
+      'channel_initial_sync',
+      'channel_manual_check',
+    ]);
     const notification = listNotifications(database)[0];
     expect(notification?.video.title).toBe('New video');
 
@@ -229,7 +237,7 @@ describe('offline v0.1 end-to-end contract', () => {
     const selectedIds = videos
       .filter((video) => ['New video', 'FFmpeg failure video'].includes(video.title))
       .map((video) => video.id);
-    const worker = new DownloadWorker(database, ytDlpPath);
+    const worker = new DownloadWorker(database, taskManager);
     const downloads = await createChannelDownloads(
       database,
       downloadRoot,
@@ -289,7 +297,7 @@ describe('offline v0.1 end-to-end contract', () => {
       await expect(
         createChannel(
           database,
-          ytDlpPath,
+          taskManager,
           {
             url: `https://www.youtube.com/@${handle}`,
             customName: `Rejected ${handle}`,
@@ -330,7 +338,7 @@ describe('offline v0.1 end-to-end contract', () => {
       vi.useRealTimers();
     }
 
-    const worker = new DownloadWorker(database, ytDlpPath);
+    const worker = new DownloadWorker(database, taskManager);
     const cases = [
       ['no-file', 'no-file'],
       ['zero-byte', 'zero'],
