@@ -27,13 +27,14 @@ This environment validates:
 - Docker image builds successfully from the repository.
 - Container starts with `yt-dlp`, `ffmpeg`, SQLite, `/data`, and `/downloads` available.
 - The home page responds successfully.
+- The read-only database page responds successfully.
 - JSON API reads settings successfully.
 - Settings written to SQLite survive container restart when the same `/data` mount is reused.
 - `/downloads` is mounted and accepted as a valid download root.
 
 This environment does not validate:
 
-- Real YouTube availability, rate limits, cookies, or metadata changes.
+- Real YouTube or Bilibili availability, rate limits, cookies, or metadata changes.
 - Real proxy connectivity.
 - Long-running production stability.
 - Host backups, monitoring, log rotation, or disk pressure.
@@ -105,6 +106,13 @@ Verify the home page:
 ```sh
 curl -fsS "http://127.0.0.1:${PORT}/" >/tmp/vidharbor-home.html
 grep -q 'VidHarbor' /tmp/vidharbor-home.html
+```
+
+Verify the read-only database page:
+
+```sh
+curl -fsS "http://127.0.0.1:${PORT}/database" >/tmp/vidharbor-database.html
+grep -q '数据库' /tmp/vidharbor-database.html
 ```
 
 Verify startup logs:
@@ -231,7 +239,7 @@ A Docker test run passes this baseline when all of the following are true:
 - `npm run build` passes.
 - `docker compose config` passes.
 - `docker compose build` produces `vidharbor:v0.1` for `linux/arm64`.
-- A fresh container starts and serves `/` and `/api/settings`.
+- A fresh container starts and serves `/`, `/database`, and `/api/settings`.
 - Startup logs contain the required lifecycle events.
 - Settings persisted in `/data/vidharbor.db` survive container restart.
 - No unrelated Docker services were stopped or deleted during cleanup.
