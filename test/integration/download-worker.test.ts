@@ -92,8 +92,8 @@ function insertPending(platformVideoId: string): number {
     .prepare(
       `INSERT INTO downloads (
         source_type, source_url, platform, platform_video_id, title,
-        network_mode, status, created_at
-      ) VALUES ('direct', ?, 'youtube', ?, 'Title', 'direct', 'pending', ?)`,
+        network_mode, archive_layout, status, created_at
+      ) VALUES ('direct', ?, 'youtube', ?, 'Title', 'direct', 'download_directory', 'pending', ?)`,
     )
     .run(
       `https://www.youtube.com/watch?v=${platformVideoId}`,
@@ -107,14 +107,13 @@ function job(
   downloadId: number,
   platformVideoId: string,
   sourceUrl: string,
-  targetDirectory = downloadRoot,
+  _targetDirectory = downloadRoot,
   proxyUrl?: string,
 ): QueuedDownload {
   return {
     downloadId,
     sourceUrl,
     platformVideoId,
-    targetDirectory,
     downloadRoot,
     downloadsMountPath: downloadRoot,
     ...(proxyUrl === undefined ? {} : { proxyUrl }),
@@ -280,7 +279,7 @@ describe('single download worker', () => {
     worker.enqueue(job(secondId, SECOND_VIDEO_ID, 'fixture://worker-second'));
 
     await waitForFile(join(sandbox, 'first.running'));
-    await waitForFile(join(downloadRoot, `${SECOND_VIDEO_ID}.mp4`));
+    await waitForFile(join(downloadRoot, String(secondId), `${SECOND_VIDEO_ID}.mp4`));
     expect(row(firstId)).toMatchObject({ status: 'running' });
     expect(row(secondId)).toMatchObject({ status: 'completed' });
 
@@ -355,9 +354,8 @@ describe('single download worker', () => {
     });
   });
 
-  it('atomically archives channel and direct downloads under their fixed video IDs', async () => {
+  it('archives channel and direct downloads in their download ID directories', async () => {
     const channelDirectory = join(downloadRoot, 'Saved channel', '2026');
-    await mkdir(channelDirectory, { recursive: true });
     const channelId = insertPending(FIRST_VIDEO_ID);
     const directId = insertPending(SECOND_VIDEO_ID);
     const worker = new DownloadWorker(database, executablePath);
@@ -368,16 +366,19 @@ describe('single download worker', () => {
     worker.enqueue(job(directId, SECOND_VIDEO_ID, 'fixture://worker-second'));
     await worker.waitForIdle();
 
-    const channelPath = join(channelDirectory, `${FIRST_VIDEO_ID}.mp4`);
-    const directPath = join(downloadRoot, `${SECOND_VIDEO_ID}.mp4`);
+    const channelPath = join(downloadRoot, String(channelId), `${FIRST_VIDEO_ID}.mp4`);
+    const directPath = join(downloadRoot, String(directId), `${SECOND_VIDEO_ID}.mp4`);
+    const channelThumbnailPath = join(downloadRoot, String(channelId), `${FIRST_VIDEO_ID}.jpg`);
     await expect(readFile(channelPath, 'utf8')).resolves.toBe('media');
     await expect(readFile(directPath, 'utf8')).resolves.toBe('media');
+    await expect(readFile(channelThumbnailPath, 'utf8')).resolves.toBe('thumbnail');
     const realChannelPath = await realpath(channelPath);
     const realDirectPath = await realpath(directPath);
     const realDownloadRoot = await realpath(downloadRoot);
     expect(row(channelId)).toMatchObject({
       status: 'completed',
       output_path: realChannelPath,
+      thumbnail_path: await realpath(channelThumbnailPath),
       failure_reason: null,
       started_at: expect.any(String),
       finished_at: expect.any(String),
@@ -388,26 +389,32 @@ describe('single download worker', () => {
     });
     await expectTaskDirectoryRemoved(channelId);
     await expectTaskDirectoryRemoved(directId);
-    expect(fsControl.linkPaths).toEqual([
-      [
-        join(
-          realDownloadRoot,
-          '.vidharbor-tmp',
-          String(channelId),
-          `${FIRST_VIDEO_ID}.mp4`,
-        ),
-        realChannelPath,
-      ],
-      [
-        join(
-          realDownloadRoot,
-          '.vidharbor-tmp',
-          String(directId),
-          `${SECOND_VIDEO_ID}.mp4`,
-        ),
-        realDirectPath,
-      ],
+    expect(fsControl.linkPaths).toContainEqual([
+      join(realDownloadRoot, '.vidharbor-tmp', String(channelId), `${FIRST_VIDEO_ID}.mp4`),
+      realChannelPath,
     ]);
+    expect(fsControl.linkPaths).toContainEqual([
+      join(realDownloadRoot, '.vidharbor-tmp', String(directId), `${SECOND_VIDEO_ID}.mp4`),
+      realDirectPath,
+    ]);
+  });
+
+  it('completes the video when the optional thumbnail download fails', async () => {
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const worker = new DownloadWorker(database, executablePath);
+    worker.enqueue(job(
+      downloadId,
+      FIRST_VIDEO_ID,
+      'fixture://worker-thumbnail-failure',
+    ));
+    await worker.waitForIdle();
+
+    expect(row(downloadId)).toMatchObject({
+      status: 'completed',
+      thumbnail_path: null,
+    });
+    expect(await readdir(join(downloadRoot, String(downloadId))))
+      .toEqual([`${FIRST_VIDEO_ID}.mp4`]);
   });
 
   it('passes exactly one configured proxy argument and no proxy argument for direct', async () => {
@@ -470,7 +477,6 @@ describe('single download worker', () => {
   it.each([
     ['no file', 'fixture://worker-no-file'],
     ['a zero-byte file', 'fixture://worker-zero'],
-    ['multiple files', 'fixture://worker-multiple'],
   ])('fails and cleans the task for %s', async (_caseName, sourceUrl) => {
     const downloadId = insertPending(FIRST_VIDEO_ID);
     const worker = new DownloadWorker(database, executablePath);
@@ -484,6 +490,18 @@ describe('single download worker', () => {
       failure_reason: expect.any(String),
     });
     await expectTaskDirectoryRemoved(downloadId);
+  });
+
+  it('archives multiple regular artifacts in one download directory', async () => {
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const worker = new DownloadWorker(database, executablePath);
+    worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-multiple'));
+    await worker.waitForIdle();
+
+    expect(row(downloadId)).toMatchObject({ status: 'completed' });
+    expect(await readdir(join(downloadRoot, String(downloadId)))).toEqual(
+      expect.arrayContaining([`${FIRST_VIDEO_ID}.mp4`, 'extra.webm']),
+    );
   });
 
   it('rejects an outside reported path when the task directory has one valid file', async () => {
@@ -502,9 +520,11 @@ describe('single download worker', () => {
   });
 
   it('does not overwrite an existing final target', async () => {
-    const existingPath = join(downloadRoot, `${FIRST_VIDEO_ID}.webm`);
-    await writeFile(existingPath, 'existing');
     const downloadId = insertPending(FIRST_VIDEO_ID);
+    const existingDirectory = join(downloadRoot, String(downloadId));
+    await mkdir(existingDirectory);
+    const existingPath = join(existingDirectory, 'existing.webm');
+    await writeFile(existingPath, 'existing');
     const worker = new DownloadWorker(database, executablePath);
 
     worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success'));
@@ -512,22 +532,22 @@ describe('single download worker', () => {
 
     await expect(readFile(existingPath, 'utf8')).resolves.toBe('existing');
     expect(row(downloadId)).toMatchObject({ status: 'failed', output_path: null });
-    await expect(readFile(join(sandbox, 'argv.log'), 'utf8')).rejects.toMatchObject({
-      code: 'ENOENT',
-    });
     await expectTaskDirectoryRemoved(downloadId);
   });
 
   it('does not overwrite a final target created at the archive boundary', async () => {
-    const targetPath = join(downloadRoot, `${FIRST_VIDEO_ID}.mp4`);
     const downloadId = insertPending(FIRST_VIDEO_ID);
+    const targetDirectory = join(downloadRoot, String(downloadId));
     const worker = new DownloadWorker(database, executablePath);
     fsControl.createTargetAtArchiveBoundary = true;
 
     worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success'));
     await worker.waitForIdle();
 
-    await expect(readFile(targetPath, 'utf8')).resolves.toBe('competing media');
+    const competingFiles = await readdir(targetDirectory);
+    expect(competingFiles).toHaveLength(1);
+    await expect(readFile(join(targetDirectory, competingFiles[0] as string), 'utf8'))
+      .resolves.toBe('competing media');
     expect(row(downloadId)).toMatchObject({
       status: 'failed',
       output_path: null,
@@ -537,25 +557,18 @@ describe('single download worker', () => {
   });
 
   it('fails on EXDEV at the link boundary without copying the download', async () => {
-    const targetPath = join(downloadRoot, `${FIRST_VIDEO_ID}.mp4`);
     const realDownloadRoot = await realpath(downloadRoot);
     const downloadId = insertPending(FIRST_VIDEO_ID);
+    const targetPath = join(realDownloadRoot, String(downloadId), `${FIRST_VIDEO_ID}.mp4`);
     const worker = new DownloadWorker(database, executablePath);
     fsControl.rejectLink = true;
 
     worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success'));
     await worker.waitForIdle();
 
-    expect(fsControl.linkPaths).toEqual([
-      [
-        join(
-          realDownloadRoot,
-          '.vidharbor-tmp',
-          String(downloadId),
-          `${FIRST_VIDEO_ID}.mp4`,
-        ),
-        join(realDownloadRoot, `${FIRST_VIDEO_ID}.mp4`),
-      ],
+    expect(fsControl.linkPaths.at(-1)).toEqual([
+      join(realDownloadRoot, '.vidharbor-tmp', String(downloadId), `${FIRST_VIDEO_ID}.mp4`),
+      join(realDownloadRoot, String(downloadId), `${FIRST_VIDEO_ID}.mp4`),
     ]);
     expect(fsControl.copyPaths).toEqual([]);
     await expect(readFile(targetPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });

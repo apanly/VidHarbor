@@ -30,7 +30,6 @@ export interface DownloadOptions extends CommonOptions {
     readonly quality: string | null;
     readonly codec: string | null;
     readonly writeSubtitles: boolean;
-    readonly writeThumbnail: boolean;
     readonly splitChapters: boolean;
     readonly timeRangeStart: string | null;
     readonly timeRangeEnd: string | null;
@@ -42,6 +41,11 @@ export interface DownloadProgress {
   readonly progressPercent: number;
   readonly speedText: string | null;
   readonly etaSeconds: number | null;
+}
+
+export interface ThumbnailDownloadOptions extends CommonOptions {
+  readonly outputTemplate: string;
+  readonly signal?: AbortSignal;
 }
 
 interface ProcessResult {
@@ -357,6 +361,7 @@ export async function downloadMedia(options: DownloadOptions): Promise<string> {
     JAVASCRIPT_RUNTIME,
     '--socket-timeout',
     SOCKET_TIMEOUT_SECONDS,
+    '--no-playlist',
     '--format',
     format,
     '--progress',
@@ -370,9 +375,6 @@ export async function downloadMedia(options: DownloadOptions): Promise<string> {
   ];
   if (options.advancedOptions?.writeSubtitles === true) {
     args.push('--write-subs');
-  }
-  if (options.advancedOptions?.writeThumbnail === true) {
-    args.push('--write-thumbnail');
   }
   if (options.advancedOptions?.splitChapters === true) {
     args.push('--split-chapters');
@@ -428,6 +430,32 @@ export async function downloadMedia(options: DownloadOptions): Promise<string> {
   return filePathLines[0] as string;
 }
 
+export async function downloadThumbnail(
+  options: ThumbnailDownloadOptions,
+): Promise<void> {
+  const args = [
+    '--ignore-config',
+    '--js-runtimes',
+    JAVASCRIPT_RUNTIME,
+    '--socket-timeout',
+    SOCKET_TIMEOUT_SECONDS,
+    '--no-playlist',
+    '--skip-download',
+    '--write-thumbnail',
+    '--output',
+    options.outputTemplate,
+  ];
+  appendProxyArgument(args, options.proxyUrl);
+  args.push(options.url);
+  await runProcess(
+    options,
+    args,
+    FETCH_PROCESS_TIMEOUT_MILLISECONDS,
+    undefined,
+    options.signal,
+  );
+}
+
 function parseDownloadProgress(line: string): DownloadProgress | null {
   const prefix = 'vidharbor-progress:';
   if (!line.startsWith(prefix)) return null;
@@ -439,7 +467,7 @@ function parseDownloadProgress(line: string): DownloadProgress | null {
   const speedText = (parts[1] as string).trim();
   const etaText = (parts[2] as string).trim();
   const progressPercent = Number(percentText);
-  const etaSeconds =
+  const rawEtaSeconds =
     etaText === '' || etaText === 'NA' || etaText === 'N/A'
       ? null
       : Number(etaText);
@@ -447,7 +475,11 @@ function parseDownloadProgress(line: string): DownloadProgress | null {
     !Number.isFinite(progressPercent) ||
     progressPercent < 0 ||
     progressPercent > 100 ||
-    !(etaSeconds === null || (Number.isSafeInteger(etaSeconds) && etaSeconds >= 0))
+    !(rawEtaSeconds === null || (
+      Number.isFinite(rawEtaSeconds) &&
+      rawEtaSeconds >= 0 &&
+      Number.isSafeInteger(Math.ceil(rawEtaSeconds))
+    ))
   ) {
     throw new Error('invalid yt-dlp progress line');
   }
@@ -457,6 +489,6 @@ function parseDownloadProgress(line: string): DownloadProgress | null {
       speedText === '' || speedText === 'NA' || speedText === 'N/A'
         ? null
         : speedText,
-    etaSeconds,
+    etaSeconds: rawEtaSeconds === null ? null : Math.ceil(rawEtaSeconds),
   };
 }

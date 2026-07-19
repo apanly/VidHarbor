@@ -17,6 +17,10 @@ const FIRST_PLATFORM_VIDEO_ID = 'aB_12-cD345';
 const SECOND_PLATFORM_VIDEO_ID = 'eF_67-gH890';
 const VIMEO_VIDEO_ID = '123456789';
 const VIMEO_VIDEO_URL = `https://vimeo.com/${VIMEO_VIDEO_ID}`;
+const BILIBILI_VIDEO_ID = 'BV13x41117TL';
+const BILIBILI_VIDEO_URL = `https://www.bilibili.com/video/${BILIBILI_VIDEO_ID}`;
+const X_VIDEO_ID = '2001841416071450628';
+const X_VIDEO_URL = 'https://x.com/TopHeroes_/status/2001950365332455490';
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
 
 const DEFAULT_ADVANCED_OPTIONS = {
@@ -25,7 +29,6 @@ const DEFAULT_ADVANCED_OPTIONS = {
   quality: null,
   codec: null,
   writeSubtitles: false,
-  writeThumbnail: false,
   splitChapters: false,
   timeRangeStart: null,
   timeRangeEnd: null,
@@ -36,7 +39,6 @@ function directInput(url: string, proxyId: number | null) {
   return {
     url,
     proxyId,
-    targetSubdirectory: null,
     advancedOptions: DEFAULT_ADVANCED_OPTIONS,
   };
 }
@@ -72,7 +74,24 @@ if (url === '${VIMEO_VIDEO_URL}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Vimeo',
     id: '${VIMEO_VIDEO_ID}',
-    title: 'Vimeo video'
+    title: 'Vimeo video',
+    duration: 125.2
+  }) + '\\n');
+  process.exit(0);
+}
+if (url === '${BILIBILI_VIDEO_URL}') {
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'BiliBili',
+    id: '${BILIBILI_VIDEO_ID}',
+    title: 'Bilibili video'
+  }) + '\\n');
+  process.exit(0);
+}
+if (url === '${X_VIDEO_URL}') {
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Twitter',
+    id: '${X_VIDEO_ID}',
+    title: 'X video'
   }) + '\\n');
   process.exit(0);
 }
@@ -301,6 +320,7 @@ describe('download API', () => {
         finishedAt: null,
         networkMode: 'proxy',
         proxyName: 'office',
+        durationSeconds: null,
       },
     ]);
     expect(Object.keys(body.downloads[0] ?? {})).toEqual([
@@ -319,6 +339,7 @@ describe('download API', () => {
       'finishedAt',
       'networkMode',
       'proxyName',
+      'durationSeconds',
     ]);
     expect(queued).toHaveLength(1);
   });
@@ -344,10 +365,34 @@ describe('download API', () => {
         finishedAt: null,
         networkMode: 'direct',
         proxyName: null,
+        durationSeconds: 126,
       },
     });
     expect(queued).toHaveLength(1);
-    expect(database.prepare('SELECT platform FROM downloads').pluck().get()).toBe('vimeo');
+    expect(database.prepare('SELECT platform, duration_seconds FROM downloads').get())
+      .toEqual({ platform: 'vimeo', duration_seconds: 126 });
+  });
+
+  it.each([
+    [BILIBILI_VIDEO_URL, 'Bilibili video', 'bilibili', BILIBILI_VIDEO_ID],
+    [X_VIDEO_URL, 'X video', 'twitter', X_VIDEO_ID],
+  ])('creates a direct download for %s', async (url, title, platform, platformVideoId) => {
+    const response = await request('/downloads/direct', 'POST', directInput(url, null));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      download: { sourceType: 'direct', title, status: 'pending' },
+    });
+    expect(database
+      .prepare('SELECT source_url, platform, platform_video_id FROM downloads')
+      .get()).toEqual({
+      source_url: url,
+      platform,
+      platform_video_id: platformVideoId,
+    });
+    expect(queued).toEqual([
+      expect.objectContaining({ sourceUrl: url, platformVideoId }),
+    ]);
   });
 
   it('rejects non-contract bodies and keeps a partially invalid channel batch atomic', async () => {
@@ -425,6 +470,8 @@ describe('download API', () => {
       'finishedAt',
       'networkMode',
       'proxyName',
+      'durationSeconds',
+      'thumbnailUrl',
     ]);
     expect(body.items[0]?.sourceUrl).toBe(
       `https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}`,
@@ -545,6 +592,39 @@ describe('download API', () => {
     expect(new Uint8Array(await attachment.arrayBuffer())).toEqual(
       new Uint8Array([0, 1, 2, 3, 4]),
     );
+  });
+
+  it('serves a stored thumbnail from a download ID directory', async () => {
+    const createdAt = '2026-07-17T08:00:00.000Z';
+    const inserted = database.prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, archive_layout, status, created_at
+      ) VALUES ('direct', 'https://media.example/thumbnail', 'vimeo',
+                'thumbnail-video', 'Thumbnail', 'direct',
+                'download_directory', 'pending', ?)`,
+    ).run(createdAt);
+    const id = Number(inserted.lastInsertRowid);
+    const directory = join(downloadRoot, String(id));
+    await mkdir(directory);
+    const mediaPath = join(directory, 'thumbnail-video.mp4');
+    const thumbnailPath = join(directory, 'thumbnail-video.jpg');
+    await writeFile(mediaPath, 'media');
+    await writeFile(thumbnailPath, 'thumbnail');
+    database.prepare(
+      `UPDATE downloads
+       SET status = 'completed', output_path = ?, thumbnail_path = ?, finished_at = ?
+       WHERE id = ?`,
+    ).run(mediaPath, thumbnailPath, createdAt, id);
+
+    const response = await request(`/downloads/${id}/thumbnail`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('image/jpeg');
+    await expect(response.text()).resolves.toBe('thumbnail');
+
+    const deleted = await request(`/downloads/${id}`, 'DELETE');
+    expect(deleted.status).toBe(204);
+    await expect(access(directory)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('deletes a completed download file and its record together', async () => {

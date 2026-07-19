@@ -95,7 +95,6 @@ const DEFAULT_ADVANCED_OPTIONS = {
   quality: null,
   codec: null,
   writeSubtitles: false,
-  writeThumbnail: false,
   splitChapters: false,
   timeRangeStart: null,
   timeRangeEnd: null,
@@ -106,7 +105,6 @@ function directInput(url: string, proxyId: number | null) {
   return {
     url,
     proxyId,
-    targetSubdirectory: null,
     advancedOptions: DEFAULT_ADVANCED_OPTIONS,
   };
 }

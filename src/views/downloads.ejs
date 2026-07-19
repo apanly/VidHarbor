@@ -15,8 +15,8 @@
             <input class="form-control" id="download-search" type="search" placeholder="搜索下载标题" autocomplete="off">
           </div>
           <div class="download-tabs" role="tablist" aria-label="下载状态">
-            <button class="download-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="active">下载中 <span data-download-count="active">0</span></button>
-            <button class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="completed">已完成 <span data-download-count="completed">0</span></button>
+            <button class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active">下载中 <span data-download-count="active">0</span></button>
+            <button class="download-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed">已完成 <span data-download-count="completed">0</span></button>
           </div>
         </div>
         <div id="download-empty-state" class="download-empty-state" role="status" hidden>
@@ -37,9 +37,8 @@
               </div>
               <div class="modal-body">
                 <h3 class="h6">基础信息</h3>
-                <div class="mb-3"><label class="form-label" for="direct-url">yt-dlp 支持的单项 HTTPS 地址</label><input class="form-control" id="direct-url" type="url" name="url" required><div class="form-text">不展开列表资源；频道订阅仍只支持 YouTube。</div></div>
+                <div class="mb-3"><label class="form-label" for="direct-url">视频地址</label><input class="form-control" id="direct-url" type="url" name="url" required><div class="form-text">支持 YouTube、Bilibili、Vimeo 和 X 的单项 HTTPS 地址；Bilibili 用 ?p=序号选择分 P，X 一帖多视频用 /video/序号选择。不展开列表资源，频道订阅仍只支持 YouTube。</div></div>
                 <div class="mb-3"><label class="form-label" for="direct-proxy">网络路径</label><select class="form-select" id="direct-proxy" name="proxyId"><option value="">直连</option></select></div>
-                <div class="mb-4"><label class="form-label" for="direct-target-subdirectory">目标子目录</label><input class="form-control" id="direct-target-subdirectory" name="targetSubdirectory" placeholder="留空写入根目录"></div>
                 <h3 class="h6">媒体选项</h3>
                 <div class="mb-3"><label class="form-label" for="direct-media-type">媒体类型</label><select class="form-select" id="direct-media-type" name="mediaType"><option value="video">视频</option><option value="audio">音频</option></select></div>
                 <div class="mb-3"><label class="form-label" for="direct-format">格式</label><input class="form-control" id="direct-format" name="format" placeholder="留空使用默认"></div>
@@ -48,7 +47,6 @@
                 <div class="mb-4"><label class="form-label" for="direct-filename-preset">文件名预设</label><input class="form-control" id="direct-filename-preset" name="filenamePreset" placeholder="留空使用视频 ID"></div>
                 <h3 class="h6">附加内容</h3>
                 <div class="mb-2 form-check"><input class="form-check-input" type="checkbox" name="writeSubtitles" id="writeSubtitles"><label class="form-check-label" for="writeSubtitles">字幕</label></div>
-                <div class="mb-2 form-check"><input class="form-check-input" type="checkbox" name="writeThumbnail" id="writeThumbnail"><label class="form-check-label" for="writeThumbnail">缩略图</label></div>
                 <div class="mb-4 form-check"><input class="form-check-input" type="checkbox" name="splitChapters" id="splitChapters"><label class="form-check-label" for="splitChapters">章节切分</label></div>
                 <h3 class="h6">时间裁剪</h3>
                 <div class="mb-3"><label class="form-label" for="direct-time-start">起始时间</label><input class="form-control" id="direct-time-start" name="timeRangeStart" placeholder="00:00:00"></div>
@@ -76,7 +74,7 @@
       const directDownloadModal = bootstrap.Modal.getOrCreateInstance(document.querySelector('#direct-download-modal'));
       const cards = new Map();
       const downloadState = new Map();
-      let selectedTab = 'active';
+      let selectedTab = 'completed';
       let searchQuery = '';
       let currentPage = 1;
       let currentPagination = { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 };
@@ -87,7 +85,7 @@
 
       function nullableNumber(value) { return value === '' ? null : Number(value); }
       function nullableText(value) { return value === '' ? null : value; }
-      function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: nullableText(form.elements.format.value), quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, writeThumbnail: form.elements.writeThumbnail.checked, splitChapters: form.elements.splitChapters.checked, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value), filenamePreset: nullableText(form.elements.filenamePreset.value) }; }
+      function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: nullableText(form.elements.format.value), quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, splitChapters: form.elements.splitChapters.checked, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value), filenamePreset: nullableText(form.elements.filenamePreset.value) }; }
       function showError(region, error) { region.textContent = `${error.code}: ${error.message}`; region.hidden = false; }
       async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const result = await response.json(); if (!response.ok) throw result.error; return result; }
       function displayValue(value) { return value ?? '—'; }
@@ -95,6 +93,7 @@
       function fieldElement(tag, className, fieldName) { const node = textElement(tag, className, null); node.dataset.downloadField = fieldName; return node; }
       function detail(label, fieldName, className = '') { const node = document.createElement('div'); node.className = `download-detail ${className}`.trim(); node.append(textElement('span', 'download-detail-label', label), fieldElement('span', 'download-detail-value', fieldName)); return node; }
       function formatTimestamp(value) { if (value === null) return '—'; const timestamp = new Date(value); if (Number.isNaN(timestamp.getTime())) return value; const pad = (part) => String(part).padStart(2, '0'); return `${timestamp.getFullYear()}-${pad(timestamp.getMonth() + 1)}-${pad(timestamp.getDate())} ${pad(timestamp.getHours())}:${pad(timestamp.getMinutes())}:${pad(timestamp.getSeconds())}`; }
+      function formatDuration(value) { if (value === null) return '—'; const hours = Math.floor(value / 3600); const minutes = Math.floor((value % 3600) / 60); const seconds = value % 60; return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':'); }
       function outputPathDetail() { const node = detail('输出路径', 'outputPath', 'download-path'); node.lastElementChild.className += ' download-path-value'; return node; }
       function emptyStateFor(tab, query, total) {
         if (total === 0) return { title: '还没有下载任务', description: '粘贴一个受支持的 HTTPS 地址，第一条任务会出现在这里。', action: 'create', actionLabel: '新建直下载' };
@@ -130,12 +129,17 @@
         emptyAction.dataset.action = content.action;
       }
 
-      async function mutateDownload(path, method, body) {
+      async function mutateDownload(path, method, body, trigger) {
+        if (trigger.disabled) return;
+        trigger.disabled = true;
+        pageError.hidden = true;
         try {
           await request(path, method, body);
           await refreshDownloads();
         } catch (error) {
           showError(pageError, error);
+        } finally {
+          if (trigger.isConnected) trigger.disabled = false;
         }
       }
 
@@ -143,10 +147,10 @@
         const actions = article.querySelector('[data-download-actions]');
         actions.textContent = '';
         if (download.status === 'pending' || download.status === 'running' || download.status === 'downloading') {
-          const cancel = document.createElement('button'); cancel.className = 'btn btn-sm btn-outline-warning'; cancel.type = 'button'; cancel.textContent = '取消'; cancel.addEventListener('click', () => void mutateDownload(`/api/downloads/${download.id}/cancel`, 'POST', {})); actions.append(cancel);
+          const cancel = document.createElement('button'); cancel.className = 'btn btn-sm btn-outline-warning'; cancel.type = 'button'; cancel.textContent = '取消'; cancel.addEventListener('click', () => void mutateDownload(`/api/downloads/${download.id}/cancel`, 'POST', {}, cancel)); actions.append(cancel);
         }
         if (download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted') {
-          const retry = document.createElement('button'); retry.className = 'btn btn-sm btn-outline-primary'; retry.type = 'button'; retry.textContent = '重试'; retry.addEventListener('click', () => void mutateDownload(`/api/downloads/${download.id}/retry`, 'POST', {})); actions.append(retry);
+          const retry = document.createElement('button'); retry.className = 'btn btn-sm btn-outline-primary'; retry.type = 'button'; retry.textContent = '重试'; retry.addEventListener('click', () => void mutateDownload(`/api/downloads/${download.id}/retry`, 'POST', {}, retry)); actions.append(retry);
         }
         if (download.status === 'completed') {
           const preview = document.createElement('a'); preview.className = 'btn btn-sm btn-outline-primary'; preview.href = `/downloads/preview?id=${download.id}`; preview.target = '_blank'; preview.rel = 'noopener noreferrer'; preview.textContent = '预览';
@@ -154,7 +158,7 @@
         }
         const original = document.createElement('a'); original.className = 'btn btn-sm btn-outline-secondary'; original.href = download.sourceUrl; original.target = '_blank'; original.rel = 'noopener noreferrer'; original.textContent = '原始地址'; actions.append(original);
         if (download.status === 'completed' || download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted') {
-          const remove = document.createElement('button'); remove.className = 'btn btn-sm btn-outline-danger'; remove.type = 'button'; remove.textContent = '删除'; remove.addEventListener('click', () => { const confirmed = confirm(`确认永久删除下载「${download.title}」及其文件？`); if (!confirmed) return; void mutateDownload(`/api/downloads/${download.id}`, 'DELETE'); }); actions.append(remove);
+          const remove = document.createElement('button'); remove.className = 'btn btn-sm btn-outline-danger'; remove.type = 'button'; remove.textContent = '删除'; remove.addEventListener('click', () => { const confirmed = confirm(`确认永久删除下载「${download.title}」及其文件？`); if (!confirmed) return; void mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove); }); actions.append(remove);
         }
       }
 
@@ -162,16 +166,17 @@
         const article = document.createElement('article'); article.className = 'download-card'; article.dataset.downloadId = String(download.id);
         const header = document.createElement('header'); header.className = 'download-card-header';
         const identity = document.createElement('div'); identity.className = 'download-card-identity';
+        const thumbnail = document.createElement('img'); thumbnail.className = 'download-card-thumbnail'; thumbnail.alt = ''; thumbnail.hidden = true;
         const title = fieldElement('h3', 'download-card-title', 'title');
         const meta = document.createElement('div'); meta.className = 'download-card-meta';
         const source = fieldElement('span', 'badge download-source', 'sourceType');
         const badge = document.createElement('span'); badge.className = 'badge'; badge.dataset.downloadStatus = '';
-        meta.append(source, badge); identity.append(title, meta);
+        meta.append(source, badge); identity.append(thumbnail, title, meta);
         const actions = document.createElement('div'); actions.className = 'download-card-actions'; actions.dataset.downloadActions = '';
         header.append(identity, actions);
 
         const metrics = document.createElement('section'); metrics.className = 'download-card-metrics';
-        metrics.append(detail('进度', 'progressPercent'), detail('速度', 'speedText'), detail('ETA', 'etaSeconds'), detail('网络路径', 'networkMode'));
+        metrics.append(detail('总时长', 'durationSeconds'), detail('进度', 'progressPercent'), detail('速度', 'speedText'), detail('ETA', 'etaSeconds'), detail('网络路径', 'networkMode'));
         const details = document.createElement('section'); details.className = 'download-card-details';
         const times = document.createElement('div'); times.className = 'download-card-times';
         times.append(detail('创建时间', 'createdAt'), detail('开始时间', 'startedAt'), detail('结束时间', 'finishedAt'));
@@ -188,10 +193,12 @@
 
       function updateDownloadCard(article, previous, download) {
         setField(article, 'title', download.title);
+        const thumbnail = article.querySelector('.download-card-thumbnail'); thumbnail.hidden = download.thumbnailUrl === null; if (download.thumbnailUrl !== null && thumbnail.src !== download.thumbnailUrl) thumbnail.src = download.thumbnailUrl;
         setField(article, 'sourceType', download.sourceType === 'channel' ? '频道视频' : '单视频');
         setField(article, 'progressPercent', download.progressPercent === null ? null : `${download.progressPercent}%`);
         setField(article, 'speedText', download.speedText);
         setField(article, 'etaSeconds', download.etaSeconds === null ? null : `${download.etaSeconds}s`);
+        setField(article, 'durationSeconds', formatDuration(download.durationSeconds));
         setField(article, 'networkMode', download.networkMode === 'direct' ? '直连' : download.proxyName);
         setField(article, 'outputPath', download.outputPath);
         setField(article, 'failureReason', download.failureReason);
@@ -266,7 +273,7 @@
         if (emptyAction.dataset.action === 'active') { setSelectedTab('active'); return; }
         directDownloadModal.show();
       });
-      form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
+      form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
       load().catch((error) => showError(pageError, error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
     </script>
 <%- include('partials/footer') %>

@@ -5,6 +5,7 @@ import {
   mkdir,
   readdir,
   realpath,
+  rmdir,
   rm,
   stat,
   unlink,
@@ -12,16 +13,13 @@ import {
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import type { DatabaseConnection } from './db/client.js';
-import {
-  assertVideoTargetAvailable,
-  validateDownloadRoot,
-} from './filesystem.js';
+import { validateDownloadRoot } from './filesystem.js';
 import { redactStderr } from './redaction.js';
 import type {
   DownloadQueue,
   QueuedDownload,
 } from './services/download.js';
-import { downloadMedia } from './yt-dlp.js';
+import { downloadMedia, downloadThumbnail } from './yt-dlp.js';
 
 const RESTART_FAILURE_REASON = 'service restarted before task completed';
 
@@ -206,60 +204,70 @@ async function createTaskDirectory(
   return ensureDirectoryWithin(taskDirectory, downloadRoot);
 }
 
-async function archiveWithoutReplace(
-  sourcePath: string,
-  targetPath: string,
-): Promise<void> {
-  try {
-    await link(sourcePath, targetPath);
-  } catch (error) {
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      error.code === 'EEXIST'
-    ) {
-      throw new Error('final target already exists');
-    }
-    throw error;
-  }
-}
-
-async function validateDownloadedFile(
+async function validateDownloadedFiles(
   taskDirectory: string,
   reportedPath: string,
-): Promise<{ readonly sourcePath: string; readonly extension: string }> {
+): Promise<{ readonly mainFilename: string; readonly filenames: readonly string[] }> {
   if (!isAbsolute(reportedPath)) {
     throw new Error('after_move filepath must be absolute');
   }
 
-  const entries = await readdir(taskDirectory, { withFileTypes: true });
-  if (entries.length !== 1 || entries[0]?.isFile() !== true) {
-    throw new Error('task directory must contain exactly one regular file');
-  }
-
-  const sourcePath = resolve(taskDirectory, entries[0].name);
-  const realSourcePath = await realpath(sourcePath);
   const realReportedPath = await realpath(resolve(reportedPath));
-  if (
-    realSourcePath !== realReportedPath ||
-    !isContained(taskDirectory, realSourcePath) ||
-    realSourcePath === taskDirectory
-  ) {
+  if (!isContained(taskDirectory, realReportedPath) || realReportedPath === taskDirectory) {
     throw new Error('after_move filepath is outside the task directory');
   }
-
-  const sourceStat = await stat(realSourcePath);
-  if (!sourceStat.isFile() || sourceStat.size === 0) {
-    throw new Error('downloaded file must be a non-empty regular file');
+  const entries = await readdir(taskDirectory, { withFileTypes: true });
+  if (entries.length === 0) throw new Error('task directory contains no files');
+  for (const entry of entries) {
+    if (!entry.isFile()) throw new Error('task directory contains a non-file entry');
+    const path = resolve(taskDirectory, entry.name);
+    const realPath = await realpath(path);
+    const fileStat = await stat(realPath);
+    if (!isContained(taskDirectory, realPath) || !fileStat.isFile() || fileStat.size === 0) {
+      throw new Error('downloaded artifacts must be non-empty regular files');
+    }
+    await access(realPath, constants.R_OK);
   }
-  await access(realSourcePath, constants.R_OK);
-
-  const extension = extname(entries[0].name);
+  const mainFilename = realReportedPath.slice(taskDirectory.length + 1);
+  if (mainFilename.includes(sep) || !entries.some((entry) => entry.name === mainFilename)) {
+    throw new Error('after_move filepath is outside the task directory');
+  }
+  const extension = extname(mainFilename);
   if (extension.length < 2) {
     throw new Error('downloaded file has no final extension');
   }
-  return { sourcePath: realSourcePath, extension };
+  return { mainFilename, filenames: entries.map((entry) => entry.name) };
+}
+
+async function tryDownloadThumbnail(
+  executablePath: string,
+  taskDirectory: string,
+  download: QueuedDownload,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const thumbnailDirectory = join(taskDirectory, '.thumbnail');
+  try {
+    await mkdir(thumbnailDirectory);
+    await downloadThumbnail({
+      executablePath,
+      url: download.sourceUrl,
+      outputTemplate: join(thumbnailDirectory, '%(id)s.%(ext)s'),
+      signal,
+      ...(download.proxyUrl === undefined ? {} : { proxyUrl: download.proxyUrl }),
+    });
+    const entries = await readdir(thumbnailDirectory, { withFileTypes: true });
+    if (entries.length !== 1 || entries[0]?.isFile() !== true) return undefined;
+    const thumbnail = entries[0];
+    const sourcePath = join(thumbnailDirectory, thumbnail.name);
+    if ((await stat(sourcePath)).size === 0) return undefined;
+    const targetPath = join(taskDirectory, thumbnail.name);
+    await link(sourcePath, targetPath);
+    return thumbnail.name;
+  } catch {
+    return undefined;
+  } finally {
+    await rm(thumbnailDirectory, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export class DownloadWorker implements DownloadQueue {
@@ -375,7 +383,8 @@ export class DownloadWorker implements DownloadQueue {
     this.#activeDownloads.set(download.downloadId, abortController);
     let taskDirectory: string | undefined;
     let started = false;
-    let archivedTargetPath: string | undefined;
+    let archivedDirectory: string | undefined;
+    const archivedFiles: string[] = [];
     let boundaryFailure: Error | undefined;
 
     try {
@@ -395,16 +404,6 @@ export class DownloadWorker implements DownloadQueue {
       const realDownloadRoot = await validateDownloadRoot(
         download.downloadRoot,
         download.downloadsMountPath,
-      );
-      const realTargetDirectory = await ensureDirectoryWithin(
-        download.targetDirectory,
-        realDownloadRoot,
-      );
-      await assertVideoTargetAvailable(
-        realDownloadRoot,
-        download.downloadsMountPath,
-        realTargetDirectory,
-        download.platformVideoId,
       );
       taskDirectory = await createTaskDirectory(
         realDownloadRoot,
@@ -442,45 +441,74 @@ export class DownloadWorker implements DownloadQueue {
           ? {}
           : { proxyUrl: download.proxyUrl }),
       });
-      const downloadedFile = await validateDownloadedFile(
+      const thumbnailFilename = await tryDownloadThumbnail(
+        this.#ytDlpExecutablePath,
+        taskDirectory,
+        download,
+        abortController.signal,
+      );
+      if (abortController.signal.aborted) throw new Error('yt-dlp download cancelled');
+      const downloadedFiles = await validateDownloadedFiles(
         taskDirectory,
         reportedPath,
       );
-
-      await assertVideoTargetAvailable(
-        realDownloadRoot,
-        download.downloadsMountPath,
-        realTargetDirectory,
-        download.platformVideoId,
-      );
-      const targetPath = join(
-        realTargetDirectory,
-        `${download.platformVideoId}${downloadedFile.extension}`,
-      );
-      await archiveWithoutReplace(downloadedFile.sourcePath, targetPath);
-      archivedTargetPath = targetPath;
+      const targetDirectory = join(realDownloadRoot, String(download.downloadId));
+      try {
+        await mkdir(targetDirectory);
+      } catch (error) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST') {
+          throw new Error('final download directory already exists');
+        }
+        throw error;
+      }
+      archivedDirectory = targetDirectory;
+      for (const filename of downloadedFiles.filenames) {
+        const archivedPath = join(targetDirectory, filename);
+        try {
+          await link(join(taskDirectory, filename), archivedPath);
+        } catch (error) {
+          if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST') {
+            throw new Error('final target already exists');
+          }
+          throw error;
+        }
+        archivedFiles.push(archivedPath);
+      }
+      const targetPath = join(targetDirectory, downloadedFiles.mainFilename);
+      const thumbnailPath = thumbnailFilename === undefined
+        ? null
+        : join(targetDirectory, thumbnailFilename);
 
       const completed = this.#database
         .prepare(
           `UPDATE downloads
-           SET status = 'completed', output_path = ?, progress_percent = 100,
+           SET status = 'completed', output_path = ?, thumbnail_path = ?,
+               progress_percent = 100,
                speed_text = NULL, eta_seconds = NULL, exit_code = 0,
                finished_at = ?
            WHERE id = ? AND status = 'running'`,
         )
-        .run(targetPath, new Date().toISOString(), download.downloadId);
+        .run(targetPath, thumbnailPath, new Date().toISOString(), download.downloadId);
       if (completed.changes !== 1) {
         throw new Error('download completion state transition failed');
       }
-      archivedTargetPath = undefined;
+      archivedDirectory = undefined;
     } catch (error) {
       let failure = error;
-      if (archivedTargetPath !== undefined) {
+      if (archivedDirectory !== undefined) {
         try {
-          await unlink(archivedTargetPath);
-          archivedTargetPath = undefined;
+          for (const archivedFile of archivedFiles) await unlink(archivedFile);
+          await rmdir(archivedDirectory);
+          archivedDirectory = undefined;
         } catch (rollbackError) {
-          failure = rollbackError;
+          if (
+            typeof rollbackError !== 'object' ||
+            rollbackError === null ||
+            !('code' in rollbackError) ||
+            rollbackError.code !== 'ENOTEMPTY'
+          ) {
+            failure = rollbackError;
+          }
         }
       }
       if (started) {

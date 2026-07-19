@@ -29,7 +29,6 @@ const DEFAULT_ADVANCED_OPTIONS = {
   quality: null,
   codec: null,
   writeSubtitles: false,
-  writeThumbnail: false,
   splitChapters: false,
   timeRangeStart: null,
   timeRangeEnd: null,
@@ -40,7 +39,6 @@ function directInput(url: string, proxyId: number | null) {
   return {
     url,
     proxyId,
-    targetSubdirectory: null,
     advancedOptions: DEFAULT_ADVANCED_OPTIONS,
   };
 }
@@ -85,7 +83,8 @@ if (url === '${VIMEO_VIDEO_URL}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Vimeo',
     id: '${VIMEO_VIDEO_ID}',
-    title: 'Vimeo title'
+    title: 'Vimeo title',
+    duration: 125.2
   }) + '\\n');
   process.exit(0);
 }
@@ -236,9 +235,9 @@ describe('download creation service', () => {
     ]);
     expect(queued.map((job) => job.proxyUrl)).toEqual([PROXY_URL, PROXY_URL]);
     const realDownloadRoot = await realpath(downloadRoot);
-    expect(queued.map((job) => job.targetDirectory)).toEqual([
-      join(realDownloadRoot, 'Saved channel', '2026'),
-      join(realDownloadRoot, 'Saved channel', '2025'),
+    expect(queued.map((job) => job.downloadRoot)).toEqual([
+      realDownloadRoot,
+      realDownloadRoot,
     ]);
     expect(downloadRows()).toEqual([
       expect.objectContaining({
@@ -390,6 +389,7 @@ describe('download creation service', () => {
         platform_video_id: VIMEO_VIDEO_ID,
         title: 'Vimeo title',
         published_date: null,
+        duration_seconds: 126,
         proxy_name: 'office',
       }),
     ]);
@@ -400,7 +400,7 @@ describe('download creation service', () => {
         sourceUrl: VIMEO_VIDEO_URL,
         platformVideoId: VIMEO_VIDEO_ID,
         proxyUrl: PROXY_URL,
-        targetDirectory: realDownloadRoot,
+        downloadRoot: realDownloadRoot,
       }),
     ]);
 
@@ -605,12 +605,8 @@ describe('download creation service', () => {
     );
 
     database.prepare('DELETE FROM downloads').run();
-    const targetDirectory = join(downloadRoot, 'Saved channel', '2026');
-    await writeFile(join(targetDirectory, `${FIRST_VIDEO_ID}.webm`), 'media');
-    await expectBusinessError(
-      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
-      'DOWNLOAD_ALREADY_EXISTS',
-    );
+    await expect(createChannelDownloads(database, downloadRoot, [videoId], queue, NOW))
+      .resolves.toHaveLength(1);
   });
 
   it('atomically rejects one of two concurrent channel requests for the same video', async () => {
@@ -699,7 +695,6 @@ describe('download creation service', () => {
     const validatedRoot = await realpath(downloadRoot);
     expect(queued).toEqual([
       expect.objectContaining({
-        targetDirectory: join(validatedRoot, 'Saved channel', '2026'),
         downloadRoot: validatedRoot,
       }),
     ]);

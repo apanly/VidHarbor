@@ -182,6 +182,7 @@ interface ScheduledChannelRow {
 
 const CHANNEL_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MINUTE_MILLISECONDS = 60_000;
+const SCHEDULED_DISCOVERY_MONTHS = 1;
 
 function persistenceError(): BusinessError {
   return new BusinessError('PERSISTENCE_ERROR', 'channel persistence failed');
@@ -1176,6 +1177,10 @@ export async function checkChannel(
 
   const channel = loadScheduledChannel(database, channelId);
   const normalizedUrl = normalizeYouTubeChannelUrl(channel.url);
+  const earliestPublishedDate = historyStartDate(
+    startedAt,
+    SCHEDULED_DISCOVERY_MONTHS,
+  );
   const checkId = beginScheduledCheck(
     database,
     channel,
@@ -1190,6 +1195,8 @@ export async function checkChannel(
       ...(channel.proxyUrl === undefined
         ? {}
         : { proxyUrl: channel.proxyUrl }),
+      dateAfter: earliestPublishedDate.replaceAll('-', ''),
+      allowEmpty: true,
     });
   } catch (error) {
     const businessError = new BusinessError(
@@ -1212,8 +1219,10 @@ export async function checkChannel(
           ...(channel.proxyUrl === undefined
             ? {}
             : { proxyUrl: channel.proxyUrl }),
-        }),
+      }),
       channel.platformChannelId,
+      true,
+      earliestPublishedDate,
     );
   } catch (error) {
     const businessError =

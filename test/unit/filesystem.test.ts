@@ -15,9 +15,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { BusinessError } from '../../src/errors.js';
 import {
-  assertVideoTargetAvailable,
-  prepareChannelArchiveDirectory,
-  resolveDirectDownloadDirectory,
   validateChannelName,
   validateDownloadFile,
   validateDownloadRoot,
@@ -167,108 +164,5 @@ describe('validateDownloadFile', () => {
     } finally {
       await chmod(unreadable, 0o600);
     }
-  });
-});
-
-describe('archive directories', () => {
-  it('creates and returns the fixed channel name and year path', async () => {
-    const archiveDirectory = await prepareChannelArchiveDirectory(
-      downloadRoot,
-      mountPath,
-      '示例频道',
-      2026,
-    );
-
-    expect(archiveDirectory).toBe(
-      join(await realpath(downloadRoot), '示例频道', '2026'),
-    );
-    await expect(realpath(archiveDirectory)).resolves.toBe(archiveDirectory);
-  });
-
-  it('returns the configured root for a direct download without creating a child', async () => {
-    await expect(
-      resolveDirectDownloadDirectory(downloadRoot, mountPath),
-    ).resolves.toBe(await realpath(downloadRoot));
-  });
-
-  it.each([0, 999, 10_000, 2026.5])(
-    'rejects the invalid explicit year %j',
-    async (year) => {
-      await expectBusinessError(
-        prepareChannelArchiveDirectory(
-          downloadRoot,
-          mountPath,
-          'channel',
-          year,
-        ),
-        'VALIDATION_ERROR',
-      );
-    },
-  );
-
-  it('rejects an existing channel symlink that escapes the root', async () => {
-    const outside = join(sandbox, 'outside');
-    await mkdir(outside);
-    await symlink(outside, join(downloadRoot, 'channel'), 'dir');
-
-    await expectBusinessError(
-      prepareChannelArchiveDirectory(downloadRoot, mountPath, 'channel', 2026),
-      'VALIDATION_ERROR',
-    );
-    await expect(access(join(outside, '2026'))).rejects.toThrow();
-  });
-
-  it('rejects an existing year symlink that escapes the root', async () => {
-    const outside = join(sandbox, 'outside');
-    const channelDirectory = join(downloadRoot, 'channel');
-    await mkdir(outside);
-    await mkdir(channelDirectory);
-    await symlink(outside, join(channelDirectory, '2026'), 'dir');
-
-    await expectBusinessError(
-      prepareChannelArchiveDirectory(downloadRoot, mountPath, 'channel', 2026),
-      'VALIDATION_ERROR',
-    );
-  });
-});
-
-describe('assertVideoTargetAvailable', () => {
-  const videoId = 'aB_12-cD345';
-
-  it('allows a directory without a regular file for the same video ID', async () => {
-    await writeFile(join(downloadRoot, 'different.mp4'), 'media');
-
-    await expect(
-      assertVideoTargetAvailable(downloadRoot, mountPath, downloadRoot, videoId),
-    ).resolves.toBeUndefined();
-  });
-
-  it.each(['mp4', 'webm', 'unknown'])(
-    'rejects an existing regular file with the same ID and .%s extension',
-    async (extension) => {
-      await writeFile(join(downloadRoot, `${videoId}.${extension}`), 'media');
-
-      await expectBusinessError(
-        assertVideoTargetAvailable(
-          downloadRoot,
-          mountPath,
-          downloadRoot,
-          videoId,
-        ),
-        'DOWNLOAD_ALREADY_EXISTS',
-      );
-    },
-  );
-
-  it('rejects a target directory symlink that escapes the root', async () => {
-    const outside = join(sandbox, 'outside');
-    const linkedDirectory = join(downloadRoot, 'linked');
-    await mkdir(outside);
-    await symlink(outside, linkedDirectory, 'dir');
-
-    await expectBusinessError(
-      assertVideoTargetAvailable(downloadRoot, mountPath, linkedDirectory, videoId),
-      'VALIDATION_ERROR',
-    );
   });
 });

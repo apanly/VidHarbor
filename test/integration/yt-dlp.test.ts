@@ -107,6 +107,7 @@ describe('yt-dlp argument protocol', () => {
           'node',
           '--socket-timeout',
           '30',
+          '--no-playlist',
           '--format',
           'bestvideo*+bestaudio/best',
           '--progress',
@@ -122,6 +123,7 @@ describe('yt-dlp argument protocol', () => {
       }),
     );
   });
+
 });
 
 describe('yt-dlp process results', () => {
@@ -254,9 +256,17 @@ describe('yt-dlp process results', () => {
     });
 
     expect(progressEvents).toEqual([
-      { progressPercent: 7.8, speedText: '928.19KiB/s', etaSeconds: 92 },
+      { progressPercent: 7.8, speedText: '928.19KiB/s', etaSeconds: 93 },
       { progressPercent: 100, speedText: null, etaSeconds: null },
     ]);
+  });
+
+  it('rejects a negative fractional ETA', async () => {
+    await expect(downloadMedia({
+      executablePath,
+      url: 'fixture://download-negative-fractional-eta',
+      outputTemplate: '/temporary/%(id)s.%(ext)s',
+    })).rejects.toThrow('invalid yt-dlp progress line');
   });
 
   it('returns one after_move filepath without counting its empty end remainder', async () => {

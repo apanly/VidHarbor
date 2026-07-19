@@ -19,6 +19,19 @@ if (url?.startsWith('fixture://worker-')) {
   }
   const output = args[outputIndex + 1];
   const id = url.includes('second') ? 'eF_67-gH890' : 'aB_12-cD345';
+  if (args.includes('--skip-download')) {
+    if (!args.includes('--write-thumbnail') || !args.includes('--no-playlist')) {
+      throw new Error('thumbnail arguments are required');
+    }
+    if (url.includes('thumbnail-failure')) {
+      process.stderr.write('thumbnail unavailable\n');
+      process.exit(7);
+    }
+    const thumbnailPath = output.replace('%(id)s', id).replace('%(ext)s', 'jpg');
+    await mkdir(dirname(thumbnailPath), { recursive: true });
+    await writeFile(thumbnailPath, 'thumbnail');
+    process.exit(0);
+  }
   const filepath = output.replace('%(id)s', id).replace('%(ext)s', 'mp4');
   await appendFile(join(controlDirectory, 'argv.log'), `${JSON.stringify(args)}\n`);
   await appendFile(join(controlDirectory, 'execution.log'), `start:${url}\n`);
@@ -114,8 +127,12 @@ switch (url) {
     }, 100);
     break;
   case 'fixture://download-human-progress':
-    process.stdout.write('vidharbor-progress:  7.8%| 928.19KiB/s|92\n');
+    process.stdout.write('vidharbor-progress:  7.8%| 928.19KiB/s|92.1\n');
     process.stdout.write('vidharbor-progress:100.0%|   N/A|NA\n');
+    process.stdout.write('/temporary/video.mp4\n');
+    break;
+  case 'fixture://download-negative-fractional-eta':
+    process.stdout.write('vidharbor-progress:42.5%|1.2MiB/s|-0.1\n');
     process.stdout.write('/temporary/video.mp4\n');
     break;
   case 'fixture://download-lf-empty-line':

@@ -17,6 +17,7 @@ import {
   createDirectDownload,
   deleteDownload,
   getDownloadFile,
+  getDownloadThumbnail,
   retryDownload,
   type ChannelDownloadProxySelection,
   type DownloadQueue,
@@ -142,6 +143,8 @@ interface DownloadRow {
   readonly finished_at: string | null;
   readonly network_mode: 'direct' | 'proxy';
   readonly proxy_name: string | null;
+  readonly duration_seconds: number | null;
+  readonly thumbnail_path: string | null;
 }
 
 type DownloadTab = 'all' | 'active' | 'completed';
@@ -241,6 +244,8 @@ function toDownloadSnapshot(row: DownloadRow): Record<string, unknown> {
     finishedAt: row.finished_at,
     networkMode: row.network_mode,
     proxyName: row.proxy_name,
+    durationSeconds: row.duration_seconds,
+    thumbnailUrl: row.thumbnail_path === null ? null : `/api/downloads/${row.id}/thumbnail`,
   };
 }
 
@@ -268,7 +273,8 @@ function listDownloads(
       .prepare(
         `SELECT id, source_type, title, source_url, status, output_path, failure_reason,
                 progress_percent, speed_text, eta_seconds, exit_code,
-                created_at, started_at, finished_at, network_mode, proxy_name
+                created_at, started_at, finished_at, network_mode, proxy_name,
+                duration_seconds, thumbnail_path
          FROM downloads
          ${where}
          ORDER BY created_at DESC, id DESC
@@ -304,7 +310,8 @@ function getDownloadSnapshot(database: DatabaseConnection, downloadId: number): 
       .prepare(
         `SELECT id, source_type, title, source_url, status, output_path, failure_reason,
                 progress_percent, speed_text, eta_seconds, exit_code,
-                created_at, started_at, finished_at, network_mode, proxy_name
+                created_at, started_at, finished_at, network_mode, proxy_name,
+                duration_seconds, thumbnail_path
          FROM downloads WHERE id = ?`,
       )
       .get(downloadId) as DownloadRow | undefined;
@@ -417,6 +424,19 @@ export function createDownloadsRouter(
         parseDownloadId(request.params.id),
       );
       await sendDownloadFile(request, response, next, file, true);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/:id/thumbnail', async (request, response, next) => {
+    try {
+      const file = await getDownloadThumbnail(
+        database,
+        downloadsMountPath,
+        parseDownloadId(request.params.id),
+      );
+      await sendDownloadFile(request, response, next, file, false);
     } catch (error) {
       next(error);
     }

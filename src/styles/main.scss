@@ -13,6 +13,8 @@ body {
 }
 
 .app-sidebar {
+  display: flex;
+  flex-direction: column;
   width: 17rem;
   flex: 0 0 17rem;
   min-height: 100vh;
@@ -53,8 +55,14 @@ body {
 }
 
 .sidebar-nav {
-  display: grid;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   gap: 0.4rem;
+}
+
+.sidebar-guide-link {
+  margin-top: auto;
 }
 
 .sidebar-link {
@@ -101,6 +109,164 @@ body {
 
 .channel-card {
   cursor: pointer;
+}
+
+.guide-layout {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.guide-toc {
+  position: sticky;
+  top: 1.25rem;
+  display: grid;
+  gap: 0.2rem;
+  padding: 1rem;
+  border: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 0.7rem 1.8rem rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.guide-toc strong {
+  padding: 0.45rem 0.6rem;
+  color: #172033;
+  font-size: 0.78rem;
+}
+
+.guide-toc a {
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.55rem;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.guide-toc a:hover,
+.guide-toc a:focus {
+  color: #172033;
+  background: #edf2f7;
+}
+
+.guide-markdown {
+  min-width: 0;
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+  border: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 0.8rem 2rem rgba(15, 23, 42, 0.06);
+}
+
+.guide-markdown > h1 {
+  margin: -0.25rem 0 1rem;
+  color: #172033;
+  font-size: clamp(2.4rem, 6vw, 4.5rem);
+  font-weight: 900;
+  letter-spacing: -0.06em;
+}
+
+.guide-markdown h2 {
+  scroll-margin-top: 1rem;
+  margin: 2.5rem 0 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e4e9ef;
+  color: #172033;
+  font-size: clamp(1.35rem, 3vw, 1.8rem);
+  font-weight: 875;
+  letter-spacing: -0.03em;
+}
+
+.guide-markdown h3 {
+  margin: 1.5rem 0 0.65rem;
+  color: #273449;
+  font-size: 1.05rem;
+  font-weight: 850;
+}
+
+.guide-markdown p,
+.guide-markdown li,
+.guide-markdown td {
+  color: #526177;
+  line-height: 1.75;
+}
+
+.guide-markdown a {
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.guide-markdown code {
+  padding: 0.12rem 0.32rem;
+  border-radius: 0.35rem;
+  color: #0f6657;
+  background: #edf7f4;
+}
+
+.guide-markdown pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: 0.8rem;
+  background: #172033;
+}
+
+.guide-markdown pre code {
+  padding: 0;
+  color: #dff9eb;
+  background: transparent;
+}
+
+.guide-markdown blockquote {
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+  border-left: 0.28rem solid #e09621;
+  border-radius: 0.75rem;
+  background: #fff8e8;
+}
+
+.guide-markdown blockquote p {
+  margin: 0;
+}
+
+.guide-markdown table {
+  display: block;
+  width: 100%;
+  margin: 1rem 0;
+  overflow-x: auto;
+  border: 1px solid #e4e9ef;
+  border-radius: 0.85rem;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.guide-markdown th,
+.guide-markdown td {
+  min-width: 9rem;
+  padding: 0.75rem 0.9rem;
+  border-right: 1px solid #e9edf2;
+  border-bottom: 1px solid #e9edf2;
+  font-size: 0.83rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.guide-markdown th {
+  color: #64748b;
+  background: #f7f9fc;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.guide-markdown tr:last-child td {
+  border-bottom: 0;
+}
+
+.guide-markdown th:last-child,
+.guide-markdown td:last-child {
+  border-right: 0;
 }
 
 .channel-card:focus-visible {
@@ -297,6 +463,27 @@ body {
 .channel-detail-table a {
   font-weight: 750;
   text-decoration: none;
+  white-space: nowrap;
+}
+
+.notification-table {
+  min-width: 58rem;
+}
+
+.notification-table .notification-video-cell {
+  min-width: 18rem;
+  max-width: 28rem;
+}
+
+.notification-table .notification-video-cell a {
+  display: block;
+  color: #172033;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.notification-table .badge {
   white-space: nowrap;
 }
 
@@ -572,6 +759,16 @@ body {
   min-width: 12rem;
 }
 
+.download-card-thumbnail {
+  float: left;
+  width: 7rem;
+  aspect-ratio: 16 / 9;
+  margin-right: 0.9rem;
+  border-radius: 0.65rem;
+  object-fit: cover;
+  background: #e2e8f0;
+}
+
 .download-card-title {
   margin: 0;
   color: #172033;
@@ -610,7 +807,7 @@ body {
 }
 
 .download-card-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-top: 1rem;
   padding: 0.9rem 0;
   border-top: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
@@ -694,6 +891,19 @@ body {
 
 
 @media (max-width: 767.98px) {
+  .guide-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .guide-toc {
+    position: static;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guide-toc strong {
+    grid-column: 1 / -1;
+  }
+
   .channel-detail-heading {
     align-items: flex-start;
     flex-direction: column;

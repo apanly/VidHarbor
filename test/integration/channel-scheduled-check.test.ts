@@ -39,7 +39,7 @@ const fixtures: Record<string, readonly Record<string, unknown>[]> = {
   'https://www.youtube.com/@updates/videos': [
     metadata('oL_12-dA345', 'UC-updates', '20260716', 'Changed existing title'),
     metadata('nE_12-wB345', 'UC-updates', '20260717'),
-    metadata('nE_12-wC345', 'UC-updates', '20250717'),
+    metadata('nE_12-wC345', 'UC-updates', '20260617'),
     metadata('oL_12-dD345', 'UC-updates', '20250716'),
   ],
   'https://www.youtube.com/@stable/videos': [
@@ -47,6 +47,9 @@ const fixtures: Record<string, readonly Record<string, unknown>[]> = {
   ],
   'https://www.youtube.com/@invalid/videos': [
     { ...metadata('iN_12-vL345', 'UC-invalid', '20260716'), live_status: 'is_upcoming' },
+  ],
+  'https://www.youtube.com/@old-only/videos': [
+    metadata('oL_12-oN345', 'UC-old-only', '20260616'),
   ],
 };
 
@@ -60,6 +63,8 @@ import { existsSync, writeFileSync } from 'node:fs';
 const fixtures = ${JSON.stringify(fixtures)};
 const args = process.argv.slice(2);
 const url = args.at(-1);
+const dateAfterIndex = args.indexOf('--dateafter');
+const dateAfter = dateAfterIndex === -1 ? undefined : args[dateAfterIndex + 1];
 if (url === 'https://www.youtube.com/@failure/videos') {
   process.stderr.write('cannot use ${PROXY_URL} with alice:secret');
   process.exit(3);
@@ -72,7 +77,9 @@ if (url === 'https://www.youtube.com/@observe/videos') {
   process.stdout.write(JSON.stringify(${JSON.stringify(metadata('oB_12-sE345', 'UC-observe', '20260717'))}) + '\\n');
   process.exit(0);
 }
-for (const value of fixtures[url] ?? []) {
+const values = (fixtures[url] ?? []).filter((value) => dateAfter === undefined || value.upload_date >= dateAfter);
+if (dateAfter !== undefined && values.length === 0) process.exit(101);
+for (const value of values) {
   process.stdout.write(JSON.stringify(value) + '\\n');
 }
 `,
@@ -225,7 +232,7 @@ describe('scheduled channel checks', () => {
       {
         platform_video_id: 'nE_12-wC345',
         title: 'Video nE_12-wC345',
-        published_date: '2025-07-17',
+        published_date: '2026-06-17',
         source_url: 'https://www.youtube.com/watch?v=nE_12-wC345',
         discovery_kind: 'new',
       },
@@ -262,7 +269,7 @@ describe('scheduled channel checks', () => {
         video: {
           id: existingId + 2,
           title: 'Video nE_12-wC345',
-          publishedDate: '2025-07-17',
+          publishedDate: '2026-06-17',
           url: 'https://www.youtube.com/watch?v=nE_12-wC345',
         },
       },
@@ -304,6 +311,21 @@ describe('scheduled channel checks', () => {
     expect(database.prepare('SELECT last_check_started_at, last_check_result FROM channels WHERE id = ?').get(channelId)).toEqual({
       last_check_started_at: SECOND_STARTED_AT.toISOString(),
       last_check_result: 'no_updates',
+    });
+  });
+
+  it('treats a channel with no videos in the latest month as no_updates', async () => {
+    const channelId = insertChannel('old-only', 'UC-old-only');
+
+    await expect(
+      checkChannel(database, executablePath, channelId, FIRST_STARTED_AT),
+    ).resolves.toEqual({ newVideoCount: 0 });
+
+    expect(database.prepare('SELECT COUNT(*) FROM videos').pluck().get()).toBe(0);
+    expect(database.prepare('SELECT COUNT(*) FROM notifications').pluck().get()).toBe(0);
+    expect(database.prepare('SELECT result, new_video_count FROM channel_checks').get()).toEqual({
+      result: 'no_updates',
+      new_video_count: 0,
     });
   });
 

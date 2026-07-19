@@ -1,9 +1,7 @@
 import {
   access,
   constants,
-  mkdir,
   open,
-  readdir,
   realpath,
   stat,
 } from 'node:fs/promises';
@@ -50,64 +48,6 @@ async function realDirectory(path: string): Promise<string> {
   const pathStat = await stat(realPath);
   if (!pathStat.isDirectory()) {
     throw new Error('path is not a directory');
-  }
-  return realPath;
-}
-
-async function validateExistingDirectory(
-  path: string,
-  mountPath: string,
-  downloadRoot: string,
-): Promise<string> {
-  const resolvedPath = resolve(path);
-
-  let realPath: string;
-  try {
-    realPath = await realDirectory(resolvedPath);
-  } catch {
-    throw new BusinessError('VALIDATION_ERROR', 'path is not an available directory');
-  }
-
-  assertContained(mountPath, downloadRoot, realPath);
-  return realPath;
-}
-
-async function createArchiveDirectory(
-  path: string,
-  mountPath: string,
-  downloadRoot: string,
-): Promise<string> {
-  const resolvedPath = resolve(path);
-  assertContained(mountPath, downloadRoot, resolvedPath);
-
-  try {
-    await mkdir(resolvedPath);
-  } catch (error) {
-    if (
-      typeof error !== 'object' ||
-      error === null ||
-      !('code' in error) ||
-      error.code !== 'EEXIST'
-    ) {
-      throw new BusinessError(
-        'VALIDATION_ERROR',
-        'archive directory is unavailable',
-      );
-    }
-  }
-
-  const realPath = await validateExistingDirectory(
-    resolvedPath,
-    mountPath,
-    downloadRoot,
-  );
-  try {
-    await access(realPath, constants.R_OK | constants.W_OK | constants.X_OK);
-  } catch {
-    throw new BusinessError(
-      'VALIDATION_ERROR',
-      'archive directory is unavailable',
-    );
   }
   return realPath;
 }
@@ -210,115 +150,5 @@ export async function validateDownloadFile(
       'DOWNLOAD_FILE_UNAVAILABLE',
       'download file unavailable',
     );
-  }
-}
-
-export async function prepareChannelArchiveDirectory(
-  downloadRoot: string,
-  downloadsMountPath: string,
-  customName: string,
-  publishedYear: number,
-): Promise<string> {
-  const realDownloadRoot = await validateDownloadRoot(
-    downloadRoot,
-    downloadsMountPath,
-  );
-  const realMountPath = await realDirectory(resolve(downloadsMountPath));
-  validateChannelName(customName);
-
-  if (
-    !Number.isInteger(publishedYear) ||
-    publishedYear < 1000 ||
-    publishedYear > 9999
-  ) {
-    throw new BusinessError(
-      'VALIDATION_ERROR',
-      'published year must be four digits',
-    );
-  }
-
-  const channelDirectory = await createArchiveDirectory(
-    resolve(realDownloadRoot, customName),
-    realMountPath,
-    realDownloadRoot,
-  );
-  return createArchiveDirectory(
-    resolve(channelDirectory, String(publishedYear)),
-    realMountPath,
-    realDownloadRoot,
-  );
-}
-
-export async function resolveDirectDownloadDirectory(
-  downloadRoot: string,
-  downloadsMountPath: string,
-  targetSubdirectory: string | null = null,
-): Promise<string> {
-  const realDownloadRoot = await validateDownloadRoot(
-    downloadRoot,
-    downloadsMountPath,
-  );
-  if (targetSubdirectory === null) {
-    return realDownloadRoot;
-  }
-  if (
-    targetSubdirectory === '' ||
-    targetSubdirectory.trim() !== targetSubdirectory ||
-    isAbsolute(targetSubdirectory) ||
-    targetSubdirectory.split(/[\\/]/u).some((part) => part === '' || part === '.' || part === '..') ||
-    /[\p{Cc}\p{Cs}]/u.test(targetSubdirectory)
-  ) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid target subdirectory');
-  }
-
-  const realMountPath = await realDirectory(resolve(downloadsMountPath));
-  return createArchiveDirectory(
-    resolve(realDownloadRoot, targetSubdirectory),
-    realMountPath,
-    realDownloadRoot,
-  );
-}
-
-export async function assertVideoTargetAvailable(
-  downloadRoot: string,
-  downloadsMountPath: string,
-  targetDirectory: string,
-  videoId: string,
-): Promise<void> {
-  if (!isArchiveVideoId(videoId)) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid video ID');
-  }
-
-  const realDownloadRoot = await validateDownloadRoot(
-    downloadRoot,
-    downloadsMountPath,
-  );
-  const realMountPath = await realDirectory(resolve(downloadsMountPath));
-  const realTargetDirectory = await validateExistingDirectory(
-    targetDirectory,
-    realMountPath,
-    realDownloadRoot,
-  );
-  const entries = await readdir(realTargetDirectory);
-
-  for (const entry of entries) {
-    if (!entry.startsWith(`${videoId}.`)) {
-      continue;
-    }
-
-    let realEntryPath: string;
-    try {
-      realEntryPath = await realpath(resolve(realTargetDirectory, entry));
-    } catch {
-      throw new BusinessError('VALIDATION_ERROR', 'target path is unavailable');
-    }
-    assertContained(realMountPath, realDownloadRoot, realEntryPath);
-
-    if ((await stat(realEntryPath)).isFile()) {
-      throw new BusinessError(
-        'DOWNLOAD_ALREADY_EXISTS',
-        'a target file for this video already exists',
-      );
-    }
   }
 }

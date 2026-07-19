@@ -143,8 +143,8 @@ function insertPending(
     .prepare(
       `INSERT INTO downloads (
         source_type, source_url, platform, platform_video_id, title,
-        network_mode, status, created_at
-      ) VALUES ('direct', ?, 'youtube', ?, 'Fixture', 'direct', ?, ?)`,
+        network_mode, archive_layout, status, created_at
+      ) VALUES ('direct', ?, 'youtube', ?, 'Fixture', 'direct', 'download_directory', ?, ?)`,
     )
     .run(
       `https://www.youtube.com/watch?v=${platformVideoId}`,
@@ -164,7 +164,6 @@ function queuedDownload(
     downloadId,
     sourceUrl,
     platformVideoId,
-    targetDirectory: downloadRoot,
     downloadRoot,
     downloadsMountPath: downloadRoot,
   };
@@ -249,7 +248,7 @@ describe('offline v0.1 end-to-end contract', () => {
     ]);
     expect(downloads).toHaveLength(2);
     await expect(
-      readFile(join(downloadRoot, 'Harbor Channel', '2026', `${NEW_VIDEO_ID}.mp4`), 'utf8'),
+      readFile(join(downloadRoot, String(downloads[0]?.id), `${NEW_VIDEO_ID}.mp4`), 'utf8'),
     ).resolves.toBe('fake media');
 
     database.close();
@@ -330,8 +329,12 @@ describe('offline v0.1 end-to-end contract', () => {
       );
     }
     const existingId = 'eX_12-iS345';
-    await writeFile(join(downloadRoot, `${existingId}.mp4`), 'existing');
     const existingDownloadId = insertPending(existingId);
+    await mkdir(join(downloadRoot, String(existingDownloadId)));
+    await writeFile(
+      join(downloadRoot, String(existingDownloadId), `${existingId}.mp4`),
+      'existing',
+    );
     worker.enqueue(
       queuedDownload(
         existingDownloadId,

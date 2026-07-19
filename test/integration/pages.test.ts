@@ -66,6 +66,7 @@ describe('server-rendered pages', () => {
     ['/channels/7', '频道详情'],
     ['/notifications', '新视频提醒'],
     ['/downloads', '<h1>下载</h1>'],
+    ['/guide', '<h1>VidHarbor</h1>'],
   ] as const)('renders %s with the shared page shell', async (path, marker) => {
     const html = await getPage(path);
 
@@ -78,13 +79,36 @@ describe('server-rendered pages', () => {
     expect(html).toContain('href="/channels">频道</a>');
     expect(html).toContain('href="/notifications">提醒</a>');
     expect(html).toContain('href="/downloads">下载</a>');
-    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>/);
+    expect(html).toContain('href="/guide">说明</a>');
+    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/guide">说明<\/a>/);
     expect(html).not.toContain('navbar-nav flex-row');
     expect(html).not.toContain('deployment-warning');
     expect(html).not.toContain('切勿直接暴露到公网');
     expect(html).not.toContain('可信内网视频管理');
     expect(html).not.toContain('class="eyebrow');
     expect(html).not.toContain('class="app-footer"');
+  });
+
+  it('explains the complete current project contract on the guide page', async () => {
+    const html = await getPage('/guide');
+    const guideTemplate = await readFile(join(process.cwd(), 'src/views/guide.ejs'), 'utf8');
+    const dockerfile = await readFile(join(process.cwd(), 'Dockerfile'), 'utf8');
+
+    expect(html).toContain('只能部署在可信内网');
+    expect(html).toContain('最近 1、3、6 或 12 个月');
+    expect(html).toContain('固定为检查开始时间之前最近 1 个自然月');
+    expect(html).toContain('YouTube、Bilibili、Vimeo、X');
+    expect(html).toContain('&lt;下载根目录&gt;/&lt;下载ID&gt;/');
+    expect(html).toContain('主媒体文件成功并通过校验，任务就算成功');
+    expect(html).toContain('当前不提供');
+    expect(html).toContain('class="sidebar-link sidebar-guide-link active" href="/guide">说明</a>');
+    expect(html).toContain('id="guide-content" class="guide-markdown"');
+    expect(html).toContain("document.querySelectorAll('#guide-content h2')");
+    expect(html).toContain('<strong>成功条件：</strong>');
+    expect(guideTemplate).toContain('<%- guideHtml %>');
+    expect(guideTemplate).not.toContain('主媒体文件成功并通过校验');
+    expect(dockerfile).toContain('COPY README.md ./');
+    expect(dockerfile).toContain('/app/README.md ./README.md');
   });
 
   it('renders add and edit forms in dialogs with single-column fields', async () => {
@@ -169,10 +193,14 @@ describe('server-rendered pages', () => {
     expect(html).not.toMatch(/自动选择|自动下载|删除频道|手动检查/);
   });
 
-  it('links each notification to its channel and source video without state actions', async () => {
+  it('renders notifications as a table with channel, video, and read actions', async () => {
     const html = await getPage('/notifications');
 
     expect(html).toContain('request(`/api/notifications?page=${requestedPage}`)');
+    expect(html).toContain('<table class="table channel-detail-table notification-table align-middle mb-0">');
+    expect(html).toContain('<th scope="col">视频</th><th scope="col">频道</th><th scope="col">发布日期</th><th scope="col">发现时间</th><th scope="col">状态</th><th scope="col">操作</th>');
+    expect(html).toContain("const row = document.createElement('tr')");
+    expect(html).toContain("row.append(videoCell, channelCell, publishedCell, createdCell, stateCell, actionCell)");
     expect(html).toContain('`/channels/${notification.channel.id}`');
     expect(html).toContain('notification.video.url');
     expect(html).toContain('notification.video.title');
@@ -199,12 +227,14 @@ describe('server-rendered pages', () => {
     expect(html).toContain('name="url"');
     expect(html).toContain('name="proxyId"');
     expect(html).toContain("request('/api/proxies')");
-    expect(html).toContain('name="targetSubdirectory"');
+    expect(html).not.toContain('name="targetSubdirectory"');
+    expect(html).not.toContain('name="writeThumbnail"');
     expect(html).toContain('name="mediaType"');
     expect(html).toContain('name="format"');
     expect(html).toContain('name="quality"');
     expect(html).toContain('advancedOptions(form)');
-    expect(html).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) })");
+    expect(html).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), advancedOptions: advancedOptions(form) })");
+    expect(html).toContain("let selectedTab = 'completed'");
     expect(html).not.toMatch(/name="(?:autoplay|autoDownload)"/);
     expect(html).not.toContain('proxy.url');
   });
@@ -279,12 +309,15 @@ describe('server-rendered pages', () => {
     expect(html).toContain('download.proxyName');
     expect(html).toContain("download.networkMode === 'direct' ? '直连' : download.proxyName");
     expect(html).toContain("download.status === 'pending' || download.status === 'running' || download.status === 'downloading'");
-    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}/cancel`, 'POST', {})");
+    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}/cancel`, 'POST', {}, cancel)");
     expect(html).toContain("download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted'");
-    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}/retry`, 'POST', {})");
+    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}/retry`, 'POST', {}, retry)");
+    expect(html).toContain('if (trigger.disabled) return;');
+    expect(html).toContain('trigger.disabled = true;');
+    expect(html).toContain('if (trigger.isConnected) trigger.disabled = false;');
     expect(html).toContain("download.status === 'completed' || download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted'");
     expect(html).toContain("confirm(`确认永久删除下载「${download.title}」及其文件？`)");
-    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE')");
+    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
     expect(html).not.toContain('location.reload()');
     expect(html).not.toContain("list.textContent = ''");
     expect(html).toContain('if (field.textContent !== nextValue)');
@@ -304,8 +337,9 @@ describe('server-rendered pages', () => {
 
     expect(html).toContain('id="download-search" type="search" placeholder="搜索下载标题"');
     expect(html).toContain('role="tablist" aria-label="下载状态"');
-    expect(html).toContain('data-download-tab="active"');
-    expect(html).toContain('data-download-tab="completed"');
+    expect(html).toContain('class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active"');
+    expect(html).toContain('class="download-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed"');
+    expect(html).toContain("let selectedTab = 'completed'");
     expect(html).toContain('id="download-empty-state"');
     expect(html).toContain('data-empty-title');
     expect(html).toContain('data-empty-description');
@@ -478,7 +512,7 @@ describe('server-rendered pages', () => {
 
     expect(downloadsHtml).toContain("confirm(`确认永久删除下载「${download.title}」及其文件？`)");
     expect(downloadsHtml).toContain('if (!confirmed) return;');
-    expect(downloadsHtml).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE')");
+    expect(downloadsHtml).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
   });
 
   it('keeps modals open when clicking outside their dialog', async () => {

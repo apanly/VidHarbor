@@ -1,5 +1,8 @@
 import express, { Router } from 'express';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+
+import { marked } from 'marked';
 
 interface PageRoute {
   readonly path: string;
@@ -24,6 +27,10 @@ const PAGE_ROUTES: readonly PageRoute[] = [
 
 export function createPagesRouter(): Router {
   const router = Router();
+  const guideHtml = marked.parse(
+    readFileSync(fileURLToPath(new URL('../../README.md', import.meta.url)), 'utf8'),
+    { async: false },
+  );
 
   router.use(
     '/public',
@@ -38,6 +45,14 @@ export function createPagesRouter(): Router {
       });
     });
   }
+
+  router.get('/guide', (_request, response) => {
+    response.render('guide', {
+      currentPath: '/guide',
+      pageTitle: '项目说明',
+      guideHtml,
+    });
+  });
 
   router.get('/channels/:id', (request, response) => {
     response.render('channel-detail', {

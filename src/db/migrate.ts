@@ -12,6 +12,7 @@ const MIGRATIONS = [
   readFileSync(new URL('./migrations/001-initial.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('./migrations/002-manual-channel-sync.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('./migrations/003-generic-direct-downloads.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('./migrations/004-download-artifacts.sql', import.meta.url), 'utf8'),
 ] as const;
 
 function schemaEntries(database: DatabaseConnection): SchemaEntry[] {
@@ -107,6 +108,10 @@ export function migrateDatabase(database: DatabaseConnection): void {
       database.exec(MIGRATIONS[2]);
       database
         .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)')
+        .run(appliedAt);
+      database.exec(MIGRATIONS[3]);
+      database
+        .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (4, ?)')
         .run(appliedAt);
     } else {
       const versions = database
