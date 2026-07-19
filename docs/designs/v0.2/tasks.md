@@ -358,7 +358,7 @@
   2. `rg -n "cancel|cancell" src/yt-dlp-task-manager.ts src/routes/channels.ts src/scheduler.ts` → 可识别取消契约及两个错误边界均有明确处理。
 
 ## task-17 · 页面任务测试失败路径必须释放 gate
-- 状态: pending
+- 状态: done
 - 依赖: task-12
 - 文件范围:
   - test/integration/pages.test.ts

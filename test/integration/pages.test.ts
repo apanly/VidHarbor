@@ -730,60 +730,62 @@ describe('server-rendered pages', () => {
       execute: async () => undefined,
     });
 
-    await Promise.all([
-      succeeded.result,
-      failed.result.catch(() => undefined),
-      scheduled.result,
-    ]);
-    await schedulingTurn();
+    try {
+      await Promise.all([
+        succeeded.result,
+        failed.result.catch(() => undefined),
+        scheduled.result,
+      ]);
+      await schedulingTurn();
 
-    const response = await fetch(`${baseUrl}/api/yt-dlp/tasks`);
-    const rawBody = await response.text();
-    const body = JSON.parse(rawBody) as { tasks: YtDlpTaskSnapshot[] };
-    expect(response.status).toBe(200);
-    expect(body.tasks.map(({ status }) => status)).toEqual([
-      'running',
-      'queued',
-      'succeeded',
-      'failed',
-      'canceled',
-      'succeeded',
-    ]);
-    expect(new Set(body.tasks.map(({ type }) => type))).toEqual(new Set([
-      'media_download',
-      'metadata_probe',
-      'channel_initial_sync',
-      'channel_manual_check',
-      'channel_scheduled_check',
-    ]));
-    expect(rawBody).toContain('http://***@proxy.example:8080');
-    expect(rawBody).not.toContain(credentialedProxyUrl);
-    expect(rawBody).not.toContain('alice:secret');
+      const response = await fetch(`${baseUrl}/api/yt-dlp/tasks`);
+      const rawBody = await response.text();
+      const body = JSON.parse(rawBody) as { tasks: YtDlpTaskSnapshot[] };
+      expect(response.status).toBe(200);
+      expect(body.tasks.map(({ status }) => status)).toEqual([
+        'running',
+        'queued',
+        'succeeded',
+        'failed',
+        'canceled',
+        'succeeded',
+      ]);
+      expect(new Set(body.tasks.map(({ type }) => type))).toEqual(new Set([
+        'media_download',
+        'metadata_probe',
+        'channel_initial_sync',
+        'channel_manual_check',
+        'channel_scheduled_check',
+      ]));
+      expect(rawBody).toContain('http://***@proxy.example:8080');
+      expect(rawBody).not.toContain(credentialedProxyUrl);
+      expect(rawBody).not.toContain('alice:secret');
 
-    const helpers = taskPageHelpers(await getPublicScript('yt-dlp-tasks.js'));
-    const activeTasks = body.tasks.filter(({ status }) => status === 'queued' || status === 'running');
-    const terminalTasks = body.tasks.filter(({ status }) => status === 'succeeded' || status === 'failed' || status === 'canceled');
-    helpers.renderGroup(activeTasks, 'active-task-list', 'active-task-empty', 'active-task-count');
-    helpers.renderGroup(terminalTasks, 'terminal-task-list', 'terminal-task-empty', 'terminal-task-count');
-    const pageDom = [...helpers.nodes.values()].map(taskNodeText).join(' ');
+      const helpers = taskPageHelpers(await getPublicScript('yt-dlp-tasks.js'));
+      const activeTasks = body.tasks.filter(({ status }) => status === 'queued' || status === 'running');
+      const terminalTasks = body.tasks.filter(({ status }) => status === 'succeeded' || status === 'failed' || status === 'canceled');
+      helpers.renderGroup(activeTasks, 'active-task-list', 'active-task-empty', 'active-task-count');
+      helpers.renderGroup(terminalTasks, 'terminal-task-list', 'terminal-task-empty', 'terminal-task-count');
+      const pageDom = [...helpers.nodes.values()].map(taskNodeText).join(' ');
 
-    for (const label of ['媒体下载', '元数据探测', '频道首次同步', '频道手动检查', '频道定时检查']) {
-      expect(pageDom).toContain(label);
+      for (const label of ['媒体下载', '元数据探测', '频道首次同步', '频道手动检查', '频道定时检查']) {
+        expect(pageDom).toContain(label);
+      }
+      for (const label of ['排队中', '运行中', '已成功', '已失败', '已取消']) {
+        expect(pageDom).toContain(label);
+      }
+      expect(pageDom).toContain('request failed via http://***@proxy.example:8080');
+      expect(pageDom).not.toContain(credentialedProxyUrl);
+      expect(pageDom).not.toContain('alice:secret');
+      expect(helpers.nodes.get('active-task-count')?.textContent).toBe('2');
+      expect(helpers.nodes.get('terminal-task-count')?.textContent).toBe('4');
+      expect(helpers.nodes.get('active-task-empty')).toMatchObject({ hidden: true });
+      expect(helpers.nodes.get('terminal-task-empty')).toMatchObject({ hidden: true });
+    } finally {
+      finishRunning();
+      finishQueued();
+      await Promise.allSettled([running.result, queued.result]);
     }
-    for (const label of ['排队中', '运行中', '已成功', '已失败', '已取消']) {
-      expect(pageDom).toContain(label);
-    }
-    expect(pageDom).toContain('request failed via http://***@proxy.example:8080');
-    expect(pageDom).not.toContain(credentialedProxyUrl);
-    expect(pageDom).not.toContain('alice:secret');
-    expect(helpers.nodes.get('active-task-count')?.textContent).toBe('2');
-    expect(helpers.nodes.get('terminal-task-count')?.textContent).toBe('4');
-    expect(helpers.nodes.get('active-task-empty')).toMatchObject({ hidden: true });
-    expect(helpers.nodes.get('terminal-task-empty')).toMatchObject({ hidden: true });
-
-    finishRunning();
-    finishQueued();
-    await Promise.all([running.result, queued.result]);
   });
 
   it('rejects task types and statuses outside the fixed page contract', async () => {
