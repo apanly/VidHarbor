@@ -157,7 +157,7 @@
   3. `rg -n "new YtDlpTaskManager" src/app.ts` → 无匹配，证明组合函数不隐式创建 manager。
 
 ## task-08 · 提供只读任务快照 API
-- 状态: pending
+- 状态: done
 - 依赖: task-07
 - 文件范围:
   - src/app.ts

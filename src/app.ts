@@ -19,6 +19,7 @@ import { createNotificationsRouter } from './routes/notifications.js';
 import { createPagesRouter } from './routes/pages.js';
 import { createProxiesRouter } from './routes/proxies.js';
 import { createSettingsRouter } from './routes/settings.js';
+import { createYtDlpTasksRouter } from './routes/yt-dlp-tasks.js';
 import type { DownloadQueue } from './services/download.js';
 import type { RuntimeCoordinator } from './runtime.js';
 import type { YtDlpTaskManager } from './yt-dlp-task-manager.js';
@@ -109,6 +110,7 @@ export function createApiRouter(
   router.use('/proxies', createProxiesRouter(database));
   router.use('/channels', createChannelsRouter(database, taskManager, runtime));
   router.use('/notifications', createNotificationsRouter(database));
+  router.use('/yt-dlp/tasks', createYtDlpTasksRouter(taskManager));
   router.use(
     '/downloads',
     createDownloadsRouter(
