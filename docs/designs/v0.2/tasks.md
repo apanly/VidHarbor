@@ -201,7 +201,7 @@
   3. `rg -n "unused-yt-dlp" test/integration/database-browser.test.ts test/integration/pages.test.ts` → 无匹配。
 
 ## task-10 · 以管理器重构服务启动与停机屏障
-- 状态: pending
+- 状态: done
 - 依赖: task-03, task-06, task-08, task-09
 - 文件范围:
   - src/server.ts
