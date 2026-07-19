@@ -166,6 +166,32 @@ async function typeScriptFiles(directory: string): Promise<string[]> {
   return nested.flat();
 }
 
+const stringLiteralPattern = /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$])*`/g;
+
+function lowLevelYtDlpReferences(source: string): string[] {
+  const literals = [...source.matchAll(stringLiteralPattern)];
+  const references: string[] = [];
+
+  for (let index = 0; index < literals.length; index += 1) {
+    let modulePath = literals[index][0].slice(1, -1);
+    let end = index;
+
+    while (end + 1 < literals.length) {
+      const currentEnd = literals[end].index! + literals[end][0].length;
+      const nextStart = literals[end + 1].index!;
+      const between = source.slice(currentEnd, nextStart);
+      if (!/^\s*\+\s*$/.test(between)) break;
+      end += 1;
+      modulePath += literals[end][0].slice(1, -1);
+    }
+
+    if (/^(?:\.\.?\/)*yt-dlp\.js$/.test(modulePath)) references.push(modulePath);
+    index = end;
+  }
+
+  return references;
+}
+
 describe('server-rendered pages', () => {
   it.each([
     ['/', '<h1 class="mb-4">总览</h1>'],
@@ -841,16 +867,31 @@ describe('server-rendered pages', () => {
 
   it('allows only the task manager to import the low-level yt-dlp module', async () => {
     const sourceRoot = join(process.cwd(), 'src');
-    const importPattern = /from ['"](?:\.\.?\/)*yt-dlp\.js['"]/;
-    const importingFiles: string[] = [];
+    const legalImportPattern = /from '\.\/yt-dlp\.js'/g;
+    const violatingFiles: string[] = [];
 
     for (const file of await typeScriptFiles(sourceRoot)) {
-      if (importPattern.test(await readFile(file, 'utf8'))) {
-        importingFiles.push(relative(process.cwd(), file));
-      }
+      const source = await readFile(file, 'utf8');
+      const references = lowLevelYtDlpReferences(source);
+      if (references.length === 0) continue;
+
+      const projectPath = relative(process.cwd(), file);
+      const isLegalManagerImport = projectPath === 'src/yt-dlp-task-manager.ts'
+        && references.length === 1
+        && [...source.matchAll(legalImportPattern)].length === 1;
+      if (!isLegalManagerImport) violatingFiles.push(projectPath);
     }
 
-    expect(importingFiles.sort()).toEqual(['src/yt-dlp-task-manager.ts']);
+    expect(violatingFiles.sort()).toEqual([]);
+  });
+
+  it.each([
+    ['static import', "import { run as renamed } from '../yt-dlp.js';"],
+    ['dynamic import', "const module = await import('../yt-dlp.js');"],
+    ['require', "const module = require('../yt-dlp.js');"],
+    ['renamed concatenated loader', "const load = require; load('../yt-' + 'dlp.js');"],
+  ])('rejects a low-level yt-dlp bypass using %s', (_name, source) => {
+    expect(lowLevelYtDlpReferences(source)).toEqual(['../yt-dlp.js']);
   });
 
   it('keeps download cards readable across desktop and mobile widths', async () => {

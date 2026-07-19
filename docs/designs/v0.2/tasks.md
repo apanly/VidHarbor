@@ -489,7 +489,7 @@
   2. `rg -n "fetch|load|final|document|taskPage" test/integration/pages.test.ts` → 可控 DOM 中的生产加载路径测试有明确实现。
 
 ## task-23 · 强化唯一底层入口的绕过扫描
-- 状态: pending
+- 状态: done
 - 依赖: task-12
 - 文件范围:
   - test/integration/pages.test.ts
