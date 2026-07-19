@@ -43,6 +43,7 @@ let baseUrl: string;
 let stopServer: (() => Promise<void>) | undefined;
 let blockingSyncStartedPath: string;
 let blockingSyncReleasePath: string;
+let runtimeErrors: unknown[];
 
 function metadata(
   id: string,
@@ -175,6 +176,7 @@ beforeEach(async () => {
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
   taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
+  runtimeErrors = [];
   database
     .prepare(
       `UPDATE settings
@@ -187,7 +189,7 @@ beforeEach(async () => {
     createApiRouter(
       database,
       mountPath,
-      new RuntimeCoordinator(() => undefined),
+      new RuntimeCoordinator((error) => runtimeErrors.push(error)),
       taskManager,
       {
         enqueue: () => undefined,
@@ -417,6 +419,38 @@ describe('channel API', () => {
     expect(taskManager.getSnapshot().at(-1)?.type).toBe('channel_initial_sync');
   });
 
+  it('settles a stopped initial synchronization without reporting a runtime failure', async () => {
+    const savedResponse = await request('/channels', 'POST', {
+      url: 'https://www.youtube.com/@blocking',
+      customName: 'Canceled channel',
+      proxyId: null,
+      checkIntervalMinutes: null,
+    });
+    const saved = (await savedResponse.json()) as { channel: { id: number } };
+
+    const response = await request(
+      `/channels/${saved.channel.id}/initial-sync`,
+      'POST',
+      { historyMonths: 1 },
+    );
+    expect(response.status).toBe(202);
+    await waitForFile(blockingSyncStartedPath);
+
+    await taskManager.stop();
+
+    expect(taskManager.getSnapshot().at(-1)).toMatchObject({
+      type: 'channel_initial_sync',
+      status: 'canceled',
+    });
+    expect(
+      database
+        .prepare('SELECT initial_sync_status FROM channels WHERE id = ?')
+        .pluck()
+        .get(saved.channel.id),
+    ).toBe('failed');
+    expect(runtimeErrors).toEqual([]);
+  });
+
   it('waits for a manual check and records its fixed task type', async () => {
     const channel = await createChannel(
       'https://www.youtube.com/@first',
@@ -464,6 +498,30 @@ describe('channel API', () => {
     };
     expect(list.items.find((channel) => channel.id === created.channel.id)?.initialSync)
       .toMatchObject({ status: 'failed', error: expect.any(String) });
+    expect(runtimeErrors).toEqual([]);
+  });
+
+  it('reports an initial synchronization persistence failure', async () => {
+    const createResponse = await request('/channels', 'POST', {
+      url: 'https://www.youtube.com/@blocking',
+      customName: 'Persistence failure channel',
+      proxyId: null,
+      checkIntervalMinutes: null,
+    });
+    const created = (await createResponse.json()) as { channel: { id: number } };
+    const response = await request(
+      `/channels/${created.channel.id}/initial-sync`,
+      'POST',
+      { historyMonths: 1 },
+    );
+    expect(response.status).toBe(202);
+    await waitForFile(blockingSyncStartedPath);
+
+    database.close();
+    await writeFile(blockingSyncReleasePath, '');
+
+    await expect.poll(() => runtimeErrors).toHaveLength(1);
+    expect(runtimeErrors[0]).toMatchObject({ code: 'PERSISTENCE_ERROR' });
   });
 
   it('rejects invalid channel IDs and reports missing channels', async () => {

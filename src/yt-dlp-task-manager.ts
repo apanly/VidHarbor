@@ -99,8 +99,20 @@ const TERMINAL_STATUSES = new Set<YtDlpTaskStatus>([
 ]);
 const SUBMISSION_KEYS = new Set<PropertyKey>(['type', 'execute']);
 
+export class YtDlpTaskCancellationError extends Error {
+  constructor() {
+    super('yt-dlp task canceled');
+  }
+}
+
+export function isYtDlpTaskCancellationError(
+  error: unknown,
+): error is YtDlpTaskCancellationError {
+  return error instanceof YtDlpTaskCancellationError;
+}
+
 function cancellationError(): Error {
-  return new Error('yt-dlp task canceled');
+  return new YtDlpTaskCancellationError();
 }
 
 function errorMessage(error: unknown): string {

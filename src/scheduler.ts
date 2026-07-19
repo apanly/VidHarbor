@@ -1,5 +1,6 @@
 import type { DatabaseConnection } from './db/client.js';
 import { BusinessError } from './errors.js';
+import { isYtDlpTaskCancellationError } from './yt-dlp-task-manager.js';
 
 const TICK_INTERVAL_MILLISECONDS = 60_000;
 const MINUTE_MILLISECONDS = 60_000;
@@ -153,7 +154,10 @@ export class ChannelScheduler {
 
     const results = await Promise.allSettled(checks);
     const failures = results.flatMap((result) =>
-      result.status === 'rejected' && !isRecordedChannelFailure(result.reason)
+      // A canceled check has already converged its manager and channel state.
+      result.status === 'rejected' &&
+      !isRecordedChannelFailure(result.reason) &&
+      !isYtDlpTaskCancellationError(result.reason)
         ? [result.reason as unknown]
         : [],
     );

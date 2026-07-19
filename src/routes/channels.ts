@@ -17,7 +17,10 @@ import {
   saveChannel,
   updateChannel,
 } from '../services/channel.js';
-import type { YtDlpTaskManager } from '../yt-dlp-task-manager.js';
+import {
+  isYtDlpTaskCancellationError,
+  type YtDlpTaskManager,
+} from '../yt-dlp-task-manager.js';
 
 function parseChannelId(value: string): number {
   if (!/^[1-9]\d*$/.test(value)) {
@@ -40,9 +43,11 @@ export function createChannelsRouter(
   const initialSyncTaskQueue = {
     trackInitialSync(task: Promise<unknown>): void {
       void task.catch((error: unknown) => {
+        // A canceled task has already converged its manager and channel state.
         if (
-          !(error instanceof BusinessError) ||
-          error.code === 'PERSISTENCE_ERROR'
+          !isYtDlpTaskCancellationError(error) &&
+          (!(error instanceof BusinessError) ||
+            error.code === 'PERSISTENCE_ERROR')
         ) {
           runtime.reportError(error);
         }

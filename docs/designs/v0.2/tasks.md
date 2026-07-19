@@ -334,7 +334,7 @@
   2. `rg -n "cancelRequested|signal\.aborted|throwIfCancel" src/yt-dlp-task-manager.ts src/download-worker.ts` → 管理器取消状态与 worker 后处理取消检查均有明确实现。
 
 ## task-16 · 正常停机取消不得上报 runtime 故障
-- 状态: pending
+- 状态: done
 - 依赖: task-02, task-05, task-06
 - 文件范围:
   - src/yt-dlp-task-manager.ts
