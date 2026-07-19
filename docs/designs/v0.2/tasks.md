@@ -65,7 +65,7 @@
   3. `rg -n "media_download|taskId" src/download-worker.ts` → 命中管理器任务提交与活动映射。
 
 ## task-04 · 统一下载服务的探测与取消契约
-- 状态: pending
+- 状态: failed
 - 依赖: task-02, task-03
 - 文件范围:
   - src/services/download.ts

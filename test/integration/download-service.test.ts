@@ -10,11 +10,13 @@ import { BusinessError } from '../../src/errors.js';
 import {
   createChannelDownloads,
   createDirectDownload,
+  cancelDownload,
   getDownloadFile,
   retryDownload,
   type DownloadQueue,
   type QueuedDownload,
 } from '../../src/services/download.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const NOW = new Date('2026-07-17T11:20:00.000Z');
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
@@ -49,6 +51,7 @@ let executablePath: string;
 let database: DatabaseConnection;
 let queued: QueuedDownload[];
 let queue: DownloadQueue;
+let taskManager: YtDlpTaskManager;
 
 async function installFakeYtDlp(): Promise<void> {
   executablePath = join(sandbox, 'fake-yt-dlp.mjs');
@@ -183,7 +186,11 @@ beforeEach(async () => {
   migrateDatabase(database);
   configureRoot();
   queued = [];
-  queue = { enqueue: (download) => queued.push(download) };
+  queue = {
+    enqueue: (download) => queued.push(download),
+    cancel: async () => undefined,
+  };
+  taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
 });
 
 afterEach(async () => {
@@ -403,7 +410,7 @@ describe('download creation service', () => {
 
     const result = await createDirectDownload(
       database,
-      executablePath,
+      taskManager,
       downloadRoot,
       directInput(VIMEO_VIDEO_URL, proxyId),
       queue,
@@ -442,6 +449,12 @@ describe('download creation service', () => {
         downloadRoot: realDownloadRoot,
       }),
     ]);
+    expect(taskManager.getSnapshot()).toEqual([
+      expect.objectContaining({
+        type: 'metadata_probe',
+        status: 'succeeded',
+      }),
+    ]);
 
     database
       .prepare(
@@ -453,7 +466,10 @@ describe('download creation service', () => {
       )
       .run(NOW.toISOString(), result.id);
     queued = [];
-    queue = { enqueue: (download) => queued.push(download) };
+    queue = {
+      enqueue: (download) => queued.push(download),
+      cancel: async () => undefined,
+    };
 
     await retryDownload(database, downloadRoot, result.id, queue, NOW);
 
@@ -475,7 +491,7 @@ describe('download creation service', () => {
   it('returns only a verified completed main file', async () => {
     const result = await createDirectDownload(
       database,
-      executablePath,
+      taskManager,
       downloadRoot,
       directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, null),
       queue,
@@ -529,7 +545,7 @@ describe('download creation service', () => {
     await expectBusinessError(
       createDirectDownload(
         database,
-        executablePath,
+        taskManager,
         downloadRoot,
         directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, 999),
         queue,
@@ -540,7 +556,7 @@ describe('download creation service', () => {
     await expectBusinessError(
       createDirectDownload(
         database,
-        executablePath,
+        taskManager,
         downloadRoot,
         directInput(`https://youtu.be/${SECOND_VIDEO_ID}`, null),
         queue,
@@ -553,11 +569,84 @@ describe('download creation service', () => {
     expect(queued).toEqual([]);
   });
 
+  it('maps metadata probe failures without creating a download record', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        directInput('https://example.com/probe-failure', null),
+        queue,
+        NOW,
+      ),
+      'VIDEO_FETCH_FAILED',
+    );
+
+    expect(downloadRows()).toEqual([]);
+    expect(queued).toEqual([]);
+    expect(taskManager.getSnapshot()).toEqual([
+      expect.objectContaining({
+        type: 'metadata_probe',
+        status: 'failed',
+      }),
+    ]);
+  });
+
+  it('waits for queue cancellation after marking an active download canceled', async () => {
+    const channelId = insertChannel(null);
+    const videoId = insertVideo(
+      channelId,
+      FIRST_VIDEO_ID,
+      'First title',
+      '2026-07-16',
+    );
+    const [download] = await createChannelDownloads(
+      database,
+      downloadRoot,
+      [videoId],
+      queue,
+      NOW,
+    );
+    if (download === undefined) throw new Error('expected a download');
+
+    let resolveCancellation!: () => void;
+    const queueCancellation = new Promise<void>((resolve) => {
+      resolveCancellation = resolve;
+    });
+    let canceledDownloadId: number | undefined;
+    queue = {
+      enqueue: (queuedDownload) => queued.push(queuedDownload),
+      cancel: (downloadId) => {
+        canceledDownloadId = downloadId;
+        return queueCancellation;
+      },
+    };
+
+    let settled = false;
+    const cancellation = cancelDownload(database, download.id, queue, NOW).then(
+      () => {
+        settled = true;
+      },
+    );
+    await Promise.resolve();
+
+    expect(canceledDownloadId).toBe(download.id);
+    expect(database
+      .prepare('SELECT status FROM downloads WHERE id = ?')
+      .pluck()
+      .get(download.id)).toBe('canceled');
+    expect(settled).toBe(false);
+
+    resolveCancellation();
+    await cancellation;
+    expect(settled).toBe(true);
+  });
+
   it('rejects non-HTTPS URLs before probing or creating records', async () => {
     await expectBusinessError(
       createDirectDownload(
         database,
-        executablePath,
+        taskManager,
         downloadRoot,
         directInput('http://vimeo.com/123456789', null),
         queue,
@@ -694,7 +783,7 @@ describe('download creation service', () => {
       const results = await Promise.allSettled([
         createDirectDownload(
           database,
-          executablePath,
+          taskManager,
           downloadRoot,
           input,
           queue,
@@ -702,7 +791,7 @@ describe('download creation service', () => {
         ),
         createDirectDownload(
           secondDatabase,
-          executablePath,
+          taskManager,
           downloadRoot,
           input,
           queue,
@@ -722,7 +811,7 @@ describe('download creation service', () => {
     const input = directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, null);
     const first = await createDirectDownload(
       database,
-      executablePath,
+      taskManager,
       downloadRoot,
       input,
       queue,
@@ -735,7 +824,7 @@ describe('download creation service', () => {
     await expectBusinessError(
       createDirectDownload(
         database,
-        executablePath,
+        taskManager,
         downloadRoot,
         input,
         queue,
