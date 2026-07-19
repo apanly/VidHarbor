@@ -653,7 +653,7 @@ setInterval(() => {}, 1000);
     const persisted = openDatabase(config.databasePath);
     expect(
       persisted.prepare('SELECT status FROM downloads ORDER BY id').pluck().all(),
-    ).toEqual(['canceled', 'pending']);
+    ).toEqual(['canceled', 'canceled']);
     persisted.close();
 
     const restarted = await startServer(config, () => undefined);

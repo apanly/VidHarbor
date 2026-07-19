@@ -287,9 +287,6 @@ export async function startServer(
           const schedulerBoundary = scheduler?.stop().catch((error: unknown) => {
             shutdownErrors.push(error);
           });
-          const taskManagerBoundary = taskManager?.stop().catch((error: unknown) => {
-            shutdownErrors.push(error);
-          });
           log({ event: 'scheduler_stopped' });
           runtime?.closeDownloadEventStreams();
 
@@ -301,6 +298,9 @@ export async function startServer(
           }
 
           await schedulerBoundary;
+          const taskManagerBoundary = taskManager?.stop().catch((error: unknown) => {
+            shutdownErrors.push(error);
+          });
           await taskManagerBoundary;
           await worker?.waitForIdle().catch((error: unknown) => {
             shutdownErrors.push(error);

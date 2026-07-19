@@ -469,7 +469,11 @@ describe('single download worker', () => {
     await waitForFile(join(sandbox, 'first.running'));
 
     await worker.cancel(secondId);
-    expect(row(secondId)).toMatchObject({ status: 'pending' });
+    expect(row(secondId)).toMatchObject({
+      status: 'canceled',
+      failure_reason: 'yt-dlp task canceled',
+      finished_at: expect.any(String),
+    });
     expect(taskManager?.getSnapshot()[1]).toMatchObject({
       type: 'media_download',
       status: 'canceled',
@@ -480,6 +484,44 @@ describe('single download worker', () => {
     await worker.waitForIdle();
     expect(await readFile(join(sandbox, 'execution.log'), 'utf8')).toBe(
       'start:fixture://worker-block-first\nend:fixture://worker-block-first\n',
+    );
+  });
+
+  it('reports queued cancellation persistence failure at the worker boundary', async () => {
+    const firstId = insertPending(FIRST_VIDEO_ID);
+    const secondId = insertPending(SECOND_VIDEO_ID);
+    const worker = createWorker(
+      rejectUpdates(
+        database,
+        "SET status = 'canceled'",
+        new Error(`cancellation persistence rejected for ${PROXY_URL}`),
+      ),
+    );
+
+    worker.enqueue(job(firstId, FIRST_VIDEO_ID, 'fixture://worker-block-first'));
+    worker.enqueue(
+      job(
+        secondId,
+        SECOND_VIDEO_ID,
+        'fixture://worker-second',
+        downloadRoot,
+        PROXY_URL,
+      ),
+    );
+    await waitForFile(join(sandbox, 'first.running'));
+
+    await worker.cancel(secondId);
+    await expect(worker.waitForIdle()).rejects.toThrow(
+      'cancellation persistence rejected for http://***@proxy.example:8080',
+    );
+    expect(row(secondId)).toMatchObject({ status: 'pending' });
+    expect(taskManager?.getSnapshot()[1]).toMatchObject({
+      type: 'media_download',
+      status: 'canceled',
+      startedAt: null,
+    });
+    expect(await readFile(join(sandbox, 'execution.log'), 'utf8')).toBe(
+      'start:fixture://worker-block-first\n',
     );
   });
 
@@ -900,7 +942,7 @@ if (args.includes('--skip-download')) {
       'running persistence rejected for http://***@proxy.example:8080',
     );
     expect(row(firstId)).toMatchObject({ status: 'pending' });
-    expect(row(secondId)).toMatchObject({ status: 'pending' });
+    expect(row(secondId)).toMatchObject({ status: 'canceled' });
     await expect(readFile(join(sandbox, 'execution.log'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT',
     });
@@ -938,7 +980,7 @@ if (args.includes('--skip-download')) {
       'failed persistence rejected for http://***@proxy.example:8080',
     );
     expect(row(firstId)).toMatchObject({ status: 'running' });
-    expect(row(secondId)).toMatchObject({ status: 'pending' });
+    expect(row(secondId)).toMatchObject({ status: 'canceled' });
     expect(await readFile(join(sandbox, 'execution.log'), 'utf8')).toBe(
       'start:fixture://worker-exit-failure\n',
     );
@@ -974,7 +1016,7 @@ if (args.includes('--skip-download')) {
       status: 'failed',
       failure_reason: expect.stringMatching(/EACCES|EPERM/),
     });
-    expect(row(secondId)).toMatchObject({ status: 'pending' });
+    expect(row(secondId)).toMatchObject({ status: 'canceled' });
     await expect(readdir(taskDirectory)).resolves.toEqual([]);
     fsControl.rejectedRmPath = undefined;
   });

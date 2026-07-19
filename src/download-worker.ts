@@ -329,7 +329,29 @@ export class DownloadWorker implements DownloadQueue {
     void handle.result.then(
       () => this.#finishTrackedTask(download.downloadId, handle.id),
       (error: unknown) => {
-        if (error instanceof DownloadWorkerBoundaryError) {
+        if (isYtDlpTaskCancellationError(error)) {
+          try {
+            this.#database
+              .prepare(
+                `UPDATE downloads
+                 SET status = 'canceled', failure_reason = ?, speed_text = NULL,
+                     eta_seconds = NULL, finished_at = ?
+                 WHERE id = ? AND status = 'pending'`,
+              )
+              .run(
+                failureMessage(error, download.proxyUrl),
+                new Date().toISOString(),
+                download.downloadId,
+              );
+          } catch (persistenceError) {
+            this.#reportFailure(
+              new DownloadWorkerBoundaryError(
+                new Error(failureMessage(persistenceError, download.proxyUrl)),
+              ),
+              handle.id,
+            );
+          }
+        } else if (error instanceof DownloadWorkerBoundaryError) {
           this.#reportFailure(error);
         }
         this.#finishTrackedTask(download.downloadId, handle.id);

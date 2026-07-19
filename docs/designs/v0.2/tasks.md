@@ -562,7 +562,7 @@
   3. `test -z "$(rg -n "rm\(thumbnailDirectory.*catch" src/download-worker.ts)"` → 缩略图目录清理不再无条件吞错。
 
 ## task-26 · 让排队媒体取消持久化业务终态
-- 状态: pending
+- 状态: failed
 - 依赖: task-25
 - 文件范围:
   - src/download-worker.ts
