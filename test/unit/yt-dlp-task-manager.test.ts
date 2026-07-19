@@ -247,6 +247,40 @@ describe('YtDlpTaskManager', () => {
     });
   });
 
+  it.each([
+    ['an empty rejection value', ''],
+    ['an error with an empty message', new Error('')],
+  ])('records a fixed non-empty failure reason for %s', async (_name, failure) => {
+    const manager = createManager();
+    const handle = manager.submit({
+      type: 'metadata_probe',
+      execute: async () => Promise.reject(failure),
+    });
+
+    await expect(handle.result).rejects.toBe(failure);
+    expect(manager.getSnapshot()[0]).toMatchObject({
+      status: 'failed',
+      failureReason: 'yt-dlp task failed',
+    });
+  });
+
+  it('uses a fixed non-empty failure reason when redaction returns empty', async () => {
+    const manager = new YtDlpTaskManager('/fixture/yt-dlp', 1, () => '');
+    const failure = new Error('secret credentials');
+    const handle = manager.submit({
+      type: 'metadata_probe',
+      execute: async () => {
+        throw failure;
+      },
+    });
+
+    await expect(handle.result).rejects.toBe(failure);
+    const failureReason = manager.getSnapshot()[0]?.failureReason;
+    expect(manager.getSnapshot()[0]?.status).toBe('failed');
+    expect(failureReason).toBe('yt-dlp task failed');
+    expect(failureReason).not.toContain('secret credentials');
+  });
+
   it.each(['priority', 'pool', 'weight', 'dedupe', 'retry'])(
     'rejects the undefined %s scheduling field',
     (field) => {

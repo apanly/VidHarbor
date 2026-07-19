@@ -100,6 +100,7 @@ const TERMINAL_STATUSES = new Set<YtDlpTaskStatus>([
   'canceled',
 ]);
 const SUBMISSION_KEYS = new Set<PropertyKey>(['type', 'execute']);
+const EMPTY_FAILURE_REASON = 'yt-dlp task failed';
 
 export class YtDlpTaskCancellationError extends Error {
   constructor() {
@@ -119,9 +120,10 @@ function cancellationError(): Error {
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
-    return error.message === '' ? error.name : error.message;
+    return error.message === '' ? EMPTY_FAILURE_REASON : error.message;
   }
-  return String(error);
+  const message = String(error);
+  return message === '' ? EMPTY_FAILURE_REASON : message;
 }
 
 function assertSubmission<T>(
@@ -343,7 +345,9 @@ export class YtDlpTaskManager {
     snapshot.status = status;
     snapshot.finishedAt = new Date().toISOString();
     if (status === 'failed') {
-      snapshot.failureReason = this.#redactFailureReason(errorMessage(outcome));
+      const failureReason = this.#redactFailureReason(errorMessage(outcome));
+      snapshot.failureReason =
+        failureReason === '' ? EMPTY_FAILURE_REASON : failureReason;
       activeTask.failed = true;
       activeTask.failure = outcome;
       activeTask.rejectResult(outcome);

@@ -427,7 +427,7 @@
   2. `rg -n "isYtDlpTaskCancellationError|cancelRequested|status.*failed|#finishTask" src/yt-dlp-task-manager.ts` → 类型化取消与失败终态分类均有明确实现。
 
 ## task-20 · 保证失败快照原因非空
-- 状态: pending
+- 状态: done
 - 依赖: task-19
 - 文件范围:
   - src/yt-dlp-task-manager.ts
