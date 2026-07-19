@@ -23,7 +23,7 @@
   3. `rg -n "shell: false|process\.kill\(-child\.pid" src/yt-dlp.ts` → 同时保留无 shell 与进程组终止实现。
 
 ## task-02 · 实现唯一 yt-dlp 任务管理器
-- 状态: pending
+- 状态: failed
 - 依赖: task-01
 - 文件范围:
   - src/yt-dlp-task-manager.ts (新建)
