@@ -11,6 +11,7 @@ interface SchemaEntry {
 const MIGRATIONS = [
   readFileSync(new URL('./migrations/001-initial.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('./migrations/002-manual-channel-sync.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('./migrations/003-generic-direct-downloads.sql', import.meta.url), 'utf8'),
 ] as const;
 
 function schemaEntries(database: DatabaseConnection): SchemaEntry[] {
@@ -103,18 +104,28 @@ export function migrateDatabase(database: DatabaseConnection): void {
       database
         .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)')
         .run(appliedAt);
+      database.exec(MIGRATIONS[2]);
+      database
+        .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)')
+        .run(appliedAt);
     } else {
       const versions = database
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .pluck()
         .all() as number[];
-      if (versions.length === 1 && versions[0] === 1) {
-        database.exec(MIGRATIONS[1]);
-        database
-          .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)')
-          .run(new Date().toISOString());
-      } else if (versions.length !== 2 || versions[0] !== 1 || versions[1] !== 2) {
+      if (
+        versions.length === 0 ||
+        versions.length > MIGRATIONS.length ||
+        versions.some((version, index) => version !== index + 1)
+      ) {
         throw new Error(`Unknown schema migration version: ${versions.join(', ')}`);
+      }
+      const appliedAt = new Date().toISOString();
+      for (let index = versions.length; index < MIGRATIONS.length; index += 1) {
+        database.exec(MIGRATIONS[index] as string);
+        database
+          .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
+          .run(index + 1, appliedAt);
       }
     }
 

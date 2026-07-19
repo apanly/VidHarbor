@@ -64,7 +64,8 @@ export function recoverInterruptedDownloads(
   try {
     const update = database.prepare(
         `UPDATE downloads
-         SET status = 'interrupted', failure_reason = ?, finished_at = ?
+         SET status = 'interrupted', failure_reason = ?, speed_text = NULL,
+             eta_seconds = NULL, finished_at = ?
          WHERE id = ? AND status IN ('pending', 'downloading', 'running')`,
       );
     let changes = 0;
@@ -463,7 +464,8 @@ export class DownloadWorker implements DownloadQueue {
         .prepare(
           `UPDATE downloads
            SET status = 'completed', output_path = ?, progress_percent = 100,
-               eta_seconds = 0, exit_code = 0, finished_at = ?
+               speed_text = NULL, eta_seconds = NULL, exit_code = 0,
+               finished_at = ?
            WHERE id = ? AND status = 'running'`,
         )
         .run(targetPath, new Date().toISOString(), download.downloadId);
@@ -495,7 +497,8 @@ export class DownloadWorker implements DownloadQueue {
           this.#database
             .prepare(
               `UPDATE downloads
-               SET status = ?, failure_reason = ?, exit_code = ?, finished_at = ?
+               SET status = ?, failure_reason = ?, speed_text = NULL,
+                   eta_seconds = NULL, exit_code = ?, finished_at = ?
                WHERE id = ? AND status = 'running'`,
             )
             .run(

@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe('SQLite database', () => {
-  it('configures each file connection and migrates an empty database to schema 2', async () => {
+  it('configures each file connection and migrates an empty database to schema 3', async () => {
     const database = openDatabase(await temporaryDatabasePath());
 
     try {
@@ -52,7 +52,7 @@ describe('SQLite database', () => {
 
       expect(
         database.prepare('SELECT version FROM schema_migrations ORDER BY version').pluck().all(),
-      ).toEqual([1, 2]);
+      ).toEqual([1, 2, 3]);
       expect(
         database
           .prepare(
@@ -90,6 +90,15 @@ describe('SQLite database', () => {
         database
           .prepare(
             `SELECT sql FROM sqlite_schema
+             WHERE type = 'table' AND name = 'downloads'`,
+          )
+          .pluck()
+          .get(),
+      ).not.toContain("CHECK (platform = 'youtube')");
+      expect(
+        database
+          .prepare(
+            `SELECT sql FROM sqlite_schema
              WHERE type = 'table' AND name = 'notifications'`,
           )
           .pluck()
@@ -100,7 +109,7 @@ describe('SQLite database', () => {
     }
   });
 
-  it('does not change an already migrated schema 2 database', async () => {
+  it('does not change an already migrated schema 3 database', async () => {
     const database = openDatabase(await temporaryDatabasePath());
 
     try {
@@ -118,7 +127,7 @@ describe('SQLite database', () => {
 
       expect(
         database.prepare('SELECT COUNT(*) FROM schema_migrations').pluck().get(),
-      ).toBe(2);
+      ).toBe(3);
       expect(database.prepare('SELECT COUNT(*) FROM settings').pluck().get()).toBe(1);
       expect(
         database
@@ -199,6 +208,64 @@ describe('SQLite database', () => {
     }
   });
 
+  it('migrates schema 2 downloads and permits a non-YouTube direct platform', async () => {
+    const database = openDatabase(await temporaryDatabasePath());
+    const migrationOne = await readFile(
+      new URL('../../src/db/migrations/001-initial.sql', import.meta.url),
+      'utf8',
+    );
+    const migrationTwo = await readFile(
+      new URL('../../src/db/migrations/002-manual-channel-sync.sql', import.meta.url),
+      'utf8',
+    );
+    const timestamp = '2026-07-18T10:00:00.000Z';
+
+    try {
+      database.exec(migrationOne);
+      database.prepare('INSERT INTO schema_migrations VALUES (1, ?)').run(timestamp);
+      database
+        .prepare(
+          `INSERT INTO settings (
+            id, download_root, global_check_interval_minutes,
+            download_concurrency, updated_at
+          ) VALUES (1, NULL, 60, 1, ?)`,
+        )
+        .run(timestamp);
+      database.exec(migrationTwo);
+      database.prepare('INSERT INTO schema_migrations VALUES (2, ?)').run(timestamp);
+      database
+        .prepare(
+          `INSERT INTO downloads (
+            source_type, source_url, platform, platform_video_id, title,
+            network_mode, status, created_at
+          ) VALUES ('direct', ?, 'youtube', 'aB_12-cD345', 'Existing',
+                    'direct', 'pending', ?)`,
+        )
+        .run('https://youtu.be/aB_12-cD345', timestamp);
+
+      migrateDatabase(database);
+
+      expect(database.prepare('SELECT version FROM schema_migrations ORDER BY version').pluck().all())
+        .toEqual([1, 2, 3]);
+      expect(database.prepare('SELECT platform_video_id FROM downloads').pluck().all())
+        .toEqual(['aB_12-cD345']);
+      expect(() =>
+        database
+          .prepare(
+            `INSERT INTO downloads (
+              source_type, source_url, platform, platform_video_id, title,
+              network_mode, status, created_at
+            ) VALUES ('direct', 'https://vimeo.com/123456789', 'vimeo',
+                      '123456789', 'Vimeo', 'direct', 'pending', ?)`,
+          )
+          .run(timestamp),
+      ).not.toThrow();
+      expect(database.pragma('foreign_key_check')).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+
   it('enforces CHECK, UNIQUE, and FOREIGN KEY constraints', async () => {
     const database = openDatabase(await temporaryDatabasePath());
 
@@ -250,9 +317,9 @@ describe('SQLite database', () => {
 
     try {
       migrateDatabase(database);
-      database.prepare('UPDATE schema_migrations SET version = 3 WHERE version = 2').run();
+      database.prepare('UPDATE schema_migrations SET version = 4 WHERE version = 3').run();
 
-      expect(() => migrateDatabase(database)).toThrow('Unknown schema migration version: 1, 3');
+      expect(() => migrateDatabase(database)).toThrow('Unknown schema migration version: 1, 2, 4');
     } finally {
       database.close();
     }

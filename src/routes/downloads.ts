@@ -16,6 +16,8 @@ import {
   type DownloadFile,
 } from '../services/download.js';
 
+const DOWNLOAD_EVENT_INTERVAL_MILLISECONDS = 10_000;
+
 interface ByteRange {
   readonly start: number;
   readonly end: number;
@@ -272,10 +274,14 @@ export function createDownloadsRouter(
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-    const sendSnapshot = () => {
-      response.write(`event: downloads\ndata: ${JSON.stringify({ items: listDownloads(database) })}\n\n`);
+    let previousSnapshot: string | undefined;
+    const sendChangedSnapshot = () => {
+      const snapshot = JSON.stringify({ items: listDownloads(database) });
+      if (snapshot === previousSnapshot) return;
+      previousSnapshot = snapshot;
+      response.write(`event: downloads\ndata: ${snapshot}\n\n`);
     };
-    sendSnapshot();
+    sendChangedSnapshot();
     const unregister = runtime.registerDownloadEventStream(response);
     const close = () => {
       clearInterval(timer);
@@ -284,12 +290,12 @@ export function createDownloadsRouter(
     };
     const timer = setInterval(() => {
       try {
-        sendSnapshot();
+        sendChangedSnapshot();
       } catch (error) {
         close();
         runtime.reportError(error);
       }
-    }, 1000);
+    }, DOWNLOAD_EVENT_INTERVAL_MILLISECONDS);
     request.on('close', close);
   });
 
@@ -337,7 +343,11 @@ export function createDownloadsRouter(
   });
 
   router.delete('/:id', async (request, response) => {
-    await deleteDownload(database, parseDownloadId(request.params.id));
+    await deleteDownload(
+      database,
+      downloadsMountPath,
+      parseDownloadId(request.params.id),
+    );
     response.status(204).end();
   });
 

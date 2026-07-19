@@ -20,6 +20,8 @@ const NOW = new Date('2026-07-17T11:20:00.000Z');
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
 const FIRST_VIDEO_ID = 'aB_12-cD345';
 const SECOND_VIDEO_ID = 'eF_67-gH890';
+const VIMEO_VIDEO_ID = '123456789';
+const VIMEO_VIDEO_URL = `https://vimeo.com/${VIMEO_VIDEO_ID}`;
 
 const DEFAULT_ADVANCED_OPTIONS = {
   mediaType: 'video',
@@ -57,7 +59,7 @@ async function installFakeYtDlp(): Promise<void> {
     `#!/usr/bin/env node
 const args = process.argv.slice(2);
 const url = args.at(-1);
-if (url === 'https://www.youtube.com/watch?v=${FIRST_VIDEO_ID}') {
+if (url === 'https://www.youtube.com/watch?v=${FIRST_VIDEO_ID}' || url === 'https://youtu.be/${FIRST_VIDEO_ID}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Youtube',
     id: '${FIRST_VIDEO_ID}',
@@ -68,7 +70,7 @@ if (url === 'https://www.youtube.com/watch?v=${FIRST_VIDEO_ID}') {
   }) + '\\n');
   process.exit(0);
 }
-if (url === 'https://www.youtube.com/watch?v=${SECOND_VIDEO_ID}') {
+if (url === 'https://www.youtube.com/watch?v=${SECOND_VIDEO_ID}' || url === 'https://youtu.be/${SECOND_VIDEO_ID}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Youtube',
     id: '${SECOND_VIDEO_ID}',
@@ -76,6 +78,14 @@ if (url === 'https://www.youtube.com/watch?v=${SECOND_VIDEO_ID}') {
     upload_date: '20260716',
     webpage_url: url,
     live_status: 'not_live'
+  }) + '\\n');
+  process.exit(0);
+}
+if (url === '${VIMEO_VIDEO_URL}') {
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Vimeo',
+    id: '${VIMEO_VIDEO_ID}',
+    title: 'Vimeo title'
   }) + '\\n');
   process.exit(0);
 }
@@ -350,21 +360,21 @@ describe('download creation service', () => {
     expect(queued).toEqual([]);
   });
 
-  it('strictly probes a direct video, snapshots the selected proxy, and does not create a channel', async () => {
+  it('probes a generic HTTPS video, persists its extractor, and snapshots the selected proxy', async () => {
     const proxyId = insertProxy();
 
     const result = await createDirectDownload(
       database,
       executablePath,
       downloadRoot,
-      directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, proxyId),
+      directInput(VIMEO_VIDEO_URL, proxyId),
       queue,
       NOW,
     );
 
     expect(result).toMatchObject({
       sourceType: 'direct',
-      title: 'Direct title',
+      title: 'Vimeo title',
       status: 'pending',
       networkMode: 'proxy',
       proxyName: 'office',
@@ -375,9 +385,10 @@ describe('download creation service', () => {
         source_type: 'direct',
         channel_id: null,
         video_id: null,
-        source_url: `https://youtu.be/${FIRST_VIDEO_ID}`,
-        platform_video_id: FIRST_VIDEO_ID,
-        title: 'Direct title',
+        source_url: VIMEO_VIDEO_URL,
+        platform: 'vimeo',
+        platform_video_id: VIMEO_VIDEO_ID,
+        title: 'Vimeo title',
         published_date: null,
         proxy_name: 'office',
       }),
@@ -386,8 +397,8 @@ describe('download creation service', () => {
     expect(queued).toEqual([
       expect.objectContaining({
         downloadId: result.id,
-        sourceUrl: `https://youtu.be/${FIRST_VIDEO_ID}`,
-        platformVideoId: FIRST_VIDEO_ID,
+        sourceUrl: VIMEO_VIDEO_URL,
+        platformVideoId: VIMEO_VIDEO_ID,
         proxyUrl: PROXY_URL,
         targetDirectory: realDownloadRoot,
       }),
@@ -396,7 +407,9 @@ describe('download creation service', () => {
     database
       .prepare(
         `UPDATE downloads
-         SET status = 'failed', failure_reason = 'network error', finished_at = ?
+         SET status = 'failed', failure_reason = 'network error',
+             progress_percent = 42.5, speed_text = '1.2MiB/s', eta_seconds = 17,
+             exit_code = 3, finished_at = ?
          WHERE id = ?`,
       )
       .run(NOW.toISOString(), result.id);
@@ -405,7 +418,19 @@ describe('download creation service', () => {
 
     await retryDownload(database, downloadRoot, result.id, queue, NOW);
 
-    expect(queued[0]?.sourceUrl).toBe(`https://youtu.be/${FIRST_VIDEO_ID}`);
+    expect(queued[0]?.sourceUrl).toBe(VIMEO_VIDEO_URL);
+    expect(database
+      .prepare(
+        `SELECT status, progress_percent, speed_text, eta_seconds, exit_code
+         FROM downloads WHERE id = ?`,
+      )
+      .get(result.id)).toEqual({
+      status: 'pending',
+      progress_percent: null,
+      speed_text: null,
+      eta_seconds: null,
+      exit_code: null,
+    });
   });
 
   it('returns only a verified completed main file', async () => {
@@ -483,6 +508,23 @@ describe('download creation service', () => {
         NOW,
       ),
       'VIDEO_METADATA_INVALID',
+    );
+
+    expect(downloadRows()).toEqual([]);
+    expect(queued).toEqual([]);
+  });
+
+  it('rejects non-HTTPS URLs before probing or creating records', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        executablePath,
+        downloadRoot,
+        directInput('http://vimeo.com/123456789', null),
+        queue,
+        NOW,
+      ),
+      'NOT_A_VIDEO_URL',
     );
 
     expect(downloadRows()).toEqual([]);

@@ -16,7 +16,11 @@ const CHANNEL_NAME_ERROR = 'invalid channel name';
 const PATH_OUTSIDE_ROOT_ERROR = 'path is outside download root';
 const ROOT_UNAVAILABLE_ERROR =
   'download root is not readable, writable, and enterable';
-const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+export function isArchiveVideoId(value: unknown): value is string {
+  return typeof value === 'string' && VIDEO_ID_PATTERN.test(value);
+}
 
 function isContained(basePath: string, candidatePath: string): boolean {
   const relativePath = relative(basePath, candidatePath);
@@ -281,7 +285,7 @@ export async function assertVideoTargetAvailable(
   targetDirectory: string,
   videoId: string,
 ): Promise<void> {
-  if (!VIDEO_ID_PATTERN.test(videoId)) {
+  if (!isArchiveVideoId(videoId)) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid video ID');
   }
 

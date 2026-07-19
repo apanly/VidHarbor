@@ -207,6 +207,14 @@ async function waitForFile(path: string): Promise<void> {
   }
 }
 
+async function waitForProgress(downloadId: number): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (row(downloadId).progress_percent !== 42.5) {
+    if (Date.now() >= deadline) throw new Error('download progress was not persisted');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-download-worker-'));
   downloadRoot = join(sandbox, 'downloads');
@@ -297,18 +305,29 @@ describe('single download worker', () => {
     await expectTaskDirectoryRemoved(downloadId);
   });
 
-  it('persists machine-readable progress before completion', async () => {
+  it('persists stderr progress while active and clears transient metrics on completion', async () => {
     const downloadId = insertPending(FIRST_VIDEO_ID);
     const worker = new DownloadWorker(database, executablePath);
 
-    worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-progress'));
+    worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-progress-block'));
+    await waitForFile(join(sandbox, 'progress.running'));
+    await waitForProgress(downloadId);
+
+    expect(row(downloadId)).toMatchObject({
+      status: 'running',
+      progress_percent: 42.5,
+      speed_text: '1.2MiB/s',
+      eta_seconds: 17,
+    });
+
+    await writeFile(join(sandbox, 'progress.release'), 'release');
     await worker.waitForIdle();
 
     expect(row(downloadId)).toMatchObject({
       status: 'completed',
       progress_percent: 100,
-      speed_text: '1.2MiB/s',
-      eta_seconds: 0,
+      speed_text: null,
+      eta_seconds: null,
       exit_code: 0,
     });
   });

@@ -36,6 +36,19 @@ if (url?.startsWith('fixture://worker-')) {
       }
     }
   }
+  if (url === 'fixture://worker-progress-block') {
+    await writeFile(join(controlDirectory, 'progress.running'), 'running');
+    process.stderr.write('vidharbor-progress:42.5|1.2MiB/s|17\n');
+    const releasePath = join(controlDirectory, 'progress.release');
+    for (;;) {
+      try {
+        await access(releasePath);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+  }
   if (url.includes('exit-failure')) {
     process.stderr.write(
       'FFmpeg failed via http://alice:secret@proxy.example:8080',
@@ -60,7 +73,7 @@ if (url?.startsWith('fixture://worker-')) {
 
   await appendFile(join(controlDirectory, 'execution.log'), `end:${url}\n`);
   if (url.includes('progress')) {
-    process.stdout.write('vidharbor-progress:42.5|1.2MiB/s|17\n');
+    process.stderr.write('vidharbor-progress:42.5|1.2MiB/s|17\n');
   }
   process.stdout.write(`${filepath}\n`);
   process.exit(0);

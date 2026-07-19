@@ -1,10 +1,8 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
-
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApiRouter, createApp } from '../../src/app.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
@@ -17,6 +15,8 @@ import type {
 
 const FIRST_PLATFORM_VIDEO_ID = 'aB_12-cD345';
 const SECOND_PLATFORM_VIDEO_ID = 'eF_67-gH890';
+const VIMEO_VIDEO_ID = '123456789';
+const VIMEO_VIDEO_URL = `https://vimeo.com/${VIMEO_VIDEO_ID}`;
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
 
 const DEFAULT_ADVANCED_OPTIONS = {
@@ -57,7 +57,7 @@ async function installFakeYtDlp(): Promise<void> {
     executablePath,
     `#!/usr/bin/env node
 const url = process.argv.at(-1);
-if (url === 'https://www.youtube.com/watch?v=${SECOND_PLATFORM_VIDEO_ID}') {
+if (url === 'https://www.youtube.com/watch?v=${SECOND_PLATFORM_VIDEO_ID}' || url === 'https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Youtube',
     id: '${SECOND_PLATFORM_VIDEO_ID}',
@@ -65,6 +65,14 @@ if (url === 'https://www.youtube.com/watch?v=${SECOND_PLATFORM_VIDEO_ID}') {
     upload_date: '20260716',
     webpage_url: url,
     live_status: 'not_live'
+  }) + '\\n');
+  process.exit(0);
+}
+if (url === '${VIMEO_VIDEO_URL}') {
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Vimeo',
+    id: '${VIMEO_VIDEO_ID}',
+    title: 'Vimeo video'
   }) + '\\n');
   process.exit(0);
 }
@@ -211,19 +219,58 @@ describe('download API', () => {
     }
   });
 
+  it('checks every ten seconds and emits only when the download snapshot changes', async () => {
+    vi.useFakeTimers();
+    try {
+      const response = await request('/downloads/events');
+      const reader = response.body?.getReader();
+      if (reader === undefined) throw new Error('missing SSE body');
+      await reader.read();
+
+      let settled = false;
+      const changedSnapshot = reader.read().then((result) => {
+        settled = true;
+        return result;
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(settled).toBe(false);
+
+      database
+        .prepare(
+          `INSERT INTO downloads (
+            source_type, source_url, platform, platform_video_id, title,
+            network_mode, status, created_at
+          ) VALUES ('direct', 'https://vimeo.com/987654321', 'vimeo',
+                    '987654321', 'Changed', 'direct', 'pending', ?)`,
+        )
+        .run('2026-07-17T09:00:00.000Z');
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const chunk = await changedSnapshot;
+      expect(new TextDecoder().decode(chunk.value)).toContain('"title":"Changed"');
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('closes an event stream and reports a periodic persistence failure', async () => {
-    const response = await request('/downloads/events');
-    const reader = response.body?.getReader();
-    if (reader === undefined) throw new Error('missing SSE body');
-    await reader.read();
+    vi.useFakeTimers();
+    try {
+      const response = await request('/downloads/events');
+      const reader = response.body?.getReader();
+      if (reader === undefined) throw new Error('missing SSE body');
+      await reader.read();
+      database.close();
+      await vi.advanceTimersByTimeAsync(10_000);
 
-    database.close();
-    await sleep(1_100);
-
-    expect(runtimeErrors).toEqual([
-      expect.objectContaining({ code: 'PERSISTENCE_ERROR' }),
-    ]);
-    await expect(reader.read()).resolves.toMatchObject({ done: true });
+      expect(runtimeErrors).toEqual([
+        expect.objectContaining({ code: 'PERSISTENCE_ERROR' }),
+      ]);
+      await expect(reader.read()).resolves.toMatchObject({ done: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('creates a channel batch with a 202 fixed response and enqueues without exposing proxy URLs', async () => {
@@ -276,15 +323,15 @@ describe('download API', () => {
     expect(queued).toHaveLength(1);
   });
 
-  it('creates a direct download with 202 after metadata probing', async () => {
-    const response = await request('/downloads/direct', 'POST', directInput(`https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}`, null));
+  it('creates a generic direct download with 202 after metadata probing', async () => {
+    const response = await request('/downloads/direct', 'POST', directInput(VIMEO_VIDEO_URL, null));
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
       download: {
         id: expect.any(Number),
         sourceType: 'direct',
-        title: 'Direct video',
+        title: 'Vimeo video',
         status: 'pending',
         outputPath: null,
         failureReason: null,
@@ -300,6 +347,7 @@ describe('download API', () => {
       },
     });
     expect(queued).toHaveLength(1);
+    expect(database.prepare('SELECT platform FROM downloads').pluck().get()).toBe('vimeo');
   });
 
   it('rejects non-contract bodies and keeps a partially invalid channel batch atomic', async () => {
@@ -436,6 +484,86 @@ describe('download API', () => {
     expect(new Uint8Array(await attachment.arrayBuffer())).toEqual(
       new Uint8Array([0, 1, 2, 3, 4]),
     );
+  });
+
+  it('deletes a completed download file and its record together', async () => {
+    const filename = 'delete-me.webm';
+    const outputPath = join(downloadRoot, filename);
+    const id = await insertCompletedDownload(filename);
+
+    const response = await request(`/downloads/${id}`, 'DELETE');
+
+    expect(response.status).toBe(204);
+    await expect(access(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(database.prepare('SELECT id FROM downloads WHERE id = ?').get(id)).toBeUndefined();
+    expect((await readdir(downloadRoot)).some((name) => name.startsWith('.vidharbor-delete-')))
+      .toBe(false);
+  });
+
+  it('restores a completed file when deleting its record fails', async () => {
+    const filename = 'restore-me.webm';
+    const outputPath = join(downloadRoot, filename);
+    const id = await insertCompletedDownload(filename);
+    database.exec(`
+      CREATE TRIGGER reject_download_delete BEFORE DELETE ON downloads
+      WHEN OLD.id = ${String(id)}
+      BEGIN SELECT RAISE(ABORT, 'forced delete failure'); END
+    `);
+
+    const response = await request(`/downloads/${id}`, 'DELETE');
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'PERSISTENCE_ERROR' },
+    });
+    await expect(access(outputPath)).resolves.toBeUndefined();
+    expect(database.prepare('SELECT id FROM downloads WHERE id = ?').pluck().get(id)).toBe(id);
+    expect((await readdir(downloadRoot)).some((name) => name.startsWith('.vidharbor-delete-')))
+      .toBe(false);
+  });
+
+  it('keeps a completed record when its file is missing', async () => {
+    const filename = 'already-missing.webm';
+    const id = await insertCompletedDownload(filename);
+    await rm(join(downloadRoot, filename));
+
+    const response = await request(`/downloads/${id}`, 'DELETE');
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'DOWNLOAD_FILE_UNAVAILABLE' },
+    });
+    expect(database.prepare('SELECT id FROM downloads WHERE id = ?').pluck().get(id)).toBe(id);
+  });
+
+  it('rejects active deletion and deletes a failed record without a file', async () => {
+    const result = database
+      .prepare(
+        `INSERT INTO downloads (
+          source_type, source_url, platform, platform_video_id, title,
+          network_mode, status, created_at
+        ) VALUES ('direct', 'https://vimeo.com/246813579', 'vimeo',
+                  '246813579', 'Pending', 'direct', 'pending', ?)`,
+      )
+      .run('2026-07-17T09:00:00.000Z');
+    const id = Number(result.lastInsertRowid);
+
+    const activeResponse = await request(`/downloads/${id}`, 'DELETE');
+    expect(activeResponse.status).toBe(400);
+    await expect(activeResponse.json()).resolves.toMatchObject({
+      error: { code: 'VALIDATION_ERROR' },
+    });
+    database
+      .prepare(
+        `UPDATE downloads
+         SET status = 'failed', failure_reason = 'network error', finished_at = ?
+         WHERE id = ?`,
+      )
+      .run('2026-07-17T09:01:00.000Z', id);
+
+    const failedResponse = await request(`/downloads/${id}`, 'DELETE');
+    expect(failedResponse.status).toBe(204);
+    expect(database.prepare('SELECT id FROM downloads WHERE id = ?').get(id)).toBeUndefined();
   });
 
   it('returns JSON errors for invalid, missing, incomplete, and missing-file requests', async () => {

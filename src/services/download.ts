@@ -1,19 +1,17 @@
-import { basename } from 'node:path';
+import { mkdtemp, rename, rm } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 
 import type { DatabaseConnection } from '../db/client.js';
 import { BusinessError } from '../errors.js';
 import {
   assertVideoTargetAvailable,
+  isArchiveVideoId,
   prepareChannelArchiveDirectory,
   resolveDirectDownloadDirectory,
   type ValidatedDownloadFile,
   validateDownloadFile,
   validateDownloadRoot,
 } from '../filesystem.js';
-import {
-  parseYouTubeVideoMetadata,
-  parseYouTubeVideoUrl,
-} from '../youtube.js';
 import { fetchVideoMetadata } from '../yt-dlp.js';
 
 export interface Download {
@@ -100,6 +98,7 @@ interface PreparedDownload {
   readonly channelId: number | null;
   readonly videoId: number | null;
   readonly sourceUrl: string;
+  readonly platform: string;
   readonly platformVideoId: string;
   readonly title: string;
   readonly publishedDate: string | null;
@@ -239,12 +238,53 @@ function parseDirectInput(input: unknown): DirectDownloadInput {
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
   }
-  parseYouTubeVideoUrl(value.url);
+  validateDirectUrl(value.url);
   return {
     url: value.url,
     proxyId: value.proxyId as number | null,
     targetSubdirectory: value.targetSubdirectory as string | null,
     advancedOptions: parseAdvancedOptions(value.advancedOptions),
+  };
+}
+
+function validateDirectUrl(value: string): void {
+  if (value === '' || value.trim() !== value || !value.startsWith('https://')) {
+    throw new BusinessError('NOT_A_VIDEO_URL', 'URL must be an HTTPS URL');
+  }
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.hostname === '') throw new Error();
+  } catch {
+    throw new BusinessError('NOT_A_VIDEO_URL', 'URL must be an HTTPS URL');
+  }
+}
+
+function parseDirectVideoMetadata(value: unknown): {
+  readonly platform: string;
+  readonly platformVideoId: string;
+  readonly title: string;
+} {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata must be an object');
+  }
+  const metadata = value as Record<string, unknown>;
+  if (
+    typeof metadata.extractor_key !== 'string' ||
+    metadata.extractor_key === '' ||
+    metadata.extractor_key.trim() !== metadata.extractor_key
+  ) {
+    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata extractor_key is required');
+  }
+  if (!isArchiveVideoId(metadata.id)) {
+    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata id is invalid');
+  }
+  if (typeof metadata.title !== 'string' || metadata.title.trim() === '') {
+    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata title is required');
+  }
+  return {
+    platform: metadata.extractor_key.toLowerCase(),
+    platformVideoId: metadata.id,
+    title: metadata.title,
   };
 }
 
@@ -335,18 +375,19 @@ function loadChannelVideos(
 
 function assertNoExistingDownload(
   database: DatabaseConnection,
+  platform: string,
   platformVideoId: string,
 ): void {
   try {
     const existingId = database
       .prepare(
         `SELECT id FROM downloads
-         WHERE platform = 'youtube' AND platform_video_id = ?
+         WHERE platform = ? AND platform_video_id = ?
            AND status IN ('pending', 'downloading', 'completed')
          LIMIT 1`,
       )
       .pluck()
-      .get(platformVideoId);
+      .get(platform, platformVideoId);
     if (existingId !== undefined) {
       throw new BusinessError(
         'DOWNLOAD_ALREADY_EXISTS',
@@ -378,7 +419,7 @@ async function prepareChannelDownloads(
   const downloads: PreparedDownload[] = [];
 
   for (const row of rows) {
-    assertNoExistingDownload(database, row.platform_video_id);
+    assertNoExistingDownload(database, 'youtube', row.platform_video_id);
     const publishedYear = Number(row.published_date.slice(0, 4));
     const targetDirectory = await prepareChannelArchiveDirectory(
       downloadRoot,
@@ -406,6 +447,7 @@ async function prepareChannelDownloads(
       channelId: row.channel_id,
       videoId: row.video_id,
       sourceUrl: row.source_url,
+      platform: 'youtube',
       platformVideoId: row.platform_video_id,
       title: row.title,
       publishedDate: row.published_date,
@@ -436,15 +478,16 @@ function insertDownloads(
         platform_video_id, title, published_date, network_mode,
         proxy_name, proxy_url_snapshot, target_subdirectory, advanced_options_json,
         status, created_at
-      ) VALUES (?, ?, ?, ?, 'youtube', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     );
     const downloads = prepared.map((value) => {
-      assertNoExistingDownload(database, value.platformVideoId);
+      assertNoExistingDownload(database, value.platform, value.platformVideoId);
       const result = statement.run(
         value.sourceType,
         value.channelId,
         value.videoId,
         value.sourceUrl,
+        value.platform,
         value.platformVideoId,
         value.title,
         value.publishedDate,
@@ -557,7 +600,6 @@ export async function createDirectDownload(
   now = new Date(),
 ): Promise<Download> {
   const directInput = parseDirectInput(input);
-  const parsedUrl = parseYouTubeVideoUrl(directInput.url);
   const downloadRoot = await validateDownloadRoot(
     loadDownloadRoot(database, downloadsMountPath),
     downloadsMountPath,
@@ -573,7 +615,7 @@ export async function createDirectDownload(
   try {
     rawMetadata = await fetchVideoMetadata({
       executablePath: ytDlpExecutablePath,
-      url: parsedUrl.url,
+      url: directInput.url,
       ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
     });
   } catch (error) {
@@ -582,18 +624,9 @@ export async function createDirectDownload(
       error instanceof Error ? error.message : 'video fetch failed',
     );
   }
-  const metadata = parseYouTubeVideoMetadata(
-    rawMetadata,
-    'VIDEO_METADATA_INVALID',
-  );
-  if (metadata.platformVideoId !== parsedUrl.videoId) {
-    throw new BusinessError(
-      'VIDEO_METADATA_INVALID',
-      'YouTube metadata id does not match the requested video',
-    );
-  }
+  const metadata = parseDirectVideoMetadata(rawMetadata);
 
-  assertNoExistingDownload(database, metadata.platformVideoId);
+  assertNoExistingDownload(database, metadata.platform, metadata.platformVideoId);
   await assertVideoTargetAvailable(
     downloadRoot,
     downloadsMountPath,
@@ -605,6 +638,7 @@ export async function createDirectDownload(
     channelId: null,
     videoId: null,
     sourceUrl: directInput.url,
+    platform: metadata.platform,
     platformVideoId: metadata.platformVideoId,
     title: metadata.title,
     publishedDate: null,
@@ -685,7 +719,8 @@ export async function cancelDownload(
     const result = database
       .prepare(
         `UPDATE downloads
-         SET status = 'canceled', failure_reason = ?, finished_at = ?
+         SET status = 'canceled', failure_reason = ?, speed_text = NULL,
+             eta_seconds = NULL, finished_at = ?
          WHERE id = ? AND status IN ('pending', 'running', 'downloading')`,
       )
       .run('download canceled by user', now.toISOString(), downloadId);
@@ -700,28 +735,102 @@ export async function cancelDownload(
 
 export async function deleteDownload(
   database: DatabaseConnection,
+  downloadsMountPath: string,
   downloadId: number,
 ): Promise<void> {
   validateDownloadId(downloadId);
+  let row: { status: string; output_path: string | null } | undefined;
   try {
-    const result = database
-      .prepare(
-        `DELETE FROM downloads
-         WHERE id = ? AND status IN ('completed', 'failed', 'canceled', 'interrupted')`,
-      )
-      .run(downloadId);
-    if (result.changes !== 1) {
-      const exists = database
-        .prepare('SELECT id FROM downloads WHERE id = ?')
-        .pluck()
-        .get(downloadId);
-      if (exists === undefined) {
-        throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
-      }
-      throw new BusinessError('VALIDATION_ERROR', 'download is not deletable');
+    row = database
+      .prepare('SELECT status, output_path FROM downloads WHERE id = ?')
+      .get(downloadId) as { status: string; output_path: string | null } | undefined;
+  } catch {
+    throw persistenceError();
+  }
+  if (row === undefined) {
+    throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+  }
+  if (!['completed', 'failed', 'canceled', 'interrupted'].includes(row.status)) {
+    throw new BusinessError('VALIDATION_ERROR', 'download is not deletable');
+  }
+
+  if (row.status !== 'completed') {
+    try {
+      const result = database.prepare('DELETE FROM downloads WHERE id = ?').run(downloadId);
+      if (result.changes !== 1) throw new Error('download is missing');
+      return;
+    } catch {
+      throw persistenceError();
     }
-  } catch (error) {
-    if (error instanceof BusinessError) throw error;
+  }
+  if (row.output_path === null) throw persistenceError();
+
+  const downloadRoot = loadDownloadRoot(database, downloadsMountPath);
+  const file = await validateDownloadFile(
+    downloadRoot,
+    downloadsMountPath,
+    row.output_path,
+  );
+  let quarantineDirectory: string;
+  try {
+    quarantineDirectory = await mkdtemp(
+      join(await validateDownloadRoot(downloadRoot, downloadsMountPath), '.vidharbor-delete-'),
+    );
+  } catch {
+    await file.handle.close().catch(() => undefined);
+    throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download file deletion failed');
+  }
+  const quarantinePath = join(quarantineDirectory, basename(file.path));
+  const restoreFile = async () => {
+    try {
+      await rename(quarantinePath, file.path);
+      await rm(quarantineDirectory, { recursive: true, force: true });
+    } catch {
+      throw persistenceError();
+    }
+  };
+
+  try {
+    await file.handle.close();
+    await rename(file.path, quarantinePath);
+  } catch {
+    await file.handle.close().catch(() => undefined);
+    await rm(quarantineDirectory, { recursive: true, force: true }).catch(() => undefined);
+    throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download file deletion failed');
+  }
+
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    const result = database
+      .prepare("DELETE FROM downloads WHERE id = ? AND status = 'completed'")
+      .run(downloadId);
+    if (result.changes !== 1) throw new Error('download changed during deletion');
+  } catch {
+    try {
+      database.exec('ROLLBACK');
+    } catch {
+      // The transaction may not have started.
+    }
+    await restoreFile();
+    throw persistenceError();
+  }
+
+  try {
+    await rm(quarantineDirectory, { recursive: true });
+  } catch {
+    database.exec('ROLLBACK');
+    await restoreFile();
+    throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download file deletion failed');
+  }
+
+  try {
+    database.exec('COMMIT');
+  } catch {
+    try {
+      database.exec('ROLLBACK');
+    } catch {
+      // Preserve the commit failure as the operation result.
+    }
     throw persistenceError();
   }
 }
@@ -769,7 +878,9 @@ export async function retryDownload(
       .prepare(
         `UPDATE downloads
          SET status = 'pending', output_path = NULL, failure_reason = NULL,
-             started_at = NULL, finished_at = NULL, created_at = ?
+             progress_percent = NULL, speed_text = NULL, eta_seconds = NULL,
+             exit_code = NULL, started_at = NULL, finished_at = NULL,
+             created_at = ?
          WHERE id = ?`,
       )
       .run(now.toISOString(), downloadId);

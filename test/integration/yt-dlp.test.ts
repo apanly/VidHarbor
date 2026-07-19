@@ -54,6 +54,16 @@ describe('yt-dlp argument protocol', () => {
     expect(args.some((argument) => argument.includes('cookie'))).toBe(false);
   });
 
+  it('disables playlist expansion for a single-resource probe', async () => {
+    const result = await fetchVideoMetadata({
+      executablePath,
+      url: 'fixture://echo',
+    });
+    const args = (result as { args: string[] }).args;
+
+    expect(args).toContain('--no-playlist');
+  });
+
   it('passes the manual history boundary and stops after the first rejected entry', async () => {
     const [result] = await fetchChannelEntries({
       executablePath,
@@ -99,6 +109,7 @@ describe('yt-dlp argument protocol', () => {
           '30',
           '--format',
           'bestvideo*+bestaudio/best',
+          '--progress',
           '--newline',
           '--progress-template',
           'download:vidharbor-progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress.eta)s',
@@ -196,6 +207,9 @@ describe('yt-dlp process results', () => {
     await expect(
       fetchVideoMetadata({ executablePath, url: 'fixture://video-success' }),
     ).resolves.toEqual({ id: 'video' });
+    await expect(
+      fetchVideoMetadata({ executablePath, url: 'fixture://channel-success' }),
+    ).rejects.toThrow('produced multiple JSON values for a video probe');
   });
 
   it('reports download progress before the process exits', async () => {

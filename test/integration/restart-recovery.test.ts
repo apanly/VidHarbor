@@ -111,6 +111,13 @@ describe('restart recovery', () => {
     const downloadingId = insertDownload('downloading');
     const completedId = insertDownload('completed');
     const failedId = insertDownload('failed');
+    database
+      .prepare(
+        `UPDATE downloads
+         SET progress_percent = 42.5, speed_text = '1.2MiB/s', eta_seconds = 17
+         WHERE id = ?`,
+      )
+      .run(downloadingId);
 
     const interruptedIds = listInterruptedDownloadIds(database);
     recoverInterruptedDownloads(database, interruptedIds, FINISHED_AT);
@@ -121,6 +128,8 @@ describe('restart recovery', () => {
         status: 'interrupted',
         output_path: null,
         failure_reason: 'service restarted before task completed',
+        speed_text: null,
+        eta_seconds: null,
         finished_at: FINISHED_AT,
       });
     }

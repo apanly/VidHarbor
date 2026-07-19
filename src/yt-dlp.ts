@@ -86,6 +86,7 @@ function runProcess(
   abortSignal: AbortSignal | undefined,
   onStdoutLine?: (line: string) => void,
   acceptedExitCodes: readonly number[] = [],
+  onStderrLine?: (line: string) => boolean,
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(options.executablePath, args, {
@@ -98,12 +99,13 @@ function runProcess(
     let stderrBytes = 0;
     let stderrTruncated = false;
     let stdoutRemainder = '';
+    let stderrRemainder = '';
     let spawnError: Error | undefined;
     let timedOut = false;
     let inactive = false;
     let cancelled = false;
     let terminationError: Error | undefined;
-    let stdoutLineError: Error | undefined;
+    let outputLineError: Error | undefined;
 
     const terminateProcessGroup = () => {
       if (child.pid === undefined) return;
@@ -143,14 +145,41 @@ function runProcess(
     const appendStdoutLine = (line: string) => {
       const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line;
       stdoutLines.push(normalizedLine);
-      if (onStdoutLine === undefined || stdoutLineError !== undefined) return;
+      if (onStdoutLine === undefined || outputLineError !== undefined) return;
       try {
         onStdoutLine(normalizedLine);
       } catch (error) {
-        stdoutLineError =
+        outputLineError =
           error instanceof Error ? error : new Error('stdout line handling failed');
         terminateProcessGroup();
       }
+    };
+
+    const captureStderr = (value: string) => {
+      const chunk = Buffer.from(value);
+      const remainingBytes = MAX_CAPTURED_STDERR_BYTES - stderrBytes;
+      if (remainingBytes <= 0) {
+        stderrTruncated = true;
+        return;
+      }
+      const captured = chunk.subarray(0, remainingBytes);
+      stderrChunks.push(captured);
+      stderrBytes += captured.length;
+      if (captured.length !== chunk.length) stderrTruncated = true;
+    };
+
+    const appendStderrLine = (line: string, newline: boolean) => {
+      const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line;
+      if (outputLineError !== undefined) return;
+      try {
+        if (onStderrLine?.(normalizedLine) === true) return;
+      } catch (error) {
+        outputLineError =
+          error instanceof Error ? error : new Error('stderr line handling failed');
+        terminateProcessGroup();
+        return;
+      }
+      captureStderr(`${normalizedLine}${newline ? '\n' : ''}`);
     };
 
     child.stdout.setEncoding('utf8');
@@ -160,18 +189,15 @@ function runProcess(
       stdoutRemainder = pieces.pop() ?? '';
       for (const line of pieces) appendStdoutLine(line);
     });
-    child.stderr.on('data', (chunk: Buffer) => {
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
       resetInactivityTimeout();
-      const remainingBytes = MAX_CAPTURED_STDERR_BYTES - stderrBytes;
-      if (remainingBytes <= 0) {
-        stderrTruncated = true;
-        return;
-      }
-
-      const captured = chunk.subarray(0, remainingBytes);
-      stderrChunks.push(captured);
-      stderrBytes += captured.length;
-      if (captured.length !== chunk.length) {
+      const pieces = `${stderrRemainder}${chunk}`.split('\n');
+      stderrRemainder = pieces.pop() ?? '';
+      for (const line of pieces) appendStderrLine(line, true);
+      if (Buffer.byteLength(stderrRemainder) > MAX_CAPTURED_STDERR_BYTES) {
+        captureStderr(stderrRemainder);
+        stderrRemainder = '';
         stderrTruncated = true;
       }
     });
@@ -185,13 +211,14 @@ function runProcess(
       if (inactivityTimeout !== undefined) clearTimeout(inactivityTimeout);
       abortSignal?.removeEventListener('abort', cancel);
       if (stdoutRemainder !== '') appendStdoutLine(stdoutRemainder);
+      if (stderrRemainder !== '') appendStderrLine(stderrRemainder, false);
 
       const capturedStderr = Buffer.concat(stderrChunks).toString('utf8').trim();
       const stderr = stderrTruncated
         ? removeCredentialBoundary(capturedStderr, options.proxyUrl)
         : capturedStderr;
-      if (stdoutLineError !== undefined) {
-        reject(stdoutLineError);
+      if (outputLineError !== undefined) {
+        reject(outputLineError);
         return;
       }
       if (terminationError !== undefined) {
@@ -332,6 +359,7 @@ export async function downloadMedia(options: DownloadOptions): Promise<string> {
     SOCKET_TIMEOUT_SECONDS,
     '--format',
     format,
+    '--progress',
     '--newline',
     '--progress-template',
     'download:vidharbor-progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress.eta)s',
@@ -368,16 +396,21 @@ export async function downloadMedia(options: DownloadOptions): Promise<string> {
   appendProxyArgument(args, options.proxyUrl);
   args.push(options.url);
 
+  const handleProgressLine = (line: string): boolean => {
+    const progress = parseDownloadProgress(line);
+    if (progress === null) return false;
+    options.onProgress?.(progress);
+    return true;
+  };
   const result = await runProcess(
     options,
     args,
     undefined,
     DOWNLOAD_INACTIVITY_TIMEOUT_MILLISECONDS,
     options.signal,
-    (line) => {
-      const progress = parseDownloadProgress(line);
-      if (progress !== null) options.onProgress?.(progress);
-    },
+    handleProgressLine,
+    [],
+    handleProgressLine,
   );
   const filePathLines: string[] = [];
   for (const line of result.stdoutLines) {

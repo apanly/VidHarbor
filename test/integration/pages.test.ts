@@ -245,7 +245,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain("metrics.className = 'download-card-metrics'");
     expect(html).toContain("details.className = 'download-card-details'");
     expect(html).toContain("meta.className = 'download-card-meta'");
-    expect(html).toContain("const source = textElement('span', 'badge download-source'");
+    expect(html).toContain("const source = fieldElement('span', 'badge download-source'");
     expect(html).not.toContain('<thead>');
     expect(html).not.toContain('<th>标题</th>');
     expect(html).toContain("pending: '等待下载'");
@@ -269,13 +269,16 @@ describe('server-rendered pages', () => {
     expect(html).toContain('download.proxyName');
     expect(html).toContain("download.networkMode === 'direct' ? '直连' : download.proxyName");
     expect(html).toContain("download.status === 'pending' || download.status === 'running' || download.status === 'downloading'");
-    expect(html).toContain("request(`/api/downloads/${download.id}/cancel`, 'POST', {})");
+    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}/cancel`, 'POST', {})");
     expect(html).toContain("download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted'");
-    expect(html).toContain("request(`/api/downloads/${download.id}/retry`, 'POST', {})");
+    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}/retry`, 'POST', {})");
     expect(html).toContain("download.status === 'completed' || download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted'");
-    expect(html).toContain("confirm(`确认删除下载「${download.title}」？`)");
-    expect(html).toContain("request(`/api/downloads/${download.id}`, 'DELETE')");
-    expect(html).toContain('location.reload()');
+    expect(html).toContain("confirm(`确认永久删除下载「${download.title}」及其文件？`)");
+    expect(html).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE')");
+    expect(html).not.toContain('location.reload()');
+    expect(html).not.toContain("list.textContent = ''");
+    expect(html).toContain('if (field.textContent !== nextValue)');
+    expect(html).toContain('previous === undefined || JSON.stringify(previous) !== JSON.stringify(download)');
     expect(html).toContain("events.addEventListener('downloads'");
     expect(html).toContain("if (download.status === 'completed')");
     expect(html).toContain('`/downloads/preview?id=${download.id}`');
@@ -377,11 +380,10 @@ describe('server-rendered pages', () => {
     );
     const helpers = new Function(
       'document',
-      `${functionSource}; return { displayValue, formatTimestamp, outputPathDetail };`,
+      `${functionSource}; return { displayValue, formatTimestamp };`,
     )(fakeDocument) as {
       displayValue(value: string | null): string;
       formatTimestamp(value: string | null): string;
-      outputPathDetail(value: string | null): FakeNode;
     };
     const value = '2026-07-18T09:43:33.709Z';
     const timestamp = new Date(value);
@@ -396,16 +398,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('formatTimestamp(download.createdAt)');
     expect(html).toContain('formatTimestamp(download.startedAt)');
     expect(html).toContain('formatTimestamp(download.finishedAt)');
-    expect(html).toContain('outputPathDetail(download.outputPath)');
-
-    const longPath = '/downloads/a-very-long-output-file.webm';
-    const pathValue = helpers.outputPathDetail(longPath).lastElementChild;
-    expect(pathValue?.textContent).toBe(longPath);
-    expect(pathValue?.title).toBe(longPath);
-
-    const nullPathValue = helpers.outputPathDetail(null).lastElementChild;
-    expect(nullPathValue?.textContent).toBe('—');
-    expect(Object.hasOwn(nullPathValue as object, 'title')).toBe(false);
+    expect(html).toContain("setField(article, 'outputPath', download.outputPath)");
+    expect(html).toContain("outputPath.title = download.outputPath ?? ''");
   });
 
   it('keeps download cards readable across desktop and mobile widths', async () => {
@@ -438,9 +432,9 @@ describe('server-rendered pages', () => {
     expect(settingsHtml).toContain('if (!confirmed) return;');
     expect(settingsHtml).toContain("request(`/api/proxies/${proxy.id}`, 'DELETE')");
 
-    expect(downloadsHtml).toContain("confirm(`确认删除下载「${download.title}」？`)");
+    expect(downloadsHtml).toContain("confirm(`确认永久删除下载「${download.title}」及其文件？`)");
     expect(downloadsHtml).toContain('if (!confirmed) return;');
-    expect(downloadsHtml).toContain("request(`/api/downloads/${download.id}`, 'DELETE')");
+    expect(downloadsHtml).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE')");
   });
 
   it('keeps modals open when clicking outside their dialog', async () => {
