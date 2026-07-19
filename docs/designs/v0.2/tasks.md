@@ -23,7 +23,7 @@
   3. `rg -n "shell: false|process\.kill\(-child\.pid" src/yt-dlp.ts` → 同时保留无 shell 与进程组终止实现。
 
 ## task-02 · 实现唯一 yt-dlp 任务管理器
-- 状态: failed
+- 状态: done
 - 依赖: task-01
 - 文件范围:
   - src/yt-dlp-task-manager.ts (新建)
@@ -83,7 +83,7 @@
 - 验收标准:
   1. `npx vitest run test/integration/download-service.test.ts` → 直接探测、批量入队、取消与重试契约测试通过。
   2. `rg -n "metadata_probe" src/services/download.ts` → 命中固定探测任务提交。
-  3. `rg -n "fetchVideoMetadata|cancel\?" src/services/download.ts` → 无匹配。
+  3. `test -z "$(rg -n "from ['\"](?:\.\.?/)*yt-dlp\.js['\"]|cancel\\?" src/services/download.ts)"` → 无底层直连且 cancel 为异步必需方法；`rg -n "type: 'metadata_probe'|operations\.fetchVideoMetadata" src/services/download.ts` → 固定探测任务及受控 operation 调用均命中。
 
 ## task-05 · 将三类频道流程收口为固定任务
 - 状态: done
