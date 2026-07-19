@@ -285,7 +285,9 @@ describe('yt-dlp process results', () => {
       const stop = manager.stop();
       const failure = await result;
 
-      await expect(stop).rejects.toBe(failure);
+      const stopFailure = await stop.catch((error: unknown) => error);
+      expect(stopFailure).toBeInstanceOf(AggregateError);
+      expect((stopFailure as AggregateError).errors).toEqual([failure]);
       expect(failure).toEqual(
         new Error('yt-dlp process group termination failed: group kill denied'),
       );

@@ -536,9 +536,11 @@ describe('channel API', () => {
     await waitForFile(blockingSyncStartedPath);
 
     database.close();
-    await expect(taskManager.stop()).rejects.toMatchObject({
-      code: 'PERSISTENCE_ERROR',
-    });
+    const stopFailure = await taskManager.stop().catch((error: unknown) => error);
+    expect(stopFailure).toBeInstanceOf(AggregateError);
+    expect((stopFailure as AggregateError).errors).toEqual([
+      expect.objectContaining({ code: 'PERSISTENCE_ERROR' }),
+    ]);
 
     await expect.poll(() => runtimeErrors).toHaveLength(1);
     expect(runtimeErrors[0]).toMatchObject({ code: 'PERSISTENCE_ERROR' });

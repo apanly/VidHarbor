@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../../src/config.js';
 import { openDatabase } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { ChannelScheduler } from '../../src/scheduler.js';
 import {
   startServer,
   type LifecycleLogRecord,
@@ -545,6 +546,28 @@ describe('server lifecycle', () => {
       'database_closed',
     ]);
     await expect(fetch(`http://127.0.0.1:${server.port}/`)).rejects.toThrow();
+  });
+
+  it('starts task cancellation before waiting for scheduler shutdown', async () => {
+    let releaseScheduler: (() => void) | undefined;
+    const schedulerReleased = new Promise<void>((resolve) => {
+      releaseScheduler = resolve;
+    });
+    const originalSchedulerStop = ChannelScheduler.prototype.stop;
+    vi.spyOn(ChannelScheduler.prototype, 'stop').mockImplementation(async function () {
+      await originalSchedulerStop.call(this);
+      await schedulerReleased;
+    });
+    const managerStop = vi.spyOn(YtDlpTaskManager.prototype, 'stop');
+    const config = await createConfig();
+    const server = await startServer(config, () => undefined);
+    runningServers.push(server);
+
+    const stopping = server.stop();
+    await vi.waitFor(() => expect(managerStop).toHaveBeenCalledTimes(1));
+    releaseScheduler?.();
+    await stopping;
+    runningServers.splice(runningServers.indexOf(server), 1);
   });
 
   it('closes active download event streams during shutdown', async () => {
