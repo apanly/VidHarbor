@@ -110,7 +110,7 @@
   3. `rg -n "yt-dlp\.js|ytDlpExecutablePath" src/services/channel.ts` → 无匹配。
 
 ## task-06 · 收紧 scheduler 与 runtime 生命周期职责
-- 状态: pending
+- 状态: done
 - 依赖: task-05
 - 文件范围:
   - src/scheduler.ts

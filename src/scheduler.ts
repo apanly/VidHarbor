@@ -87,7 +87,7 @@ function isDue(row: ChannelScheduleRow, nowMilliseconds: number): boolean {
 
 export class ChannelScheduler {
   readonly #database: DatabaseConnection;
-  readonly #checkChannel: ScheduledChannelCheck;
+  readonly #checkScheduledChannel: ScheduledChannelCheck;
   readonly #clock: SchedulerClock;
   readonly #reportError: SchedulerErrorReporter;
   readonly #runningChecks = new Map<number, Promise<unknown>>();
@@ -95,12 +95,12 @@ export class ChannelScheduler {
 
   constructor(
     database: DatabaseConnection,
-    checkChannel: ScheduledChannelCheck,
+    checkScheduledChannel: ScheduledChannelCheck,
     clock: SchedulerClock = systemClock,
     reportError: SchedulerErrorReporter = defaultErrorReporter,
   ) {
     this.#database = database;
-    this.#checkChannel = checkChannel;
+    this.#checkScheduledChannel = checkScheduledChannel;
     this.#clock = clock;
     this.#reportError = reportError;
   }
@@ -143,7 +143,7 @@ export class ChannelScheduler {
       }
 
       const check = Promise.resolve()
-        .then(() => this.#checkChannel(channel.id, new Date(startedAt)))
+        .then(() => this.#checkScheduledChannel(channel.id, new Date(startedAt)))
         .finally(() => {
           this.#runningChecks.delete(channel.id);
         });
