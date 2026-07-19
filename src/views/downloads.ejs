@@ -1,0 +1,118 @@
+<%- include('partials/header') %>
+      <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
+        <h1>下载</h1>
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#direct-download-modal">新建直下载</button>
+      </div>
+      <section>
+        <div id="page-error" class="alert alert-danger" hidden></div>
+        <div id="download-list" class="download-list"></div>
+      </section>
+      <div class="modal fade" id="direct-download-modal" tabindex="-1" aria-labelledby="direct-download-title" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+          <form id="direct-download-form" class="modal-content form-stack">
+              <div class="modal-header">
+                <h2 class="modal-title h5" id="direct-download-title">单视频直下载</h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
+              </div>
+              <div class="modal-body">
+                <h3 class="h6">基础信息</h3>
+                <div class="mb-3"><label class="form-label" for="direct-url">YouTube 视频地址</label><input class="form-control" id="direct-url" type="url" name="url" required></div>
+                <div class="mb-3"><label class="form-label" for="direct-proxy">网络路径</label><select class="form-select" id="direct-proxy" name="proxyId"><option value="">直连</option></select></div>
+                <div class="mb-4"><label class="form-label" for="direct-target-subdirectory">目标子目录</label><input class="form-control" id="direct-target-subdirectory" name="targetSubdirectory" placeholder="留空写入根目录"></div>
+                <h3 class="h6">媒体选项</h3>
+                <div class="mb-3"><label class="form-label" for="direct-media-type">媒体类型</label><select class="form-select" id="direct-media-type" name="mediaType"><option value="video">视频</option><option value="audio">音频</option></select></div>
+                <div class="mb-3"><label class="form-label" for="direct-format">格式</label><input class="form-control" id="direct-format" name="format" placeholder="留空使用默认"></div>
+                <div class="mb-3"><label class="form-label" for="direct-quality">质量</label><input class="form-control" id="direct-quality" name="quality" placeholder="例如 1080"></div>
+                <div class="mb-3"><label class="form-label" for="direct-codec">编码</label><input class="form-control" id="direct-codec" name="codec" placeholder="例如 mp4"></div>
+                <div class="mb-4"><label class="form-label" for="direct-filename-preset">文件名预设</label><input class="form-control" id="direct-filename-preset" name="filenamePreset" placeholder="留空使用视频 ID"></div>
+                <h3 class="h6">附加内容</h3>
+                <div class="mb-2 form-check"><input class="form-check-input" type="checkbox" name="writeSubtitles" id="writeSubtitles"><label class="form-check-label" for="writeSubtitles">字幕</label></div>
+                <div class="mb-2 form-check"><input class="form-check-input" type="checkbox" name="writeThumbnail" id="writeThumbnail"><label class="form-check-label" for="writeThumbnail">缩略图</label></div>
+                <div class="mb-4 form-check"><input class="form-check-input" type="checkbox" name="splitChapters" id="splitChapters"><label class="form-check-label" for="splitChapters">章节切分</label></div>
+                <h3 class="h6">时间裁剪</h3>
+                <div class="mb-3"><label class="form-label" for="direct-time-start">起始时间</label><input class="form-control" id="direct-time-start" name="timeRangeStart" placeholder="00:00:00"></div>
+                <div class="mb-3"><label class="form-label" for="direct-time-end">结束时间</label><input class="form-control" id="direct-time-end" name="timeRangeEnd" placeholder="00:10:00"></div>
+                <div class="alert alert-danger" data-form-error hidden></div>
+              </div>
+              <div class="modal-footer">
+                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" type="submit">开始下载</button>
+              </div>
+          </form>
+        </div>
+      </div>
+    </main>
+    <script type="module">
+      const form = document.querySelector('#direct-download-form');
+      const list = document.querySelector('#download-list');
+      const pageError = document.querySelector('#page-error');
+      const labels = { pending: '等待下载', downloading: '运行中', running: '运行中', completed: '下载完成', failed: '下载失败', canceled: '已取消', interrupted: '已中断' };
+      const styles = { pending: 'text-bg-secondary', downloading: 'text-bg-primary', running: 'text-bg-primary', completed: 'text-bg-success', failed: 'text-bg-danger', canceled: 'text-bg-warning', interrupted: 'text-bg-warning' };
+
+      function nullableNumber(value) { return value === '' ? null : Number(value); }
+      function nullableText(value) { return value === '' ? null : value; }
+      function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: nullableText(form.elements.format.value), quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, writeThumbnail: form.elements.writeThumbnail.checked, splitChapters: form.elements.splitChapters.checked, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value), filenamePreset: nullableText(form.elements.filenamePreset.value) }; }
+      function showError(region, error) { region.textContent = `${error.code}: ${error.message}`; region.hidden = false; }
+      async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const result = await response.json(); if (!response.ok) throw result.error; return result; }
+      function displayValue(value) { return value ?? '—'; }
+      function textElement(tag, className, value) { const node = document.createElement(tag); node.className = className; node.textContent = displayValue(value); return node; }
+      function detail(label, value, className = '') { const node = document.createElement('div'); node.className = `download-detail ${className}`.trim(); node.append(textElement('span', 'download-detail-label', label), textElement('span', 'download-detail-value', value)); return node; }
+      function formatTimestamp(value) { if (value === null) return '—'; const timestamp = new Date(value); if (Number.isNaN(timestamp.getTime())) return value; const pad = (part) => String(part).padStart(2, '0'); return `${timestamp.getFullYear()}-${pad(timestamp.getMonth() + 1)}-${pad(timestamp.getDate())} ${pad(timestamp.getHours())}:${pad(timestamp.getMinutes())}:${pad(timestamp.getSeconds())}`; }
+      function outputPathDetail(value) { const node = detail('输出路径', value, 'download-path'); const pathValue = node.lastElementChild; pathValue.className += ' download-path-value'; if (value !== null) pathValue.title = value; return node; }
+
+      function renderDownloads(downloads) {
+        list.textContent = '';
+        for (const download of downloads.items) {
+          const article = document.createElement('article'); article.className = 'download-card';
+          const header = document.createElement('header'); header.className = 'download-card-header';
+          const identity = document.createElement('div'); identity.className = 'download-card-identity';
+          const title = textElement('h3', 'download-card-title', download.title);
+          const meta = document.createElement('div'); meta.className = 'download-card-meta';
+          const source = textElement('span', 'badge download-source', download.sourceType === 'channel' ? '频道视频' : '单视频');
+          const badge = textElement('span', `badge ${styles[download.status]}`, labels[download.status]);
+          meta.append(source, badge);
+          identity.append(title, meta);
+          const actions = document.createElement('div'); actions.className = 'download-card-actions';
+          if (download.status === 'pending' || download.status === 'running' || download.status === 'downloading') { const cancel = document.createElement('button'); cancel.className = 'btn btn-sm btn-outline-warning'; cancel.type = 'button'; cancel.textContent = '取消'; cancel.addEventListener('click', async () => { await request(`/api/downloads/${download.id}/cancel`, 'POST', {}); location.reload(); }); actions.append(cancel); }
+          if (download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted') { const retry = document.createElement('button'); retry.className = 'btn btn-sm btn-outline-primary'; retry.type = 'button'; retry.textContent = '重试'; retry.addEventListener('click', async () => { await request(`/api/downloads/${download.id}/retry`, 'POST', {}); location.reload(); }); actions.append(retry); }
+          if (download.status === 'completed') { const preview = document.createElement('a'); preview.className = 'btn btn-sm btn-outline-primary'; preview.href = `/downloads/preview?id=${download.id}`; preview.target = '_blank'; preview.rel = 'noopener noreferrer'; preview.textContent = '预览'; const file = document.createElement('a'); file.className = 'btn btn-sm btn-outline-secondary'; file.href = `/api/downloads/${download.id}/file`; file.textContent = '下载'; actions.append(preview, file); }
+          const original = document.createElement('a'); original.className = 'btn btn-sm btn-outline-secondary'; original.href = download.sourceUrl; original.target = '_blank'; original.rel = 'noopener noreferrer'; original.textContent = '原始地址'; actions.append(original);
+          if (download.status === 'completed' || download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted') { const remove = document.createElement('button'); remove.className = 'btn btn-sm btn-outline-danger'; remove.type = 'button'; remove.textContent = '删除'; remove.addEventListener('click', async () => { const confirmed = confirm(`确认删除下载「${download.title}」？`); if (!confirmed) return; await request(`/api/downloads/${download.id}`, 'DELETE'); location.reload(); }); actions.append(remove); }
+          header.append(identity, actions);
+
+          const metrics = document.createElement('section'); metrics.className = 'download-card-metrics';
+          metrics.append(
+            detail('进度', download.progressPercent === null ? null : `${download.progressPercent}%`),
+            detail('速度', download.speedText),
+            detail('ETA', download.etaSeconds === null ? null : `${download.etaSeconds}s`),
+            detail('网络路径', download.networkMode === 'direct' ? '直连' : download.proxyName),
+          );
+
+          const details = document.createElement('section'); details.className = 'download-card-details';
+          const times = document.createElement('div'); times.className = 'download-card-times';
+          times.append(
+            detail('创建时间', formatTimestamp(download.createdAt)),
+            detail('开始时间', formatTimestamp(download.startedAt)),
+            detail('结束时间', formatTimestamp(download.finishedAt)),
+          );
+          details.append(outputPathDetail(download.outputPath), detail('失败原因', download.failureReason), times);
+          article.append(header, metrics, details);
+          list.append(article);
+        }
+      }
+
+      async function load() {
+        const [proxies, downloads] = await Promise.all([request('/api/proxies'), request('/api/downloads')]);
+        const proxySelect = form.elements.proxyId;
+        for (const proxy of proxies.items) { const option = document.createElement('option'); option.value = String(proxy.id); option.textContent = proxy.name; proxySelect.append(option); }
+        renderDownloads(downloads);
+        const events = new EventSource('/api/downloads/events');
+        events.addEventListener('downloads', (event) => renderDownloads(JSON.parse(event.data)));
+        events.onerror = () => events.close();
+      }
+
+
+      form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) }); location.reload(); } catch (error) { showError(errorRegion, error); } });
+      load().catch((error) => showError(pageError, error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+    </script>
+<%- include('partials/footer') %>

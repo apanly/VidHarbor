@@ -1,0 +1,66 @@
+<%- include('partials/header') %>
+      <h1 class="mb-4">总览</h1>
+      <div id="page-error" class="alert alert-danger" hidden></div>
+      <div id="channel-summary" class="row g-3" aria-live="polite"></div>
+    </main>
+    <script type="module">
+      const errorRegion = document.querySelector('#page-error');
+      const summary = document.querySelector('#channel-summary');
+      const labels = { success: '检查成功', no_updates: '没有更新', failed: '检查失败' };
+      const styles = { success: 'text-bg-success', no_updates: 'text-bg-secondary', failed: 'text-bg-danger' };
+
+      function showError(error) {
+        errorRegion.textContent = `${error.code}: ${error.message}`;
+        errorRegion.hidden = false;
+      }
+
+      async function load() {
+        const [channelResponse, notificationResponse, downloadResponse] = await Promise.all([fetch('/api/channels', { credentials: 'same-origin' }), fetch('/api/notifications', { credentials: 'same-origin' }), fetch('/api/downloads', { credentials: 'same-origin' })]);
+        const body = await channelResponse.json();
+        const notifications = await notificationResponse.json();
+        const downloads = await downloadResponse.json();
+        if (!channelResponse.ok) { showError(body.error); return; }
+        if (!notificationResponse.ok) { showError(notifications.error); return; }
+        if (!downloadResponse.ok) { showError(downloads.error); return; }
+        const unreadCount = notifications.items.filter((item) => item.readAt === null).length;
+        const runningCount = downloads.items.filter((item) => item.status === 'pending' || item.status === 'running' || item.status === 'downloading').length;
+        const failedCount = downloads.items.filter((item) => item.status === 'failed' || item.status === 'interrupted').length;
+        const totals = document.createElement('div'); totals.className = 'col-12'; totals.innerHTML = `<div class="alert alert-info">未读提醒：${unreadCount}；运行中任务：${runningCount}；失败/中断任务：${failedCount}</div>`; summary.append(totals);
+        if (body.items.length === 0) {
+          summary.append('尚未添加频道。');
+          return;
+        }
+        for (const channel of body.items) {
+          const column = document.createElement('div');
+          column.className = 'col-md-6 col-xl-4';
+          const card = document.createElement('article');
+          card.className = 'card h-100';
+          const cardBody = document.createElement('div');
+          cardBody.className = 'card-body';
+          const title = document.createElement('h2');
+          title.className = 'h5';
+          const link = document.createElement('a');
+          link.href = `/channels/${channel.id}`;
+          link.textContent = channel.customName;
+          title.append(link);
+          cardBody.append(title);
+          const result = channel.lastCheck.result;
+          const badge = document.createElement('span');
+          badge.className = `badge ${result === null ? 'text-bg-light' : styles[result]}`;
+          badge.textContent = result === null ? '尚无定时检查' : labels[result];
+          cardBody.append(badge);
+          if (result === 'failed') {
+            const reason = document.createElement('p');
+            reason.className = 'text-danger mt-3 mb-0';
+            reason.textContent = channel.lastCheck.error;
+            cardBody.append(reason);
+          }
+          card.append(cardBody);
+          column.append(card);
+          summary.append(column);
+        }
+      }
+
+      load().catch(() => showError({ code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+    </script>
+<%- include('partials/footer') %>

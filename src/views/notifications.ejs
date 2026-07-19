@@ -1,0 +1,35 @@
+<%- include('partials/header') %>
+      <h1>新视频提醒</h1>
+      <p class="text-body-secondary">这里展示频道后续检查发现的新视频。进入对应频道可选择是否下载。</p>
+      <div id="page-error" class="alert alert-danger" hidden></div>
+      <button id="mark-all-read" class="btn btn-outline-primary mb-3" type="button" hidden>全部标记已读</button>
+      <div id="notification-list" class="vstack gap-3" aria-live="polite"></div>
+    </main>
+    <script type="module">
+      const errorRegion = document.querySelector('#page-error');
+      const list = document.querySelector('#notification-list');
+
+      function showError(error) { errorRegion.textContent = `${error.code}: ${error.message}`; errorRegion.hidden = false; }
+      async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); const result = await response.json(); if (!response.ok) throw result.error; return result; }
+
+      async function load() {
+        const notifications = await request('/api/notifications');
+        if (notifications.items.length === 0) { list.textContent = '暂无新视频提醒。'; return; }
+        const unreadIds = notifications.items.filter((notification) => notification.readAt === null).map((notification) => notification.id);
+        const markAll = document.querySelector('#mark-all-read'); markAll.hidden = unreadIds.length === 0; markAll.addEventListener('click', async () => { try { await request('/api/notifications/read', 'POST', { ids: unreadIds }); location.reload(); } catch (error) { showError(error); } });
+        for (const notification of notifications.items) {
+          const card = document.createElement('article'); card.className = 'card';
+          const body = document.createElement('div'); body.className = 'card-body';
+          const title = document.createElement('h2'); title.className = 'h5';
+          const videoLink = document.createElement('a'); videoLink.href = notification.video.url; videoLink.target = '_blank'; videoLink.rel = 'noreferrer'; videoLink.textContent = notification.video.title; title.append(videoLink);
+          const details = document.createElement('p'); details.className = 'mb-2'; details.textContent = `发布日期：${notification.video.publishedDate}；发现时间：${notification.createdAt}`;
+          const readState = document.createElement('p'); readState.className = notification.readAt === null ? 'text-warning mb-2' : 'text-body-secondary mb-2'; readState.textContent = notification.readAt === null ? '未读' : `已读：${notification.readAt}`;
+          const channelLink = document.createElement('a'); channelLink.href = `/channels/${notification.channel.id}`; channelLink.textContent = `进入频道：${notification.channel.customName}`;
+          const readButton = document.createElement('button'); readButton.className = 'btn btn-sm btn-outline-primary ms-3'; readButton.type = 'button'; readButton.textContent = '标记已读'; readButton.disabled = notification.readAt !== null; readButton.addEventListener('click', async () => { try { await request(`/api/notifications/${notification.id}/read`, 'POST', {}); location.reload(); } catch (error) { showError(error); } });
+          body.append(title, details, readState, channelLink, readButton); card.append(body); list.append(card);
+        }
+      }
+
+      load().catch((error) => showError(error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+    </script>
+<%- include('partials/footer') %>

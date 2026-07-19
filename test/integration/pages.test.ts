@@ -1,0 +1,461 @@
+import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { createApiRouter, createApp } from '../../src/app.js';
+import { RuntimeCoordinator } from '../../src/runtime.js';
+import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
+import { migrateDatabase } from '../../src/db/migrate.js';
+import type { DownloadQueue } from '../../src/services/download.js';
+
+let sandbox: string;
+let database: DatabaseConnection;
+let baseUrl: string;
+let stopServer: (() => Promise<void>) | undefined;
+
+beforeEach(async () => {
+  sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-pages-'));
+  const downloadsMountPath = join(sandbox, 'downloads');
+  await mkdir(downloadsMountPath);
+  database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
+  migrateDatabase(database);
+
+  const queue: DownloadQueue = { enqueue: () => undefined };
+  const app = createApp(
+    createApiRouter(database, downloadsMountPath, new RuntimeCoordinator(() => undefined), 'unused-yt-dlp', queue),
+  );
+  app.set('views', new URL('../../src/views', import.meta.url).pathname);
+  app.set('view engine', 'ejs');
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
+  const { port } = server.address() as AddressInfo;
+  baseUrl = `http://127.0.0.1:${port}`;
+  stopServer = () =>
+    new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error === undefined) resolve();
+        else reject(error);
+      });
+    });
+});
+
+afterEach(async () => {
+  await stopServer?.();
+  database.close();
+  await rm(sandbox, { recursive: true, force: true });
+});
+
+async function getPage(path: string): Promise<string> {
+  const response = await fetch(`${baseUrl}${path}`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('content-type')).toContain('text/html');
+  return response.text();
+}
+
+describe('server-rendered pages', () => {
+  it.each([
+    ['/', '<h1 class="mb-4">总览</h1>'],
+    ['/settings', '<h1>配置</h1>'],
+    ['/channels', '<h1>频道</h1>'],
+    ['/channels/7', '频道详情'],
+    ['/notifications', '新视频提醒'],
+    ['/downloads', '<h1>下载</h1>'],
+  ] as const)('renders %s with the shared page shell', async (path, marker) => {
+    const html = await getPage(path);
+
+    expect(html).toContain(marker);
+    expect(html).toContain('class="app-shell"');
+    expect(html).toContain('class="sidebar-nav"');
+    expect(html).toContain('data-bs-toggle="offcanvas"');
+    expect(html).toContain('href="/">总览</a>');
+    expect(html).toContain('href="/settings">配置</a>');
+    expect(html).toContain('href="/channels">频道</a>');
+    expect(html).toContain('href="/notifications">提醒</a>');
+    expect(html).toContain('href="/downloads">下载</a>');
+    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>/);
+    expect(html).not.toContain('navbar-nav flex-row');
+    expect(html).not.toContain('deployment-warning');
+    expect(html).not.toContain('切勿直接暴露到公网');
+    expect(html).not.toContain('可信内网视频管理');
+    expect(html).not.toContain('class="eyebrow');
+    expect(html).not.toContain('class="app-footer"');
+  });
+
+  it('renders add and edit forms in dialogs with single-column fields', async () => {
+    const channelsHtml = await getPage('/channels');
+    const settingsHtml = await getPage('/settings');
+
+    expect(channelsHtml).toContain('data-bs-target="#channel-modal"');
+    expect(channelsHtml).toContain('id="channel-modal"');
+    expect(channelsHtml).toContain('id="channel-modal-title"');
+    expect(channelsHtml).toContain('id="channel-form"');
+    expect(channelsHtml).toContain('openChannelCreateModal()');
+    expect(channelsHtml).toContain('openChannelEditModal(channel)');
+    expect(channelsHtml).toContain('>新增频道</button>');
+    expect(channelsHtml).not.toContain('已添加频道');
+    expect(channelsHtml).toContain('id="channel-list" class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4"');
+    expect(channelsHtml).toContain("card.className = 'card h-100 channel-card'");
+    expect(channelsHtml).toContain("card.setAttribute('role', 'link')");
+    expect(channelsHtml).toContain("window.open(`/channels/${channel.id}`, '_blank', 'noopener')");
+    expect(channelsHtml).toContain("event.target.closest('a, button, input, select, textarea, label')");
+    expect(channelsHtml).toContain("link.target = '_blank'; link.rel = 'noopener'");
+    expect(channelsHtml).toContain('confirm(`确认删除频道「${channel.customName}」？`)');
+    expect(channelsHtml).toContain("request(`/api/channels/${channel.id}`, 'DELETE')");
+    expect(channelsHtml).toContain("timeZone: 'Asia/Shanghai'");
+    expect(channelsHtml).toContain("formatChinaTime(channel.lastCheck.nextAt)");
+    expect(channelsHtml).not.toContain('<table');
+    expect(channelsHtml).toContain('class="form-stack"');
+    expect(channelsHtml).not.toContain('data-channel-edit-modal-root');
+    expect(channelsHtml).not.toContain('buildChannelEditModal');
+    expect(channelsHtml).not.toContain('channel-create-modal');
+    expect(channelsHtml).not.toContain('id="channel-create-form" class="row g-3"');
+    expect(channelsHtml).not.toContain('新增并同步');
+    expect(channelsHtml).toContain('id="initial-sync-modal"');
+    expect(channelsHtml).toContain('<option value="1">最近 1 个月</option>');
+    expect(channelsHtml).toContain('<option value="12">最近 1 年</option>');
+    expect(channelsHtml).toContain("request(`/api/channels/${initialSyncChannelId}/initial-sync`, 'POST'");
+    expect(channelsHtml).toContain("submit.textContent = '同步中'");
+
+    expect(settingsHtml).toContain('data-bs-target="#proxy-modal"');
+    expect(settingsHtml).toContain('id="proxy-modal"');
+    expect(settingsHtml).toContain('id="proxy-modal-title"');
+    expect(settingsHtml).toContain('id="proxy-form"');
+    expect(settingsHtml).toContain('openProxyCreateModal()');
+    expect(settingsHtml).toContain('openProxyEditModal(proxy)');
+    expect(settingsHtml).toContain('class="proxy-modal-form"');
+    expect(settingsHtml).not.toContain('data-proxy-edit-modal-root');
+    expect(settingsHtml).not.toContain('buildProxyEditModal');
+    expect(settingsHtml).not.toContain('proxy-create-modal');
+    expect(settingsHtml).not.toContain('id="proxy-create-form" class="row g-3');
+  });
+
+  it('submits only explicitly selected channel videos', async () => {
+    const html = await getPage('/channels/7');
+
+    expect(html).toContain('id="download-form"');
+    expect(html).toContain('class="channel-detail-layout"');
+    expect(html).toContain('id="video-list" class="channel-video-grid"');
+    expect(html).toContain('class="channel-check-panel"');
+    expect(html).not.toContain('返回频道');
+    expect(html).not.toContain('channel-back-link');
+    expect(html).toContain("card.className = 'channel-video-card'");
+    expect(html).not.toContain('<table');
+    expect(html).toContain('name="proxyId"');
+    expect(html).toContain('<option value="channel">沿用频道代理</option>');
+    expect(html).toContain("request('/api/proxies')");
+    expect(html).toContain("checkbox.name = 'videoIds'");
+    expect(html).toContain(
+      "form.querySelectorAll('input[name=\"videoIds\"]:checked')",
+    );
+    expect(html).toContain(
+      "request('/api/downloads/channel', 'POST', { videoIds, proxyId: channelProxyId() })",
+    );
+    expect(html).not.toMatch(/自动选择|自动下载|删除频道|手动检查/);
+  });
+
+  it('links each notification to its channel and source video without state actions', async () => {
+    const html = await getPage('/notifications');
+
+    expect(html).toContain("request('/api/notifications')");
+    expect(html).toContain('`/channels/${notification.channel.id}`');
+    expect(html).toContain('notification.video.url');
+    expect(html).toContain('notification.video.title');
+    expect(html).toContain('notification.video.publishedDate');
+    expect(html).toMatch(/已读|未读/);
+    expect(html).toContain('标记已读');
+  });
+
+  it('renders direct download form in an official modal with single-column groups', async () => {
+    const html = await getPage('/downloads');
+
+    expect(html).toContain('data-bs-target="#direct-download-modal"');
+    expect(html).toContain('id="direct-download-modal"');
+    expect(html).toContain('class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"');
+    expect(html).toContain('<form id="direct-download-form" class="modal-content form-stack">');
+    expect(html).not.toContain('下载历史');
+    expect(html).not.toContain('id="direct-download-form" class="row g-3"');
+    expect(html).not.toContain('col-md-8');
+  });
+
+  it('submits explicit direct download fields and advanced options', async () => {
+    const html = await getPage('/downloads');
+
+    expect(html).toContain('name="url"');
+    expect(html).toContain('name="proxyId"');
+    expect(html).toContain("request('/api/proxies')");
+    expect(html).toContain('name="targetSubdirectory"');
+    expect(html).toContain('name="mediaType"');
+    expect(html).toContain('name="format"');
+    expect(html).toContain('name="quality"');
+    expect(html).toContain('advancedOptions(form)');
+    expect(html).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) })");
+    expect(html).not.toMatch(/name="(?:autoplay|autoDownload)"/);
+    expect(html).not.toContain('proxy.url');
+  });
+
+  it('renders proxy create and edit forms in the requested grouped layout', async () => {
+    const html = await getPage('/settings');
+
+    expect(html).toContain('class="proxy-modal-form"');
+    expect(html).toContain('class="proxy-field-full"');
+    expect(html).toContain('class="proxy-field-pair"');
+    expect(html).toContain('id="proxy-protocol"');
+    expect(html).toContain('id="proxy-host"');
+    expect(html).toContain('id="proxy-port"');
+    expect(html).toContain('id="proxy-modal"');
+    expect(html).toContain('id="proxy-form"');
+    expect(html).toContain('id="proxy-table"');
+    expect(html).toContain('<th>名称</th><th>协议</th><th>主机</th><th>端口</th><th>用户名</th><th>密码</th><th>操作</th>');
+    expect(html).toContain('tbody id="proxy-list"');
+    expect(html).toContain('proxy.maskedPassword');
+    expect(html).not.toContain('id="proxy-create-form" class="row g-3');
+  });
+
+  it('submits structured proxy fields and renders only masked proxy passwords', async () => {
+    const html = await getPage('/settings');
+
+    expect(html).toContain('name="protocol"');
+    expect(html).toContain('name="host"');
+    expect(html).toContain('name="port"');
+    expect(html).toContain('name="username"');
+    expect(html).toContain('name="password"');
+    expect(html).toContain('proxyPayload(form)');
+    expect(html).toContain("protocol: form.elements.protocol.value");
+    expect(html).toContain("password: optionalText(form.elements.password.value)");
+    expect(html).toContain('proxy.protocol');
+    expect(html).toContain('proxy.host');
+    expect(html).toContain('proxy.port');
+    expect(html).toContain('proxy.username');
+    expect(html).not.toContain('proxy.password');
+    expect(html).not.toContain('name="url"');
+  });
+
+  it('keeps all four download states distinct and displays persisted history fields', async () => {
+    const html = await getPage('/downloads');
+
+    expect(html).toContain('id="download-list" class="download-list"');
+    expect(html).toContain("article.className = 'download-card'");
+    expect(html).toContain("header.className = 'download-card-header'");
+    expect(html).toContain("metrics.className = 'download-card-metrics'");
+    expect(html).toContain("details.className = 'download-card-details'");
+    expect(html).toContain("meta.className = 'download-card-meta'");
+    expect(html).toContain("const source = textElement('span', 'badge download-source'");
+    expect(html).not.toContain('<thead>');
+    expect(html).not.toContain('<th>标题</th>');
+    expect(html).toContain("pending: '等待下载'");
+    expect(html).toContain("running: '运行中'");
+    expect(html).toContain("downloading: '运行中'");
+    expect(html).toContain("completed: '下载完成'");
+    expect(html).toContain("failed: '下载失败'");
+    expect(html).toContain("canceled: '已取消'");
+    expect(html).toContain("interrupted: '已中断'");
+    expect(html).toContain("download.sourceType === 'channel' ? '频道视频' : '单视频'");
+    expect(html).toContain('download.title');
+    expect(html).toContain('download.outputPath');
+    expect(html).toContain('download.failureReason');
+    expect(html).toContain('download.progressPercent');
+    expect(html).toContain('download.speedText');
+    expect(html).toContain('download.etaSeconds');
+    expect(html).toContain("new EventSource('/api/downloads/events')");
+    expect(html).toContain('download.createdAt');
+    expect(html).toContain('download.startedAt');
+    expect(html).toContain('download.finishedAt');
+    expect(html).toContain('download.proxyName');
+    expect(html).toContain("download.networkMode === 'direct' ? '直连' : download.proxyName");
+    expect(html).toContain("download.status === 'pending' || download.status === 'running' || download.status === 'downloading'");
+    expect(html).toContain("request(`/api/downloads/${download.id}/cancel`, 'POST', {})");
+    expect(html).toContain("download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted'");
+    expect(html).toContain("request(`/api/downloads/${download.id}/retry`, 'POST', {})");
+    expect(html).toContain("download.status === 'completed' || download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted'");
+    expect(html).toContain("confirm(`确认删除下载「${download.title}」？`)");
+    expect(html).toContain("request(`/api/downloads/${download.id}`, 'DELETE')");
+    expect(html).toContain('location.reload()');
+    expect(html).toContain("events.addEventListener('downloads'");
+    expect(html).toContain("if (download.status === 'completed')");
+    expect(html).toContain('`/downloads/preview?id=${download.id}`');
+    expect(html).toContain('`/api/downloads/${download.id}/file`');
+    expect(html).toContain('original.href = download.sourceUrl');
+    expect(html).toContain("original.target = '_blank'");
+    expect(html).toContain("original.rel = 'noopener noreferrer'");
+    expect(html).not.toMatch(/自动下载|播放/);
+  });
+
+  it('renders and executes the standalone download preview contract', async () => {
+    const html = await getPage('/downloads/preview?id=1');
+
+    expect(html).toContain('<body class="preview-page">');
+    expect(html).toContain('id="preview-player"');
+    expect(html).toContain('id="preview-error"');
+    expect(html).toContain('controls preload="metadata" hidden');
+    expect(html).toContain('page.title = download.title');
+    expect(html).not.toContain('download-preview-toolbar');
+    expect(html).not.toContain('preview-download');
+    expect(html).not.toContain('preview-original');
+    expect(html).toContain('浏览器无法播放此文件，请返回下载页面下载后查看');
+    expect(html).toContain("load().catch(() => showPreviewError(errorRegion, '无法加载下载记录'))");
+    expect(html).not.toContain('class="app-shell"');
+    expect(html).not.toContain('class="app-sidebar"');
+    expect(html).not.toContain('class="app-topbar"');
+    expect(html).not.toContain('deployment-warning');
+    expect(html).not.toContain('可信内网');
+    expect(html).not.toContain('class="app-footer"');
+    expect(html).toContain("request('/api/downloads')");
+    expect(html).toContain("new URLSearchParams(location.search).get('id')");
+
+    const functionSource = html.slice(
+      html.indexOf('function parseDownloadId'),
+      html.indexOf('async function load'),
+    );
+    const helpers = new Function(
+      `${functionSource}; return { renderPreview };`,
+    )() as {
+      renderPreview(items: Array<Record<string, unknown>>, rawId: string | null, player: Record<string, unknown>, page: Record<string, unknown>, error: Record<string, unknown>): void;
+    };
+    const player = () => ({ src: '', hidden: true });
+
+    for (const [rawId, items, message] of [
+      ['x', [], '下载记录参数无效'],
+      ['2', [], '下载记录不存在'],
+      ['2', [{ id: 2, status: 'pending' }], '文件尚不可预览'],
+    ] as const) {
+      const media = player();
+      const page = { title: '下载预览' };
+      const error = { textContent: '', hidden: true };
+      helpers.renderPreview([...items], rawId, media, page, error);
+      expect(media.src).toBe('');
+      expect(media.hidden).toBe(true);
+      expect(page.title).toBe('下载预览');
+      expect(error).toEqual({ textContent: message, hidden: false });
+    }
+
+    const media = player();
+    const page = { title: '下载预览' };
+    helpers.renderPreview(
+      [{ id: 2, status: 'completed', title: 'Video', sourceUrl: 'https://media.example/items/2' }],
+      '2',
+      media,
+      page,
+      { textContent: '', hidden: true },
+    );
+    expect(page.title).toBe('Video');
+    expect(media.src).toBe('/api/downloads/2/media');
+    expect(media.hidden).toBe(false);
+  });
+
+  it('formats download times and preserves complete output paths', async () => {
+    const html = await getPage('/downloads');
+    type FakeNode = {
+      className: string;
+      textContent: string;
+      children: FakeNode[];
+      title?: string;
+      append(...children: FakeNode[]): void;
+      readonly lastElementChild: FakeNode | null;
+    };
+    const fakeDocument = {
+      createElement: (): FakeNode => ({
+        className: '',
+        textContent: '',
+        children: [],
+        append(...children: FakeNode[]) {
+          this.children.push(...children);
+        },
+        get lastElementChild() {
+          return this.children.at(-1) ?? null;
+        },
+      }),
+    };
+    const functionSource = html.slice(
+      html.indexOf('function displayValue'),
+      html.indexOf('function renderDownloads'),
+    );
+    const helpers = new Function(
+      'document',
+      `${functionSource}; return { displayValue, formatTimestamp, outputPathDetail };`,
+    )(fakeDocument) as {
+      displayValue(value: string | null): string;
+      formatTimestamp(value: string | null): string;
+      outputPathDetail(value: string | null): FakeNode;
+    };
+    const value = '2026-07-18T09:43:33.709Z';
+    const timestamp = new Date(value);
+    const pad = (part: number) => String(part).padStart(2, '0');
+    const expected = `${timestamp.getFullYear()}-${pad(timestamp.getMonth() + 1)}-${pad(timestamp.getDate())} ${pad(timestamp.getHours())}:${pad(timestamp.getMinutes())}:${pad(timestamp.getSeconds())}`;
+
+    expect(helpers.displayValue(null)).toBe('—');
+    expect(helpers.displayValue('0s')).toBe('0s');
+    expect(helpers.formatTimestamp(value)).toBe(expected);
+    expect(helpers.formatTimestamp(null)).toBe('—');
+    expect(helpers.formatTimestamp('invalid')).toBe('invalid');
+    expect(html).toContain('formatTimestamp(download.createdAt)');
+    expect(html).toContain('formatTimestamp(download.startedAt)');
+    expect(html).toContain('formatTimestamp(download.finishedAt)');
+    expect(html).toContain('outputPathDetail(download.outputPath)');
+
+    const longPath = '/downloads/a-very-long-output-file.webm';
+    const pathValue = helpers.outputPathDetail(longPath).lastElementChild;
+    expect(pathValue?.textContent).toBe(longPath);
+    expect(pathValue?.title).toBe(longPath);
+
+    const nullPathValue = helpers.outputPathDetail(null).lastElementChild;
+    expect(nullPathValue?.textContent).toBe('—');
+    expect(Object.hasOwn(nullPathValue as object, 'title')).toBe(false);
+  });
+
+  it('keeps download cards readable across desktop and mobile widths', async () => {
+    const styles = await readFile(
+      new URL('../../src/styles/main.scss', import.meta.url),
+      'utf8',
+    );
+
+    expect(styles).toMatch(/\.download-card-identity\s*\{[^}]*flex: 1 1 24rem;/s);
+    expect(styles).toMatch(/\.download-path-value\s*\{[^}]*text-overflow: ellipsis;/s);
+    expect(styles).toMatch(/\.download-card-times\s*\{[^}]*grid-column: 1 \/ -1;/s);
+    expect(styles).toContain('.download-source {');
+    expect(styles).toContain('@media (max-width: 575.98px)');
+    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-card-header\s*\{[^}]*flex-direction: column;/);
+    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-card-metrics,[\s\S]*\.download-card-details,[\s\S]*\.download-card-times\s*\{[^}]*grid-template-columns: 1fr;/);
+    expect(styles).not.toMatch(/\.download-detail-value\s*\{[^}]*text-overflow: ellipsis;/s);
+    expect(styles).toMatch(/\.preview-page\s*\{[^}]*width: 100dvw;[^}]*height: 100dvh;[^}]*overflow: hidden;[^}]*background:/s);
+    expect(styles).toMatch(/\.download-preview\s*\{[^}]*width: 100%;[^}]*height: 100%;/s);
+    expect(styles).toMatch(/\.download-preview-player\s*\{[^}]*width: 100%;[^}]*height: 100%;[^}]*object-fit: contain;[^}]*background:/s);
+    expect(styles).not.toContain('.download-preview-toolbar');
+    expect(styles).not.toContain('.download-preview-actions');
+    expect(styles).toContain('.download-preview-error');
+  });
+
+  it('requires confirmation before page delete actions', async () => {
+    const settingsHtml = await getPage('/settings');
+    const downloadsHtml = await getPage('/downloads');
+
+    expect(settingsHtml).toContain("confirm(`确认删除代理「${proxy.name}」？`)");
+    expect(settingsHtml).toContain('if (!confirmed) return;');
+    expect(settingsHtml).toContain("request(`/api/proxies/${proxy.id}`, 'DELETE')");
+
+    expect(downloadsHtml).toContain("confirm(`确认删除下载「${download.title}」？`)");
+    expect(downloadsHtml).toContain('if (!confirmed) return;');
+    expect(downloadsHtml).toContain("request(`/api/downloads/${download.id}`, 'DELETE')");
+  });
+
+  it('keeps modals open when clicking outside their dialog', async () => {
+    const channelsHtml = await getPage('/channels');
+    const settingsHtml = await getPage('/settings');
+    const downloadsHtml = await getPage('/downloads');
+
+    expect(channelsHtml).toContain(
+      'id="channel-modal" tabindex="-1" aria-labelledby="channel-modal-title" aria-hidden="true" data-bs-backdrop="static"',
+    );
+    expect(settingsHtml).toContain(
+      'id="proxy-modal" tabindex="-1" aria-labelledby="proxy-modal-title" aria-hidden="true" data-bs-backdrop="static"',
+    );
+    expect(downloadsHtml).toContain(
+      'id="direct-download-modal" tabindex="-1" aria-labelledby="direct-download-title" aria-hidden="true" data-bs-backdrop="static"',
+    );
+  });
+});

@@ -1,0 +1,665 @@
+import { chmod, mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
+import { migrateDatabase } from '../../src/db/migrate.js';
+import { BusinessError } from '../../src/errors.js';
+import {
+  createChannelDownloads,
+  createDirectDownload,
+  getDownloadFile,
+  retryDownload,
+  type DownloadQueue,
+  type QueuedDownload,
+} from '../../src/services/download.js';
+
+const NOW = new Date('2026-07-17T11:20:00.000Z');
+const PROXY_URL = 'http://alice:secret@proxy.example:8080';
+const FIRST_VIDEO_ID = 'aB_12-cD345';
+const SECOND_VIDEO_ID = 'eF_67-gH890';
+
+const DEFAULT_ADVANCED_OPTIONS = {
+  mediaType: 'video',
+  format: null,
+  quality: null,
+  codec: null,
+  writeSubtitles: false,
+  writeThumbnail: false,
+  splitChapters: false,
+  timeRangeStart: null,
+  timeRangeEnd: null,
+  filenamePreset: null,
+} as const;
+
+function directInput(url: string, proxyId: number | null) {
+  return {
+    url,
+    proxyId,
+    targetSubdirectory: null,
+    advancedOptions: DEFAULT_ADVANCED_OPTIONS,
+  };
+}
+
+let sandbox: string;
+let downloadRoot: string;
+let executablePath: string;
+let database: DatabaseConnection;
+let queued: QueuedDownload[];
+let queue: DownloadQueue;
+
+async function installFakeYtDlp(): Promise<void> {
+  executablePath = join(sandbox, 'fake-yt-dlp.mjs');
+  await writeFile(
+    executablePath,
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const url = args.at(-1);
+if (url === 'https://www.youtube.com/watch?v=${FIRST_VIDEO_ID}') {
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Youtube',
+    id: '${FIRST_VIDEO_ID}',
+    title: 'Direct title',
+    upload_date: '20260716',
+    webpage_url: url,
+    live_status: 'not_live'
+  }) + '\\n');
+  process.exit(0);
+}
+if (url === 'https://www.youtube.com/watch?v=${SECOND_VIDEO_ID}') {
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Youtube',
+    id: '${SECOND_VIDEO_ID}',
+    title: '',
+    upload_date: '20260716',
+    webpage_url: url,
+    live_status: 'not_live'
+  }) + '\\n');
+  process.exit(0);
+}
+process.stderr.write('probe failed for http://alice:secret@proxy.example:8080');
+process.exit(3);
+`,
+    'utf8',
+  );
+  await chmod(executablePath, 0o755);
+}
+
+function configureRoot(path: string | null = downloadRoot): void {
+  database
+    .prepare('UPDATE settings SET download_root = ?, updated_at = ? WHERE id = 1')
+    .run(path, NOW.toISOString());
+}
+
+function insertProxy(name = 'office'): number {
+  const result = database
+    .prepare(
+      `INSERT INTO proxies (name, proxy_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .run(name, PROXY_URL, NOW.toISOString(), NOW.toISOString());
+  return Number(result.lastInsertRowid);
+}
+
+function insertChannel(proxyId: number | null): number {
+  const result = database
+    .prepare(
+      `INSERT INTO channels (
+        platform, platform_channel_id, source_url, custom_name,
+        custom_name_key, proxy_id, check_interval_minutes,
+        initial_synced_at, created_at, updated_at
+      ) VALUES ('youtube', 'UC-downloads', 'https://www.youtube.com/@downloads',
+                'Saved channel', 'saved channel', ?, NULL, ?, ?, ?)`,
+    )
+    .run(proxyId, NOW.toISOString(), NOW.toISOString(), NOW.toISOString());
+  return Number(result.lastInsertRowid);
+}
+
+function insertVideo(
+  channelId: number,
+  platformVideoId: string,
+  title: string,
+  publishedDate: string,
+): number {
+  const result = database
+    .prepare(
+      `INSERT INTO videos (
+        channel_id, platform, platform_video_id, title, published_date,
+        source_url, discovery_kind, discovered_at
+      ) VALUES (?, 'youtube', ?, ?, ?, ?, 'historical', ?)`,
+    )
+    .run(
+      channelId,
+      platformVideoId,
+      title,
+      publishedDate,
+      `https://www.youtube.com/watch?v=${platformVideoId}`,
+      NOW.toISOString(),
+    );
+  return Number(result.lastInsertRowid);
+}
+
+function downloadRows(): unknown[] {
+  return database.prepare('SELECT * FROM downloads ORDER BY id').all();
+}
+
+function expectSingleConcurrentSuccess(
+  results: readonly PromiseSettledResult<unknown>[],
+): void {
+  expect(
+    results.filter((result) => result.status === 'fulfilled'),
+  ).toHaveLength(1);
+  const rejected = results.filter(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0]?.reason).toMatchObject({ code: 'DOWNLOAD_ALREADY_EXISTS' });
+}
+
+async function expectBusinessError(
+  operation: Promise<unknown>,
+  code: BusinessError['code'],
+): Promise<void> {
+  await expect(operation).rejects.toMatchObject({ code });
+}
+
+beforeEach(async () => {
+  sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-download-service-'));
+  downloadRoot = join(sandbox, 'downloads');
+  await mkdir(downloadRoot);
+  await installFakeYtDlp();
+  database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
+  migrateDatabase(database);
+  configureRoot();
+  queued = [];
+  queue = { enqueue: (download) => queued.push(download) };
+});
+
+afterEach(async () => {
+  try {
+    database.close();
+  } catch {
+    // A persistence-boundary test may already have closed the connection.
+  }
+  await rm(sandbox, { recursive: true, force: true });
+});
+
+describe('download creation service', () => {
+  it('creates a channel batch atomically and enqueues proxy-bearing jobs in request order', async () => {
+    const proxyId = insertProxy();
+    const channelId = insertChannel(proxyId);
+    const firstId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2025-12-31');
+    const secondId = insertVideo(channelId, SECOND_VIDEO_ID, 'Second title', '2026-01-01');
+
+    await expect(
+      createChannelDownloads(
+        database,
+        downloadRoot,
+        [secondId, firstId],
+        queue,
+        NOW,
+      ),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: expect.any(Number),
+        sourceType: 'channel',
+        title: 'Second title',
+        status: 'pending',
+        networkMode: 'proxy',
+        proxyName: 'office',
+      }),
+      expect.objectContaining({
+        id: expect.any(Number),
+        sourceType: 'channel',
+        title: 'First title',
+        status: 'pending',
+        networkMode: 'proxy',
+        proxyName: 'office',
+      }),
+    ]);
+
+    expect(queued.map((job) => job.platformVideoId)).toEqual([
+      SECOND_VIDEO_ID,
+      FIRST_VIDEO_ID,
+    ]);
+    expect(queued.map((job) => job.proxyUrl)).toEqual([PROXY_URL, PROXY_URL]);
+    const realDownloadRoot = await realpath(downloadRoot);
+    expect(queued.map((job) => job.targetDirectory)).toEqual([
+      join(realDownloadRoot, 'Saved channel', '2026'),
+      join(realDownloadRoot, 'Saved channel', '2025'),
+    ]);
+    expect(downloadRows()).toEqual([
+      expect.objectContaining({
+        platform_video_id: SECOND_VIDEO_ID,
+        proxy_name: 'office',
+        network_mode: 'proxy',
+        status: 'pending',
+      }),
+      expect.objectContaining({
+        platform_video_id: FIRST_VIDEO_ID,
+        proxy_name: 'office',
+        network_mode: 'proxy',
+        status: 'pending',
+      }),
+    ]);
+    expect(downloadRows().map((row) => row.proxy_url_snapshot)).toEqual([
+      PROXY_URL,
+      PROXY_URL,
+    ]);
+  });
+
+  it('allows channel downloads to override the channel proxy and snapshots the selected proxy', async () => {
+    const channelProxyId = insertProxy('channel-proxy');
+    const overrideProxyId = insertProxy('override-proxy');
+    const channelId = insertChannel(channelProxyId);
+    const videoId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+
+    const [download] = await createChannelDownloads(
+      database,
+      downloadRoot,
+      [videoId],
+      queue,
+      NOW,
+      overrideProxyId,
+    );
+
+    database
+      .prepare('UPDATE proxies SET name = ?, proxy_url = ? WHERE id = ?')
+      .run('changed-proxy', 'http://changed.example:8080', overrideProxyId);
+    database
+      .prepare('UPDATE channels SET proxy_id = NULL WHERE id = ?')
+      .run(channelId);
+
+    expect(download).toMatchObject({
+      networkMode: 'proxy',
+      proxyName: 'override-proxy',
+    });
+    expect(downloadRows()).toEqual([
+      expect.objectContaining({
+        network_mode: 'proxy',
+        proxy_name: 'override-proxy',
+      }),
+    ]);
+    expect(queued).toEqual([
+      expect.objectContaining({
+        proxyUrl: PROXY_URL,
+      }),
+    ]);
+  });
+
+  it('allows channel downloads to override the channel proxy with direct', async () => {
+    const proxyId = insertProxy('channel-proxy');
+    const channelId = insertChannel(proxyId);
+    const videoId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+
+    const [download] = await createChannelDownloads(
+      database,
+      downloadRoot,
+      [videoId],
+      queue,
+      NOW,
+      null,
+    );
+
+    expect(download).toMatchObject({
+      networkMode: 'direct',
+      proxyName: null,
+    });
+    expect(queued).toEqual([
+      expect.not.objectContaining({
+        proxyUrl: expect.any(String),
+      }),
+    ]);
+  });
+
+  it('rejects duplicate or partially unknown channel video IDs without writes or queue notifications', async () => {
+    const channelId = insertChannel(null);
+    const videoId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [videoId, videoId], queue, NOW),
+      'VALIDATION_ERROR',
+    );
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [videoId, 999], queue, NOW),
+      'VIDEO_NOT_FOUND',
+    );
+
+    expect(downloadRows()).toEqual([]);
+    expect(queued).toEqual([]);
+  });
+
+  it('rolls back every channel record when persistence fails during a batch', async () => {
+    const channelId = insertChannel(null);
+    const firstId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+    const secondId = insertVideo(channelId, SECOND_VIDEO_ID, 'Second title', '2026-07-16');
+    database.exec(`
+      CREATE TRIGGER fail_second_download BEFORE INSERT ON downloads
+      WHEN NEW.platform_video_id = '${SECOND_VIDEO_ID}'
+      BEGIN SELECT RAISE(ABORT, 'forced failure'); END
+    `);
+
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [firstId, secondId], queue, NOW),
+      'PERSISTENCE_ERROR',
+    );
+
+    expect(downloadRows()).toEqual([]);
+    expect(queued).toEqual([]);
+  });
+
+  it('strictly probes a direct video, snapshots the selected proxy, and does not create a channel', async () => {
+    const proxyId = insertProxy();
+
+    const result = await createDirectDownload(
+      database,
+      executablePath,
+      downloadRoot,
+      directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, proxyId),
+      queue,
+      NOW,
+    );
+
+    expect(result).toMatchObject({
+      sourceType: 'direct',
+      title: 'Direct title',
+      status: 'pending',
+      networkMode: 'proxy',
+      proxyName: 'office',
+    });
+    expect(database.prepare('SELECT COUNT(*) FROM channels').pluck().get()).toBe(0);
+    expect(downloadRows()).toEqual([
+      expect.objectContaining({
+        source_type: 'direct',
+        channel_id: null,
+        video_id: null,
+        source_url: `https://youtu.be/${FIRST_VIDEO_ID}`,
+        platform_video_id: FIRST_VIDEO_ID,
+        title: 'Direct title',
+        published_date: null,
+        proxy_name: 'office',
+      }),
+    ]);
+    const realDownloadRoot = await realpath(downloadRoot);
+    expect(queued).toEqual([
+      expect.objectContaining({
+        downloadId: result.id,
+        sourceUrl: `https://youtu.be/${FIRST_VIDEO_ID}`,
+        platformVideoId: FIRST_VIDEO_ID,
+        proxyUrl: PROXY_URL,
+        targetDirectory: realDownloadRoot,
+      }),
+    ]);
+
+    database
+      .prepare(
+        `UPDATE downloads
+         SET status = 'failed', failure_reason = 'network error', finished_at = ?
+         WHERE id = ?`,
+      )
+      .run(NOW.toISOString(), result.id);
+    queued = [];
+    queue = { enqueue: (download) => queued.push(download) };
+
+    await retryDownload(database, downloadRoot, result.id, queue, NOW);
+
+    expect(queued[0]?.sourceUrl).toBe(`https://youtu.be/${FIRST_VIDEO_ID}`);
+  });
+
+  it('returns only a verified completed main file', async () => {
+    const result = await createDirectDownload(
+      database,
+      executablePath,
+      downloadRoot,
+      directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, null),
+      queue,
+      NOW,
+    );
+    await expectBusinessError(
+      getDownloadFile(database, downloadRoot, result.id),
+      'DOWNLOAD_FILE_UNAVAILABLE',
+    );
+    await expectBusinessError(
+      getDownloadFile(database, downloadRoot, 999),
+      'DOWNLOAD_NOT_FOUND',
+    );
+
+    const filePath = join(downloadRoot, 'finished.webm');
+    await writeFile(filePath, 'media');
+    database
+      .prepare(
+        `UPDATE downloads
+         SET status = 'completed', output_path = ?, finished_at = ?
+         WHERE id = ?`,
+      )
+      .run(filePath, NOW.toISOString(), result.id);
+
+    const file = await getDownloadFile(database, downloadRoot, result.id);
+    expect(file).toMatchObject({
+      path: await realpath(filePath),
+      filename: 'finished.webm',
+      size: 5,
+    });
+
+    const originalPath = join(downloadRoot, 'original.webm');
+    const outsidePath = join(sandbox, 'outside.webm');
+    await rename(filePath, originalPath);
+    await writeFile(outsidePath, 'secret');
+    await symlink(outsidePath, filePath);
+    await expect(file.handle.readFile({ encoding: 'utf8' })).resolves.toBe('media');
+    await file.handle.close();
+  });
+
+  it('maps completed-file persistence failures', async () => {
+    database.close();
+
+    await expectBusinessError(
+      getDownloadFile(database, downloadRoot, 1),
+      'PERSISTENCE_ERROR',
+    );
+  });
+
+  it('rejects unknown proxies and invalid direct metadata without creating records', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        executablePath,
+        downloadRoot,
+        directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, 999),
+        queue,
+        NOW,
+      ),
+      'PROXY_NOT_FOUND',
+    );
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        executablePath,
+        downloadRoot,
+        directInput(`https://youtu.be/${SECOND_VIDEO_ID}`, null),
+        queue,
+        NOW,
+      ),
+      'VIDEO_METADATA_INVALID',
+    );
+
+    expect(downloadRows()).toEqual([]);
+    expect(queued).toEqual([]);
+  });
+
+  it('uses the downloads mount path when no download root is configured', async () => {
+    const channelId = insertChannel(null);
+    const videoId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+    configureRoot(null);
+
+    await createChannelDownloads(database, downloadRoot, [videoId], queue, NOW);
+
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.downloadRoot).toBe(await realpath(downloadRoot));
+  });
+
+  it('rejects unavailable configured download roots before creating records', async () => {
+    const channelId = insertChannel(null);
+    const videoId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+    configureRoot(join(sandbox, 'missing'));
+
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
+      'DOWNLOAD_ROOT_UNAVAILABLE',
+    );
+
+    expect(downloadRows()).toEqual([]);
+    expect(queued).toEqual([]);
+  });
+
+  it('blocks active, completed, and target-file duplicates but permits explicit recreation after failure', async () => {
+    const channelId = insertChannel(null);
+    const videoId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+
+    const [first] = await createChannelDownloads(
+      database,
+      downloadRoot,
+      [videoId],
+      queue,
+      NOW,
+    );
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
+      'DOWNLOAD_ALREADY_EXISTS',
+    );
+
+    database
+      .prepare("UPDATE downloads SET status = 'downloading', started_at = ? WHERE id = ?")
+      .run(NOW.toISOString(), first?.id);
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
+      'DOWNLOAD_ALREADY_EXISTS',
+    );
+
+    database
+      .prepare(
+        `UPDATE downloads
+         SET status = 'failed', failure_reason = 'explicit failure', finished_at = ?
+         WHERE id = ?`,
+      )
+      .run(NOW.toISOString(), first?.id);
+    await expect(
+      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
+    ).resolves.toHaveLength(1);
+
+    database
+      .prepare(
+        `UPDATE downloads
+         SET status = 'completed', output_path = ?, failure_reason = NULL,
+             finished_at = ?
+         WHERE id = (SELECT MAX(id) FROM downloads)`,
+      )
+      .run(join(downloadRoot, `${FIRST_VIDEO_ID}.mp4`), NOW.toISOString());
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
+      'DOWNLOAD_ALREADY_EXISTS',
+    );
+
+    database.prepare('DELETE FROM downloads').run();
+    const targetDirectory = join(downloadRoot, 'Saved channel', '2026');
+    await writeFile(join(targetDirectory, `${FIRST_VIDEO_ID}.webm`), 'media');
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
+      'DOWNLOAD_ALREADY_EXISTS',
+    );
+  });
+
+  it('atomically rejects one of two concurrent channel requests for the same video', async () => {
+    const channelId = insertChannel(null);
+    const videoId = insertVideo(
+      channelId,
+      FIRST_VIDEO_ID,
+      'First title',
+      '2026-07-16',
+    );
+    const secondDatabase = openDatabase(join(sandbox, 'vidharbor.sqlite'));
+
+    try {
+      const results = await Promise.allSettled([
+        createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
+        createChannelDownloads(
+          secondDatabase,
+          downloadRoot,
+          [videoId],
+          queue,
+          NOW,
+        ),
+      ]);
+
+      expectSingleConcurrentSuccess(results);
+      expect(downloadRows()).toHaveLength(1);
+      expect(queued).toHaveLength(1);
+    } finally {
+      secondDatabase.close();
+    }
+  });
+
+  it('atomically rejects one of two concurrent direct requests for the same video', async () => {
+    const secondDatabase = openDatabase(join(sandbox, 'vidharbor.sqlite'));
+    const input = directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, null);
+
+    try {
+      const results = await Promise.allSettled([
+        createDirectDownload(
+          database,
+          executablePath,
+          downloadRoot,
+          input,
+          queue,
+          NOW,
+        ),
+        createDirectDownload(
+          secondDatabase,
+          executablePath,
+          downloadRoot,
+          input,
+          queue,
+          NOW,
+        ),
+      ]);
+
+      expectSingleConcurrentSuccess(results);
+      expect(downloadRows()).toHaveLength(1);
+      expect(queued).toHaveLength(1);
+    } finally {
+      secondDatabase.close();
+    }
+  });
+
+  it('enqueues the validated download root snapshot when settings change during insertion', async () => {
+    const changedRoot = join(downloadRoot, 'changed-after-prepare');
+    await mkdir(changedRoot);
+    const channelId = insertChannel(null);
+    const videoId = insertVideo(
+      channelId,
+      FIRST_VIDEO_ID,
+      'First title',
+      '2026-07-16',
+    );
+    database.exec(`
+      CREATE TRIGGER change_download_root AFTER INSERT ON downloads
+      BEGIN
+        UPDATE settings
+        SET download_root = '${changedRoot.replaceAll("'", "''")}'
+        WHERE id = 1;
+      END
+    `);
+
+    await createChannelDownloads(database, downloadRoot, [videoId], queue, NOW);
+
+    const validatedRoot = await realpath(downloadRoot);
+    expect(queued).toEqual([
+      expect.objectContaining({
+        targetDirectory: join(validatedRoot, 'Saved channel', '2026'),
+        downloadRoot: validatedRoot,
+      }),
+    ]);
+  });
+});

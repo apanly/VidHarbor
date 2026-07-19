@@ -1,0 +1,130 @@
+import { readFileSync } from 'node:fs';
+
+import { openDatabase, type DatabaseConnection } from './client.js';
+
+interface SchemaEntry {
+  name: string;
+  sql: string;
+  type: string;
+}
+
+const MIGRATIONS = [
+  readFileSync(new URL('./migrations/001-initial.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('./migrations/002-manual-channel-sync.sql', import.meta.url), 'utf8'),
+] as const;
+
+function schemaEntries(database: DatabaseConnection): SchemaEntry[] {
+  return database
+    .prepare(
+      `SELECT type, name, sql
+       FROM sqlite_schema
+       WHERE type IN ('table', 'index')
+         AND name NOT LIKE 'sqlite_%'
+         AND sql IS NOT NULL
+       ORDER BY type, name`,
+    )
+    .all() as SchemaEntry[];
+}
+
+function expectedSchemaEntries(): SchemaEntry[] {
+  const referenceDatabase = openDatabase(':memory:');
+
+  try {
+    for (const migration of MIGRATIONS) referenceDatabase.exec(migration);
+    return schemaEntries(referenceDatabase);
+  } finally {
+    referenceDatabase.close();
+  }
+}
+
+function assertSchemaMatchesLatestVersion(database: DatabaseConnection): void {
+  if (JSON.stringify(schemaEntries(database)) !== JSON.stringify(expectedSchemaEntries())) {
+    throw new Error('Database schema does not match latest migration version');
+  }
+
+  const settingsRows = database.prepare('SELECT id FROM settings').all() as Array<{
+    id: number;
+  }>;
+  if (settingsRows.length !== 1 || settingsRows[0]?.id !== 1) {
+    throw new Error('Database schema does not contain the required settings row');
+  }
+}
+
+function assertDatabaseIntegrity(database: DatabaseConnection): void {
+  if (database.pragma('integrity_check', { simple: true }) !== 'ok') {
+    throw new Error('Database integrity check failed');
+  }
+
+  if ((database.pragma('foreign_key_check') as unknown[]).length !== 0) {
+    throw new Error('Database foreign key check failed');
+  }
+}
+
+export function migrateDatabase(database: DatabaseConnection): void {
+  database.pragma('foreign_keys = OFF');
+  database.exec('BEGIN EXCLUSIVE');
+
+  try {
+    assertDatabaseIntegrity(database);
+
+    const schemaMigrationTableExists =
+      database
+        .prepare(
+          "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'schema_migrations'",
+        )
+        .pluck()
+        .get() === 1;
+
+    if (!schemaMigrationTableExists) {
+      const existingSchemaEntryCount = database
+        .prepare(
+          "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL",
+        )
+        .pluck()
+        .get();
+      if (existingSchemaEntryCount !== 0) {
+        throw new Error('Database schema does not contain schema_migrations');
+      }
+
+      database.exec(MIGRATIONS[0]);
+      const appliedAt = new Date().toISOString();
+      database
+        .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)')
+        .run(appliedAt);
+      database
+        .prepare(
+          `INSERT INTO settings (
+            id, download_root, global_check_interval_minutes,
+            download_concurrency, updated_at
+          ) VALUES (1, NULL, 60, 1, ?)`,
+        )
+        .run(appliedAt);
+      database.exec(MIGRATIONS[1]);
+      database
+        .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)')
+        .run(appliedAt);
+    } else {
+      const versions = database
+        .prepare('SELECT version FROM schema_migrations ORDER BY version')
+        .pluck()
+        .all() as number[];
+      if (versions.length === 1 && versions[0] === 1) {
+        database.exec(MIGRATIONS[1]);
+        database
+          .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)')
+          .run(new Date().toISOString());
+      } else if (versions.length !== 2 || versions[0] !== 1 || versions[1] !== 2) {
+        throw new Error(`Unknown schema migration version: ${versions.join(', ')}`);
+      }
+    }
+
+    assertSchemaMatchesLatestVersion(database);
+    assertDatabaseIntegrity(database);
+    database.exec('COMMIT');
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  } finally {
+    database.pragma('foreign_keys = ON');
+  }
+}

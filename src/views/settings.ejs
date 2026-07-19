@@ -1,0 +1,122 @@
+<%- include('partials/header') %>
+      <h1>配置</h1>
+      <section class="card my-4"><div class="card-body">
+        <h2 class="h4">全局设置</h2>
+        <form id="settings-form">
+          <div class="mb-3"><label class="form-label" for="downloadRoot">下载根目录</label><input class="form-control" id="downloadRoot" name="downloadRoot" required></div>
+          <div class="mb-3"><label class="form-label" for="globalCheckIntervalMinutes">全局检查间隔（分钟）</label><input class="form-control" type="number" min="1" step="1" id="globalCheckIntervalMinutes" name="globalCheckIntervalMinutes" required></div>
+          <div class="mb-3"><label class="form-label" for="downloadConcurrency">下载并发数</label><input class="form-control" type="number" min="1" step="1" id="downloadConcurrency" name="downloadConcurrency" required></div>
+          <div class="alert alert-danger" data-form-error hidden></div><button class="btn btn-primary" type="submit">保存设置</button>
+        </form>
+      </div></section>
+      <section class="card"><div class="card-body">
+        <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+          <div>
+            <h2 class="h4">代理</h2>
+            <p class="text-body-secondary mb-0">代理密码仅以脱敏形式展示；编辑时必须重新输入完整密码。</p>
+          </div>
+          <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#proxy-modal" data-proxy-create>新增代理</button>
+        </div>
+        <div id="proxy-list-error" class="alert alert-danger" hidden></div>
+        <div class="table-responsive"><table id="proxy-table" class="table align-middle">
+          <thead><tr><th>名称</th><th>协议</th><th>主机</th><th>端口</th><th>用户名</th><th>密码</th><th>操作</th></tr></thead>
+          <tbody id="proxy-list"></tbody>
+        </table></div>
+      </div></section>
+      <div class="modal fade" id="proxy-modal" tabindex="-1" aria-labelledby="proxy-modal-title" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <form id="proxy-form" class="proxy-modal-form">
+              <div class="modal-header">
+                <h2 class="modal-title h5" id="proxy-modal-title">新增代理</h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
+              </div>
+              <div class="modal-body">
+                <div class="proxy-field-full"><label class="form-label" for="proxy-name">名称</label><input class="form-control" id="proxy-name" name="name" required></div>
+                <div class="proxy-field-full"><label class="form-label" for="proxy-protocol">代理类型</label><select class="form-select" id="proxy-protocol" name="protocol" required><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option></select></div>
+                <div class="proxy-field-pair">
+                  <div><label class="form-label" for="proxy-host">主机地址</label><input class="form-control" id="proxy-host" name="host" placeholder="例如：192.168.1.100" required></div>
+                  <div><label class="form-label" for="proxy-port">端口</label><input class="form-control" id="proxy-port" type="number" min="1" max="65535" step="1" name="port" placeholder="例如：1080" required></div>
+                </div>
+                <div class="proxy-field-pair">
+                  <div><label class="form-label" for="proxy-username">用户名</label><input class="form-control" id="proxy-username" name="username" placeholder="代理用户名"></div>
+                  <div><label class="form-label" for="proxy-password">密码</label><input class="form-control" id="proxy-password" type="password" name="password" placeholder="代理密码"></div>
+                </div>
+                <div class="alert alert-danger" data-form-error hidden></div>
+              </div>
+              <div class="modal-footer">
+                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" type="submit" data-proxy-submit>新增代理</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script type="module">
+      const proxyForm = document.querySelector('#proxy-form');
+      const proxyModalElement = document.querySelector('#proxy-modal');
+      const proxyModal = bootstrap.Modal.getOrCreateInstance(proxyModalElement);
+      const proxyModalTitle = document.querySelector('#proxy-modal-title');
+      const proxySubmit = document.querySelector('[data-proxy-submit]');
+      let proxyMode = { kind: 'create' };
+      function showError(form, error) { const region = form.querySelector('[data-form-error]'); region.textContent = `${error.code}: ${error.message}`; region.hidden = false; }
+      function clearError(form) { const region = form.querySelector('[data-form-error]'); region.textContent = ''; region.hidden = true; }
+      function optionalText(value) { return value === '' ? null : value; }
+      function proxyPayload(form) { return { name: form.elements.name.value, protocol: form.elements.protocol.value, host: form.elements.host.value, port: Number(form.elements.port.value), username: optionalText(form.elements.username.value), password: optionalText(form.elements.password.value) }; }
+      async function request(path, method, body) {
+        const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+        if (response.status === 204) return null;
+        const result = await response.json();
+        if (!response.ok) throw result.error;
+        return result;
+      }
+      function openProxyCreateModal() {
+        proxyMode = { kind: 'create' };
+        proxyModalTitle.textContent = '新增代理';
+        proxySubmit.textContent = '新增代理';
+        proxyForm.reset();
+        clearError(proxyForm);
+      }
+      function openProxyEditModal(proxy) {
+        proxyMode = { kind: 'edit', id: proxy.id };
+        proxyModalTitle.textContent = '编辑代理';
+        proxySubmit.textContent = '保存';
+        proxyForm.reset();
+        proxyForm.elements.name.value = proxy.name;
+        proxyForm.elements.protocol.value = proxy.protocol;
+        proxyForm.elements.host.value = proxy.host;
+        proxyForm.elements.port.value = String(proxy.port);
+        proxyForm.elements.username.value = proxy.username ?? '';
+        clearError(proxyForm);
+        proxyModal.show();
+      }
+      async function load() {
+        const [settings, proxies] = await Promise.all([request('/api/settings', 'GET'), request('/api/proxies', 'GET')]);
+        document.querySelector('#downloadRoot').value = settings.downloadRoot ?? '';
+        document.querySelector('#globalCheckIntervalMinutes').value = settings.globalCheckIntervalMinutes ?? '';
+        document.querySelector('#downloadConcurrency').value = settings.downloadConcurrency;
+        document.querySelector('[data-proxy-create]').addEventListener('click', () => openProxyCreateModal());
+        const list = document.querySelector('#proxy-list'); list.replaceChildren();
+        const listError = document.querySelector('#proxy-list-error');
+        if (proxies.items.length === 0) { const row = document.createElement('tr'); const empty = document.createElement('td'); empty.colSpan = 7; empty.textContent = '尚未添加代理。'; row.append(empty); list.append(row); return; }
+        for (const proxy of proxies.items) {
+          const row = document.createElement('tr');
+          const name = document.createElement('td'); name.textContent = proxy.name; row.append(name);
+          const protocol = document.createElement('td'); protocol.textContent = proxy.protocol; row.append(protocol);
+          const host = document.createElement('td'); host.textContent = proxy.host; row.append(host);
+          const port = document.createElement('td'); port.textContent = String(proxy.port); row.append(port);
+          const username = document.createElement('td'); username.textContent = proxy.username ?? '—'; row.append(username);
+          const password = document.createElement('td'); password.textContent = proxy.maskedPassword ?? '—'; row.append(password);
+          const actionsCell = document.createElement('td');
+          const actions = document.createElement('div'); actions.className = 'd-flex flex-wrap gap-2';
+          const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'btn btn-sm btn-outline-primary'; edit.dataset.bsToggle = 'modal'; edit.dataset.bsTarget = '#proxy-modal'; edit.textContent = '编辑'; edit.addEventListener('click', () => openProxyEditModal(proxy));
+          const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-sm btn-outline-danger'; remove.textContent = '删除代理'; remove.addEventListener('click', async () => { const confirmed = confirm(`确认删除代理「${proxy.name}」？`); if (!confirmed) return; try { await request(`/api/proxies/${proxy.id}`, 'DELETE'); location.reload(); } catch (error) { listError.textContent = `${error.code}: ${error.message}`; listError.hidden = false; } });
+          actions.append(edit, remove); actionsCell.append(actions); row.append(actionsCell); list.append(row);
+        }
+      }
+      document.querySelector('#settings-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = event.currentTarget; try { await request('/api/settings', 'PUT', { downloadRoot: form.elements.downloadRoot.value, globalCheckIntervalMinutes: Number(form.elements.globalCheckIntervalMinutes.value), downloadConcurrency: Number(form.elements.downloadConcurrency.value) }); location.reload(); } catch (error) { showError(form, error); } });
+      proxyForm.addEventListener('submit', async (event) => { event.preventDefault(); try { if (proxyMode.kind === 'create') { await request('/api/proxies', 'POST', proxyPayload(proxyForm)); } else { await request(`/api/proxies/${proxyMode.id}`, 'PATCH', proxyPayload(proxyForm)); } location.reload(); } catch (error) { showError(proxyForm, error); } });
+      load().catch((error) => showError(document.querySelector('#settings-form'), error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+    </script>
+<%- include('partials/footer') %>

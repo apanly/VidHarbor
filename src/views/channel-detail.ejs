@@ -1,0 +1,213 @@
+<%- include('partials/header') %>
+      <header class="channel-detail-hero">
+        <div class="channel-detail-heading">
+          <div>
+            <p class="channel-detail-kicker">CHANNEL LIBRARY</p>
+            <h1 id="channel-name">频道详情</h1>
+          </div>
+          <p id="channel-summary" class="channel-detail-summary">正在载入频道资料…</p>
+        </div>
+      </header>
+      <div id="page-error" class="alert alert-danger" hidden></div>
+
+      <div class="channel-detail-layout">
+        <section class="channel-video-panel">
+          <form id="download-form">
+            <div class="channel-video-toolbar">
+              <div class="channel-filter-field">
+                <label class="form-label" for="channel-video-filter">筛选视频</label>
+                <input class="form-control" id="channel-video-filter" name="filter" placeholder="输入标题关键字">
+              </div>
+              <div class="channel-proxy-field">
+                <label class="form-label" for="channel-download-proxy">下载网络路径</label>
+                <select class="form-select" id="channel-download-proxy" name="proxyId">
+                  <option value="channel">沿用频道代理</option>
+                  <option value="">直连</option>
+                </select>
+              </div>
+              <div class="channel-selection-action">
+                <span id="selected-video-count">已选择 0 个</span>
+                <button class="btn btn-primary" type="submit" disabled>下载所选视频</button>
+              </div>
+            </div>
+            <div class="alert alert-danger" data-form-error hidden></div>
+            <div id="video-list" class="channel-video-grid"></div>
+          </form>
+        </section>
+
+        <aside class="channel-check-panel" aria-labelledby="check-history-title">
+          <div class="channel-check-heading">
+            <p class="channel-detail-kicker">ACTIVITY</p>
+            <h2 id="check-history-title">检查记录</h2>
+          </div>
+          <div id="check-list" class="channel-check-list"></div>
+        </aside>
+      </div>
+    </main>
+    <script type="module">
+      const channelId = <%- JSON.stringify(channelId) %>;
+      const pageError = document.querySelector('#page-error');
+      const form = document.querySelector('#download-form');
+      const submit = form.querySelector('[type="submit"]');
+      const selectedCount = document.querySelector('#selected-video-count');
+
+      function showError(region, error) {
+        region.textContent = `${error.code}: ${error.message}`;
+        region.hidden = false;
+      }
+      function channelProxyId() {
+        const value = form.elements.proxyId.value;
+        return value === 'channel' ? 'channel' : value === '' ? null : Number(value);
+      }
+      async function request(path, method = 'GET', body) {
+        const response = await fetch(path, {
+          method,
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw result.error;
+        return result;
+      }
+      function addProxyOptions(select, proxies) {
+        for (const proxy of proxies) select.append(new Option(proxy.name, String(proxy.id)));
+      }
+      function formatDuration(seconds) {
+        if (seconds === null) return '时长未知';
+        const minutes = Math.floor(seconds / 60);
+        return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+      }
+      function formatTimestamp(value) {
+        if (value === null) return '进行中';
+        return new Date(value).toLocaleString('zh-CN', { hour12: false });
+      }
+      function updateSelection() {
+        const count = form.querySelectorAll('input[name="videoIds"]:checked').length;
+        selectedCount.textContent = `已选择 ${count} 个`;
+        submit.disabled = count === 0;
+      }
+      function renderVideo(video) {
+        const card = document.createElement('article');
+        card.className = 'channel-video-card';
+        card.dataset.title = video.title.toLowerCase();
+
+        const visual = document.createElement('div');
+        visual.className = 'channel-video-visual';
+        if (video.thumbnailUrl !== null) {
+          const image = document.createElement('img');
+          image.src = video.thumbnailUrl;
+          image.alt = '';
+          image.loading = 'lazy';
+          visual.append(image);
+        } else {
+          const placeholder = document.createElement('span');
+          placeholder.textContent = 'VH';
+          visual.append(placeholder);
+        }
+
+        const checkbox = document.createElement('input');
+        checkbox.className = 'form-check-input channel-video-check';
+        checkbox.type = 'checkbox';
+        checkbox.name = 'videoIds';
+        checkbox.value = String(video.id);
+        checkbox.ariaLabel = `选择 ${video.title}`;
+        checkbox.disabled = ['pending', 'running', 'downloading', 'completed'].includes(video.downloadStatus);
+        checkbox.addEventListener('change', updateSelection);
+        visual.append(checkbox);
+
+        const duration = document.createElement('span');
+        duration.className = 'channel-video-duration';
+        duration.textContent = formatDuration(video.durationSeconds);
+        visual.append(duration);
+
+        const content = document.createElement('div');
+        content.className = 'channel-video-content';
+        const title = document.createElement('h3');
+        title.textContent = video.title;
+        const meta = document.createElement('div');
+        meta.className = 'channel-video-meta';
+        const published = document.createElement('span');
+        published.textContent = video.publishedDate;
+        const state = document.createElement('span');
+        state.textContent = video.downloadStatus ?? '尚未下载';
+        meta.append(published, state);
+        const original = document.createElement('a');
+        original.href = video.url;
+        original.target = '_blank';
+        original.rel = 'noreferrer';
+        original.textContent = '在 YouTube 打开 ↗';
+        content.append(title, meta, original);
+        card.append(visual, content);
+        return card;
+      }
+      function renderCheck(check) {
+        const resultLabels = { success: '发现更新', no_updates: '没有更新', failed: '检查失败' };
+        const item = document.createElement('article');
+        item.className = `channel-check-item${check.result === 'failed' ? ' is-failed' : ''}`;
+        const marker = document.createElement('span');
+        marker.className = 'channel-check-marker';
+        const content = document.createElement('div');
+        const heading = document.createElement('div');
+        heading.className = 'channel-check-item-heading';
+        const type = document.createElement('strong');
+        type.textContent = check.kind === 'initial' ? '首次同步' : '定时检查';
+        const result = document.createElement('span');
+        result.textContent = check.result === null ? '进行中' : resultLabels[check.result];
+        heading.append(type, result);
+        const time = document.createElement('time');
+        time.textContent = formatTimestamp(check.startedAt);
+        const detail = document.createElement('p');
+        detail.textContent = check.failureReason ?? `发现 ${check.newVideoCount} 个新视频`;
+        content.append(heading, time, detail);
+        item.append(marker, content);
+        return item;
+      }
+      async function load() {
+        const [channels, videos, checks, proxies] = await Promise.all([
+          request('/api/channels'),
+          request(`/api/channels/${channelId}/videos`),
+          request(`/api/channels/${channelId}/checks`),
+          request('/api/proxies'),
+        ]);
+        addProxyOptions(form.elements.proxyId, proxies.items);
+        const channel = channels.items.find((item) => item.id === channelId);
+        if (!channel) throw { code: 'CHANNEL_NOT_FOUND', message: 'channel not found' };
+        document.querySelector('#channel-name').textContent = channel.customName;
+        document.querySelector('#channel-summary').textContent = `${videos.items.length} 个视频 · ${checks.items.length} 次检查`;
+        document.title = `${channel.customName} · VidHarbor`;
+
+        const videoList = document.querySelector('#video-list');
+        if (videos.items.length === 0) {
+          videoList.textContent = '当前范围内没有视频。';
+          videoList.classList.add('channel-empty-state');
+        } else {
+          for (const video of videos.items) videoList.append(renderVideo(video));
+        }
+        const checkList = document.querySelector('#check-list');
+        if (checks.items.length === 0) checkList.textContent = '尚无检查记录。';
+        else for (const check of checks.items) checkList.append(renderCheck(check));
+      }
+      form.elements.filter.addEventListener('input', () => {
+        const value = form.elements.filter.value.toLowerCase();
+        for (const card of document.querySelectorAll('.channel-video-card')) {
+          card.hidden = value !== '' && !card.dataset.title.includes(value);
+        }
+      });
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const videoIds = [...form.querySelectorAll('input[name="videoIds"]:checked')].map((input) => Number(input.value));
+        if (videoIds.length === 0) {
+          showError(form.querySelector('[data-form-error]'), { code: 'VALIDATION_ERROR', message: '请至少选择一个视频' });
+          return;
+        }
+        try {
+          await request('/api/downloads/channel', 'POST', { videoIds, proxyId: channelProxyId() });
+          location.reload();
+        } catch (error) {
+          showError(form.querySelector('[data-form-error]'), error);
+        }
+      });
+      load().catch((error) => showError(pageError, error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+    </script>
+<%- include('partials/footer') %>
