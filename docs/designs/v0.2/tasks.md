@@ -133,7 +133,7 @@
   3. `rg -n "#runningChecks|Promise\.allSettled" src/scheduler.ts` → 保留同频道防重与停止收敛机制。
 
 ## task-07 · 注入管理器并保持既有下载与频道 API
-- 状态: pending
+- 状态: failed
 - 依赖: task-04, task-05, task-06
 - 文件范围:
   - src/app.ts
