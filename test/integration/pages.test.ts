@@ -116,15 +116,12 @@ function taskNodeText(node: FakeTaskNode): string {
   return [node.textContent, ...node.children.map(taskNodeText)].join(' ');
 }
 
-function taskPageHelpers(script: string): {
+function taskPageHelpers(
+  script: string,
+  fetchTaskPage: (input: string, init?: RequestInit) => Promise<Response>,
+): {
   readonly nodes: ReadonlyMap<string, FakeTaskNode>;
-  readonly taskRow: (task: YtDlpTaskSnapshot) => FakeTaskNode;
-  readonly renderGroup: (
-    tasks: readonly YtDlpTaskSnapshot[],
-    listId: string,
-    emptyId: string,
-    countId: string,
-  ) => void;
+  readonly loaded: Promise<void>;
 } {
   const ids = [
     'page-error',
@@ -136,31 +133,27 @@ function taskPageHelpers(script: string): {
     'terminal-task-count',
   ];
   const nodes = new Map(ids.map((id) => [id, fakeTaskNode()]));
+  nodes.get('page-error')!.hidden = true;
+  nodes.get('active-task-empty')!.hidden = true;
+  nodes.get('terminal-task-empty')!.hidden = true;
   const fakeDocument = {
     createElement: () => fakeTaskNode(),
     querySelector: (selector: string) => nodes.get(selector.slice(1)),
   };
-  const executableSource = script.slice(
-    script.indexOf('const taskTypeLabels'),
-    script.indexOf('\nload().catch'),
-  );
-  const helpers = new Function(
+  const loadCallStart = script.indexOf('\nload().catch');
+  const executableSource = script.slice(script.indexOf('const taskTypeLabels'), loadCallStart);
+  const loadCall = script.slice(loadCallStart).trim();
+  const loaded = new Function(
     'document',
     'formatChinaTimestamp',
-    `${executableSource}; return { taskRow, renderGroup };`,
+    'fetch',
+    `${executableSource}; return ${loadCall}`,
   )(
     fakeDocument,
     (value: string) => value,
-  ) as {
-    taskRow: (task: YtDlpTaskSnapshot) => FakeTaskNode;
-    renderGroup: (
-      tasks: readonly YtDlpTaskSnapshot[],
-      listId: string,
-      emptyId: string,
-      countId: string,
-    ) => void;
-  };
-  return { nodes, ...helpers };
+    fetchTaskPage,
+  ) as Promise<void>;
+  return { nodes, loaded };
 }
 
 async function typeScriptFiles(directory: string): Promise<string[]> {
@@ -682,9 +675,11 @@ describe('server-rendered pages', () => {
     expect(script).not.toContain('/api/downloads');
     expect(script).not.toContain('/api/channels');
 
-    const helpers = taskPageHelpers(script);
-    helpers.renderGroup([], 'active-task-list', 'active-task-empty', 'active-task-count');
-    helpers.renderGroup([], 'terminal-task-list', 'terminal-task-empty', 'terminal-task-count');
+    const helpers = taskPageHelpers(
+      script,
+      async () => new Response(JSON.stringify({ tasks: [] })),
+    );
+    await helpers.loaded;
     expect(helpers.nodes.get('active-task-empty')).toMatchObject({ hidden: false });
     expect(helpers.nodes.get('terminal-task-empty')).toMatchObject({ hidden: false });
     expect(helpers.nodes.get('active-task-count')?.textContent).toBe('0');
@@ -738,34 +733,11 @@ describe('server-rendered pages', () => {
       ]);
       await schedulingTurn();
 
-      const response = await fetch(`${baseUrl}/api/yt-dlp/tasks`);
-      const rawBody = await response.text();
-      const body = JSON.parse(rawBody) as { tasks: YtDlpTaskSnapshot[] };
-      expect(response.status).toBe(200);
-      expect(body.tasks.map(({ status }) => status)).toEqual([
-        'running',
-        'queued',
-        'succeeded',
-        'failed',
-        'canceled',
-        'succeeded',
-      ]);
-      expect(new Set(body.tasks.map(({ type }) => type))).toEqual(new Set([
-        'media_download',
-        'metadata_probe',
-        'channel_initial_sync',
-        'channel_manual_check',
-        'channel_scheduled_check',
-      ]));
-      expect(rawBody).toContain('http://***@proxy.example:8080');
-      expect(rawBody).not.toContain(credentialedProxyUrl);
-      expect(rawBody).not.toContain('alice:secret');
-
-      const helpers = taskPageHelpers(await getPublicScript('yt-dlp-tasks.js'));
-      const activeTasks = body.tasks.filter(({ status }) => status === 'queued' || status === 'running');
-      const terminalTasks = body.tasks.filter(({ status }) => status === 'succeeded' || status === 'failed' || status === 'canceled');
-      helpers.renderGroup(activeTasks, 'active-task-list', 'active-task-empty', 'active-task-count');
-      helpers.renderGroup(terminalTasks, 'terminal-task-list', 'terminal-task-empty', 'terminal-task-count');
+      const helpers = taskPageHelpers(
+        await getPublicScript('yt-dlp-tasks.js'),
+        (input, init) => fetch(new URL(input, baseUrl), init),
+      );
+      await helpers.loaded;
       const pageDom = [...helpers.nodes.values()].map(taskNodeText).join(' ');
 
       for (const label of ['媒体下载', '元数据探测', '频道首次同步', '频道手动检查', '频道定时检查']) {
@@ -777,6 +749,7 @@ describe('server-rendered pages', () => {
       expect(pageDom).toContain('request failed via http://***@proxy.example:8080');
       expect(pageDom).not.toContain(credentialedProxyUrl);
       expect(pageDom).not.toContain('alice:secret');
+      expect(helpers.nodes.get('page-error')).toMatchObject({ hidden: true });
       expect(helpers.nodes.get('active-task-count')?.textContent).toBe('2');
       expect(helpers.nodes.get('terminal-task-count')?.textContent).toBe('4');
       expect(helpers.nodes.get('active-task-empty')).toMatchObject({ hidden: true });
@@ -788,8 +761,10 @@ describe('server-rendered pages', () => {
     }
   });
 
-  it('rejects task types and statuses outside the fixed page contract', async () => {
-    const helpers = taskPageHelpers(await getPublicScript('yt-dlp-tasks.js'));
+  it.each([
+    ['type', '未知任务类型：unknown'],
+    ['status', '未知任务状态：unknown'],
+  ] as const)('shows task %s values outside the fixed page contract', async (field, message) => {
     const task: YtDlpTaskSnapshot = {
       id: 1,
       type: 'media_download',
@@ -799,11 +774,55 @@ describe('server-rendered pages', () => {
       finishedAt: null,
       failureReason: null,
     };
+    const invalidTask = { ...task, [field]: 'unknown' };
+    const helpers = taskPageHelpers(
+      await getPublicScript('yt-dlp-tasks.js'),
+      async () => new Response(JSON.stringify({ tasks: [invalidTask] })),
+    );
 
-    expect(() => helpers.taskRow({ ...task, type: 'unknown' as YtDlpTaskSnapshot['type'] }))
-      .toThrow('未知任务类型：unknown');
-    expect(() => helpers.taskRow({ ...task, status: 'unknown' as YtDlpTaskSnapshot['status'] }))
-      .toThrow('未知任务状态：unknown');
+    await helpers.loaded;
+
+    expect(helpers.nodes.get('page-error')).toMatchObject({
+      hidden: false,
+      textContent: `前端错误：${message}`,
+    });
+    expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
+    expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);
+  });
+
+  it('shows API failures from the task page load path', async () => {
+    const helpers = taskPageHelpers(
+      await getPublicScript('yt-dlp-tasks.js'),
+      async () => new Response(
+        JSON.stringify({ error: { code: 'TASK_SNAPSHOT_FAILED', message: 'snapshot unavailable' } }),
+        { status: 503 },
+      ),
+    );
+
+    await helpers.loaded;
+
+    expect(helpers.nodes.get('page-error')).toMatchObject({
+      hidden: false,
+      textContent: 'TASK_SNAPSHOT_FAILED: snapshot unavailable',
+    });
+    expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
+    expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);
+  });
+
+  it('shows fetch failures from the task page load path', async () => {
+    const helpers = taskPageHelpers(
+      await getPublicScript('yt-dlp-tasks.js'),
+      async () => Promise.reject(new Error('network unavailable')),
+    );
+
+    await helpers.loaded;
+
+    expect(helpers.nodes.get('page-error')).toMatchObject({
+      hidden: false,
+      textContent: '前端错误：network unavailable',
+    });
+    expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
+    expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);
   });
 
   it('keeps the task table reachable on narrow desktops and readable on mobile', async () => {

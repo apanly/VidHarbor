@@ -469,7 +469,7 @@
   2. `rg -n "yt-dlp-tasks-table-shell|overflow-x: auto|yt-dlp-tasks-table" src/styles/main.scss` → 任务表格容器及横向滚动规则均命中。
 
 ## task-22 · 通过真实 load 路径验收任务页面
-- 状态: pending
+- 状态: done
 - 依赖: task-17
 - 文件范围:
   - test/integration/pages.test.ts
