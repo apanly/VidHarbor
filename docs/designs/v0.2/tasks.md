@@ -247,7 +247,7 @@
   3. `rg -n "setInterval|WebSocket|EventSource|cancel" src/public/yt-dlp-tasks.js` → 无匹配。
 
 ## task-12 · 验证任务页面与全仓统一入口契约
-- 状态: pending
+- 状态: done
 - 依赖: task-10, task-11
 - 文件范围:
   - test/integration/pages.test.ts
