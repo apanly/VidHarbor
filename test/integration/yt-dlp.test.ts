@@ -10,7 +10,10 @@ import {
   fetchChannelEntries,
   fetchVideoMetadata,
 } from '../../src/yt-dlp.js';
-import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
+import {
+  isYtDlpTaskCancellationError,
+  YtDlpTaskManager,
+} from '../../src/yt-dlp-task-manager.js';
 
 const executablePath = fileURLToPath(
   new URL('../fixtures/fake-yt-dlp.mjs', import.meta.url),
@@ -19,6 +22,26 @@ const executablePath = fileURLToPath(
 beforeAll(async () => {
   await chmod(executablePath, 0o755);
 });
+
+async function expectProcessGone(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'ESRCH'
+      ) {
+        return;
+      }
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`process ${String(pid)} still exists after cancellation`);
+}
 
 async function expectCompleteProcessTreeCancellation(
   start: (signal: AbortSignal) => Promise<unknown>,
@@ -48,11 +71,8 @@ async function expectCompleteProcessTreeCancellation(
     ]);
     if (!settled) process.kill(childPid, 'SIGKILL');
     expect(settled).toBe(true);
-    expect(() => process.kill(childPid, 0)).toThrow();
-    await expect(operation).resolves.toSatisfy(
-      (error: unknown) =>
-        error instanceof Error && error.message === 'yt-dlp download cancelled',
-    );
+    await expectProcessGone(childPid);
+    await expect(operation).resolves.toSatisfy(isYtDlpTaskCancellationError);
   } finally {
     delete process.env.VIDHARBOR_FAKE_CHILD_PID_PATH;
     if (childPid > 0) {
@@ -278,6 +298,56 @@ describe('yt-dlp process results', () => {
     }
   });
 
+  it('converges a canceled real manager operation as canceled', async () => {
+    const manager = new YtDlpTaskManager(executablePath, 1, (message) => message);
+    const handle = manager.submit({
+      type: 'media_download',
+      execute: (operations) =>
+        operations.downloadMedia({
+          url: 'fixture://slow-download',
+          outputTemplate: '/temporary/%(id)s.%(ext)s',
+        }),
+    });
+    const result = handle.result.catch((error: unknown) => error);
+
+    for (
+      let attempt = 0;
+      attempt < 100 && manager.getSnapshot()[0]?.status !== 'running';
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(manager.getSnapshot()[0]?.status).toBe('running');
+
+    await expect(manager.cancel(handle.id)).resolves.toBeUndefined();
+    expect(await result).toSatisfy(isYtDlpTaskCancellationError);
+    expect(manager.getSnapshot()[0]).toMatchObject({
+      status: 'canceled',
+      failureReason: null,
+    });
+  });
+
+  it('preserves a startup failure when the signal is already canceled', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-missing-yt-dlp-'));
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      const result = fetchChannelEntries({
+        executablePath: join(sandbox, 'missing-yt-dlp'),
+        url: 'fixture://echo',
+        signal: controller.signal,
+      }).catch((error: unknown) => error);
+
+      const failure = await result;
+      expect(isYtDlpTaskCancellationError(failure)).toBe(false);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain('yt-dlp failed to start');
+      expect((failure as Error).message).toContain('ENOENT');
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
+
   it('returns every JSON line across chunks without counting empty end remainders', async () => {
     await expect(
       fetchChannelEntries({ executablePath, url: 'fixture://channel-success' }),
@@ -427,7 +497,7 @@ describe('yt-dlp process results', () => {
 
     controller.abort();
 
-    await expect(result).rejects.toThrow('yt-dlp download cancelled');
+    await expect(result).rejects.toSatisfy(isYtDlpTaskCancellationError);
   });
 
   it('rejects malformed JSON even when the process exits zero', async () => {

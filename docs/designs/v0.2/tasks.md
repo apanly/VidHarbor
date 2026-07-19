@@ -507,3 +507,148 @@
 - 验收标准:
   1. `npx vitest run test/integration/pages.test.ts` → 唯一合法入口及各类绕过负向样本测试全部通过。
   2. `rg -n "importPattern|import\(|require\(|yt-dlp" test/integration/pages.test.ts` → 静态与动态绕过扫描规则及负向样本均有明确实现。
+
+## task-24 · 统一底层与管理器的类型化取消契约
+- 状态: done
+- 依赖: task-19
+- 文件范围:
+  - src/yt-dlp-task-cancellation.ts (新建)
+  - src/yt-dlp.ts
+  - src/yt-dlp-task-manager.ts
+  - test/integration/yt-dlp.test.ts
+- 关键约束:
+  - 不能用错误消息字符串或仅凭 `signal.aborted` 识别正常取消，不能把进程组终止失败或启动失败转换为取消。
+  - 不能改动与本 bug 无关的模块，不能造成 `src/yt-dlp.ts` 与管理器之间的循环依赖。
+- 任务目的: 修复 bugfix-18 描述的问题；修复 bugfix-21 描述的问题；修复 bugfix-23 描述的问题；修复 bugfix-26 描述的问题
+- 实现入口: `src/yt-dlp.ts:239`（`runProcess` 的 close 结果分类）、`src/yt-dlp-task-manager.ts:105`（现有取消错误契约）、`test/integration/yt-dlp.test.ts:51`（进程树退出断言）
+- 问题描述原文:
+  - bugfix-18: review-3 在 src/server.ts:290 发现 yt-dlp 正常中止在底层被重构为普通 Error，运行中下载停机使 manager.stop 拒绝。必须跨进程边界保留可识别取消类型，真实 kill 等错误不转换。
+  - bugfix-21: review-3 在 src/yt-dlp.ts:239 发现真实 operation 取消返回普通 Error，manager.cancel 将任务标为 failed。底层固定协议必须返回管理器可识别的共享取消类型，并用真实 operation 集成测试证明。
+  - bugfix-23: review-3 在 src/yt-dlp.ts:239 发现 signal 已取消且 executable ENOENT 时先返回取消。spawnError 必须优先保留并增加预取消叠加启动失败测试。
+  - bugfix-26: review-3 在 test/integration/yt-dlp.test.ts:51 发现 close 后立即 kill(pid,0) 会因僵尸回收时序随机失败。应有界轮询 ESRCH，超时才失败。
+- 期望行为: yt-dlp 收到取消并正常完成进程组终止时拒绝共享的类型化取消错误，管理器据此将任务收敛为 `canceled`；终止失败与 ENOENT 启动失败保留原失败，其中预取消与启动失败叠加时启动失败优先；进程树测试在有界时间内轮询至 PID 返回 ESRCH。
+- 范围边界:
+  - 必须: 共享取消类型可被底层和管理器直接引用，真实 operation 取消、启动失败优先级和 PID 有界消失均有集成测试。
+  - 不能: 不能改动与本 bug 无关的模块，不能把 kill、spawn 或未知异常包装成取消，不能使用固定消息文本判断取消。
+  - 不做: 不改变 yt-dlp 参数、超时、输出解析、进程组终止协议或管理器状态集合。
+- 验收标准:
+  1. `npx vitest run test/integration/yt-dlp.test.ts` → 真实 operation 的正常取消、启动失败优先级和进程树退出用例全部通过。
+  2. `rg -n "YtDlpTaskCancellationError|isYtDlpTaskCancellationError" src/yt-dlp-task-cancellation.ts src/yt-dlp.ts src/yt-dlp-task-manager.ts` → 共享取消类型及两层使用均命中。
+
+## task-25 · 按错误类型收紧下载 worker 失败边界
+- 状态: pending
+- 依赖: task-24
+- 文件范围:
+  - src/download-worker.ts
+  - src/yt-dlp-task-cancellation.ts
+  - test/integration/download-worker.test.ts
+- 关键约束:
+  - 不能仅凭 `signal.aborted` 将任意异常写成 `canceled`，不能吞掉缩略图目录清理、kill、回滚、清理或持久化故障。
+  - 不能改动与本 bug 无关的模块，不能改变普通缩略图下载失败可忽略的既有契约。
+- 任务目的: 修复 bugfix-14 描述的问题；修复 bugfix-15 描述的问题；修复 bugfix-16 描述的问题
+- 实现入口: `src/download-worker.ts:252`（`tryDownloadThumbnail`）、`src/download-worker.ts:281`（当前普通取消错误）、`src/download-worker.ts:375`（`DownloadWorker.#run`）、`src/download-worker.ts:530`（失败状态收敛）、`src/download-worker.ts:634`（`#throwIfCanceled`）
+- 问题描述原文:
+  - bugfix-14: review-3 在 src/download-worker.ts:281 发现 worker 主动取消及底层正常中止仍抛普通 Error，导致正常取消被管理器记为 failed。必须统一为 YtDlpTaskCancellationError，真实终止错误保持原异常。
+  - bugfix-15: review-3 在 src/download-worker.ts:530 发现 catch 仅凭 signal.aborted 写 canceled，会把 kill、回滚、清理和持久化故障伪装为取消。只有类型化正常取消写 canceled，其余写 failed 并上报。
+  - bugfix-16: review-3 在 src/download-worker.ts:276 发现 finally 无条件吞掉缩略图目录 rm 异常。普通缩略图下载失败仍可忽略，但清理失败必须保留 rejection 并进入系统故障边界。
+- 期望行为: worker 主动取消和底层正常取消统一传播共享类型，下载记录仅在该类型下写为 `canceled`；其他异常写为 `failed` 并沿既有故障边界上报；缩略图普通下载失败仍可忽略，但缩略图目录清理失败保留 rejection。
+- 范围边界:
+  - 必须: 覆盖类型化正常取消、取消期间真实故障、缩略图普通失败与目录清理失败的任务快照、下载记录和故障上报。
+  - 不能: 不能改动与本 bug 无关的模块，不能通过错误消息、宽松 catch 或 signal 状态猜测错误类型，不能吞掉清理错误。
+  - 不做: 不改变下载目录布局、进度字段、状态集合、归档协议或调度并发协议。
+- 验收标准:
+  1. `npx vitest run test/integration/download-worker.test.ts` → worker 取消、真实故障和缩略图清理边界用例全部通过。
+  2. `rg -n "YtDlpTaskCancellationError|isYtDlpTaskCancellationError|failedStatus" src/download-worker.ts` → 类型化取消创建与状态分类均有明确实现。
+  3. `test -z "$(rg -n "rm\(thumbnailDirectory.*catch" src/download-worker.ts)"` → 缩略图目录清理不再无条件吞错。
+
+## task-26 · 让排队媒体取消持久化业务终态
+- 状态: pending
+- 依赖: task-25
+- 文件范围:
+  - src/download-worker.ts
+  - src/server.ts
+  - test/integration/download-worker.test.ts
+  - test/integration/server-lifecycle.test.ts
+- 关键约束:
+  - 不能让排队任务在未进入 `DownloadWorker.#run` 时残留 `pending`，不能为此启动排队任务或新增第二套调度状态。
+  - 不能改动与本 bug 无关的模块，不能吞掉排队取消终态的持久化失败。
+- 任务目的: 修复 bugfix-17 描述的问题；修复 bugfix-20 描述的问题
+- 实现入口: `src/download-worker.ts:309`（`enqueue` 的 task result 收敛）、`src/server.ts:242`（正常停机顺序）、`src/server.ts:290`（管理器停机屏障）
+- 问题描述原文:
+  - bugfix-17: review-3 在 src/download-worker.ts:321 发现 execute 前取消的排队媒体任务不会运行 #run，数据库记录残留 pending。worker 观察到类型化排队取消时必须原子更新 pending 为 canceled，持久化失败上报。
+  - bugfix-20: review-3 在 src/server.ts:290 发现 manager.stop 直接取消排队媒体任务后数据库仍为 pending。停机后排队和运行下载都必须收敛为 canceled。
+- 期望行为: worker 观察到排队媒体任务以类型化取消结束时，将对应下载记录从 `pending` 原子更新为 `canceled`；正常服务停机后排队与运行下载都收敛为 `canceled`，持久化失败继续进入 worker/runtime 故障边界。
+- 范围边界:
+  - 必须: 覆盖直接取消和 manager stop 两种排队取消来源，以及取消终态持久化失败上报。
+  - 不能: 不能改动与本 bug 无关的模块，不能启动已取消的排队任务，不能新增下载状态、控制器或队列。
+  - 不做: 不改变运行中下载取消协议、FIFO、下载并发、重启恢复或数据库 schema。
+- 验收标准:
+  1. `npx vitest run test/integration/download-worker.test.ts test/integration/server-lifecycle.test.ts` → 排队/运行取消、停机收敛和持久化失败用例全部通过。
+  2. `rg -n "status = 'canceled'|status = \?" src/download-worker.ts` → 排队取消的原子业务状态更新有明确实现。
+
+## task-27 · 频道流程保留类型化取消身份
+- 状态: pending
+- 依赖: task-24
+- 文件范围:
+  - src/services/channel.ts
+  - src/yt-dlp-task-cancellation.ts
+  - test/integration/channel-notification-api.test.ts
+- 关键约束:
+  - 不能把类型化取消重写为 `CHANNEL_FETCH_FAILED` 或元数据业务错误，不能吞掉记录频道失败状态时的持久化错误。
+  - 不能改动与本 bug 无关的模块，不能用错误消息字符串识别取消。
+- 任务目的: 修复 bugfix-19 描述的问题；修复 bugfix-24 描述的问题
+- 实现入口: `src/services/channel.ts:973`、`src/services/channel.ts:1003`（首次同步抓取与元数据边界）、`src/services/channel.ts:1321`、`src/services/channel.ts:1348`（定时检查抓取与元数据边界）、`test/integration/channel-notification-api.test.ts:439`（停机取消断言）
+- 问题描述原文:
+  - bugfix-19: review-3 在 src/services/channel.ts:981 发现频道抓取和元数据 catch 将取消重写为 BusinessError，导致 runtime/scheduler 排除分支失效。记录既有频道失败状态后应重抛原取消类型；记录失败则抛 PERSISTENCE_ERROR。
+  - bugfix-24: review-3 在 test/integration/channel-notification-api.test.ts:439 发现测试期待 stop 以 CHANNEL_FETCH_FAILED 拒绝并将任务记 failed，与正常取消契约冲突。应断言 stop 成功、快照 canceled 且使用类型判断。
+- 期望行为: 首次同步与定时检查遇到共享类型化取消时，先按既有契约记录频道检查失败，再重抛原取消类型，使正常 stop 成功且任务快照为 `canceled`；若记录失败则抛 `PERSISTENCE_ERROR`，其他业务和系统异常保持原分类。
+- 范围边界:
+  - 必须: 抓取与逐项元数据两个 catch 边界均保留取消身份，并测试正常停机与记录失败两条路径。
+  - 不能: 不能改动与本 bug 无关的模块，不能新增频道 `canceled` 状态，不能静默忽略持久化失败或未知错误。
+  - 不做: 不改变频道响应时序、scheduler 防重、检查记录结构、通知事务或 runtime failure 协议。
+- 验收标准:
+  1. `npx vitest run test/integration/channel-notification-api.test.ts` → 正常停机取消及持久化失败边界用例全部通过。
+  2. `rg -n "isYtDlpTaskCancellationError|PERSISTENCE_ERROR|CHANNEL_FETCH_FAILED" src/services/channel.ts` → 类型化取消和既有错误边界均有明确处理。
+
+## task-28 · stop 等待全部取消任务收敛
+- 状态: pending
+- 依赖: task-24
+- 文件范围:
+  - src/yt-dlp-task-manager.ts
+  - test/unit/yt-dlp-task-manager.test.ts
+- 关键约束:
+  - 不能在首个取消失败时提前结束 `stop()`，不能吞掉任何任务的取消失败。
+  - 不能改动与本 bug 无关的模块，不能改变幂等 stop promise、终态不可逆或停止后拒绝提交的契约。
+- 任务目的: 修复 bugfix-22 描述的问题
+- 实现入口: `src/yt-dlp-task-manager.ts:279`（`stop` 的取消等待与错误聚合）
+- 问题描述原文: review-3 在 src/yt-dlp-task-manager.ts:279 发现 Promise.all 在首个取消失败后立即拒绝，其他任务仍可能 running。stop 必须先等待全部 cancel settled，再聚合抛错。
+- 期望行为: `stop()` 在取消任务出现一个或多个失败时仍等待所有活动任务 settled，随后成功返回或以包含全部取消失败的错误拒绝；返回时不存在 `queued` 或 `running` 任务。
+- 范围边界:
+  - 必须: 覆盖首个取消失败而其他任务延迟收敛、多个取消失败和无失败三种情况。
+  - 不能: 不能改动与本 bug 无关的模块，不能提前 reject、吞错或修改任务原始终态。
+  - 不做: 不改变调度并发、取消类型、快照字段、错误脱敏或任务历史保留协议。
+- 验收标准:
+  1. `npx vitest run test/unit/yt-dlp-task-manager.test.ts` → stop 全量等待与失败聚合用例全部通过。
+  2. `rg -n "allSettled|AggregateError|stop" src/yt-dlp-task-manager.ts` → 全量等待及错误聚合实现均命中。
+
+## task-29 · 修正唯一入口扫描与页面错误测试契约
+- 状态: pending
+- 依赖: task-23
+- 文件范围:
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 不能只扫描原始字面量文本，不能复制一个不解析转义、模板插值或变量拼接的猜测式兼容器。
+  - 不能改动与本 bug 无关的模块，不能在页面错误测试中发明未定义的状态码或错误码。
+- 任务目的: 修复 bugfix-25 描述的问题；修复 bugfix-27 描述的问题
+- 实现入口: `test/integration/pages.test.ts:158`（`typeScriptFiles`）、`test/integration/pages.test.ts:169`（`lowLevelYtDlpReferences`）、`test/integration/pages.test.ts:823`（唯一入口与页面 API 失败测试）
+- 问题描述原文:
+  - bugfix-25: review-3 在 test/integration/pages.test.ts:169 发现扫描未解码转义字面量，也不分析模板插值和变量拼接。必须使用受限常量求值或 TypeScript parser 拒绝这些绕过方式。
+  - bugfix-27: review-3 在 test/integration/pages.test.ts:823 发现页面测试伪造 503/TASK_SNAPSHOT_FAILED。必须改为固定 500/PERSISTENCE_ERROR 并断言最终 DOM。
+- 期望行为: 唯一入口扫描通过受限常量求值或 TypeScript parser 解析确认范围内的字符串表达式，拒绝转义字面量、模板插值和变量拼接形成的 `yt-dlp.js` 动态路径；页面 API 失败测试使用固定 `500/PERSISTENCE_ERROR` 响应并从最终 DOM 断言。
+- 范围边界:
+  - 必须: 为转义字面量、模板插值和变量拼接分别提供负向样本，并保留合法静态导入白名单。
+  - 不能: 不能改动与本 bug 无关的模块，不能执行待扫描源码，不能允许动态加载白名单或使用宽松正则漏掉已确认绕过形态。
+  - 不做: 不扫描测试/构建产物，不修改生产导入结构、页面行为、API 错误契约或引入端到端浏览器框架。
+- 验收标准:
+  1. `npx vitest run test/integration/pages.test.ts` → 动态路径绕过负向样本及固定 API 错误 DOM 用例全部通过。
+  2. `rg -n "PERSISTENCE_ERROR|500|TemplateExpression|BinaryExpression|yt-dlp" test/integration/pages.test.ts` → 固定错误契约与受限表达式解析测试均有明确实现。

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 
 import { redactStderr } from './redaction.js';
+import { YtDlpTaskCancellationError } from './yt-dlp-task-cancellation.js';
 
 const SOCKET_TIMEOUT_SECONDS = '30';
 const JAVASCRIPT_RUNTIME = 'node';
@@ -236,8 +237,14 @@ function runProcess(
         );
         return;
       }
+      if (spawnError !== undefined) {
+        reject(
+          processError(`yt-dlp failed to start: ${spawnError.message}`, options.proxyUrl),
+        );
+        return;
+      }
       if (cancelled) {
-        reject(processError('yt-dlp download cancelled', options.proxyUrl));
+        reject(new YtDlpTaskCancellationError());
         return;
       }
       if (inactive) {
@@ -255,12 +262,6 @@ function runProcess(
             `yt-dlp timed out after ${String(processTimeoutMilliseconds)} ms${stderr === '' ? '' : `: ${stderr}`}`,
             options.proxyUrl,
           ),
-        );
-        return;
-      }
-      if (spawnError !== undefined) {
-        reject(
-          processError(`yt-dlp failed to start: ${spawnError.message}`, options.proxyUrl),
         );
         return;
       }

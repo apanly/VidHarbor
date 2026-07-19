@@ -7,6 +7,15 @@ import {
   type FetchOptions,
   type ThumbnailDownloadOptions,
 } from './yt-dlp.js';
+import {
+  isYtDlpTaskCancellationError,
+  YtDlpTaskCancellationError,
+} from './yt-dlp-task-cancellation.js';
+
+export {
+  isYtDlpTaskCancellationError,
+  YtDlpTaskCancellationError,
+} from './yt-dlp-task-cancellation.js';
 
 export const YT_DLP_TASK_TYPES = [
   'media_download',
@@ -101,18 +110,6 @@ const TERMINAL_STATUSES = new Set<YtDlpTaskStatus>([
 ]);
 const SUBMISSION_KEYS = new Set<PropertyKey>(['type', 'execute']);
 const EMPTY_FAILURE_REASON = 'yt-dlp task failed';
-
-export class YtDlpTaskCancellationError extends Error {
-  constructor() {
-    super('yt-dlp task canceled');
-  }
-}
-
-export function isYtDlpTaskCancellationError(
-  error: unknown,
-): error is YtDlpTaskCancellationError {
-  return error instanceof YtDlpTaskCancellationError;
-}
 
 function cancellationError(): Error {
   return new YtDlpTaskCancellationError();
