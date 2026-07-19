@@ -611,7 +611,7 @@
   2. `rg -n "isYtDlpTaskCancellationError|PERSISTENCE_ERROR|CHANNEL_FETCH_FAILED" src/services/channel.ts` → 类型化取消和既有错误边界均有明确处理。
 
 ## task-28 · stop 等待全部取消任务收敛
-- 状态: pending
+- 状态: done
 - 依赖: task-24
 - 文件范围:
   - src/yt-dlp-task-manager.ts

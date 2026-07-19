@@ -457,6 +457,90 @@ describe('YtDlpTaskManager', () => {
     expect(manager.getSnapshot()[0]?.status).toBe('canceled');
   });
 
+  it('waits for every active task before rejecting a failed stop', async () => {
+    const firstExecution = deferred<void>();
+    const delayedExecution = deferred<void>();
+    const firstFailure = new Error('first cleanup failed');
+    const manager = createManager();
+    const first = manager.submit({
+      type: 'metadata_probe',
+      execute: async () => {
+        await firstExecution.promise;
+        throw firstFailure;
+      },
+    });
+    const delayed = manager.submit({
+      type: 'channel_manual_check',
+      execute: () => delayedExecution.promise,
+    });
+    const results = [
+      first.result.catch((error: unknown) => error),
+      delayed.result.catch((error: unknown) => error),
+    ];
+    await schedulingTurn();
+
+    let stopOutcome: 'resolved' | 'rejected' | undefined;
+    const stop = manager.stop();
+    void stop.then(
+      () => {
+        stopOutcome = 'resolved';
+      },
+      () => {
+        stopOutcome = 'rejected';
+      },
+    );
+
+    firstExecution.resolve();
+    await schedulingTurn();
+    expect(stopOutcome).toBeUndefined();
+    expect(manager.getSnapshot().map(({ status }) => status)).toEqual([
+      'failed',
+      'running',
+    ]);
+
+    delayedExecution.resolve();
+    await expect(stop).rejects.toMatchObject({
+      errors: [firstFailure],
+    });
+    await Promise.all(results);
+    expect(manager.getSnapshot().map(({ status }) => status)).toEqual([
+      'failed',
+      'canceled',
+    ]);
+  });
+
+  it('aggregates every cancellation failure after all tasks settle', async () => {
+    const executions = [deferred<void>(), deferred<void>()];
+    const failures = [new Error('first failure'), new Error('second failure')];
+    const manager = createManager();
+    const handles = executions.map((execution, index) =>
+      manager.submit({
+        type: 'metadata_probe',
+        execute: async () => {
+          await execution.promise;
+          throw failures[index];
+        },
+      }),
+    );
+    const results = handles.map(({ result }) =>
+      result.catch((error: unknown) => error),
+    );
+    await schedulingTurn();
+
+    const stop = manager.stop();
+    executions[0]?.resolve();
+    executions[1]?.resolve();
+
+    await expect(stop).rejects.toEqual(
+      new AggregateError(failures, 'failed to cancel yt-dlp tasks'),
+    );
+    await Promise.all(results);
+    expect(manager.getSnapshot().map(({ status }) => status)).toEqual([
+      'failed',
+      'failed',
+    ]);
+  });
+
   it('stops once, cancels all active tasks, and rejects later submissions', async () => {
     const cleanup = deferred<void>();
     const manager = createManager();

@@ -273,9 +273,16 @@ export class YtDlpTaskManager {
     if (this.#stopPromise !== undefined) return this.#stopPromise;
     this.#stopping = true;
     const taskIds = [...this.#activeTasks.keys()];
-    this.#stopPromise = Promise.all(taskIds.map((id) => this.cancel(id))).then(
-      () => undefined,
-    );
+    this.#stopPromise = Promise.allSettled(
+      taskIds.map((id) => this.cancel(id)),
+    ).then((results) => {
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : [],
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'failed to cancel yt-dlp tasks');
+      }
+    });
     return this.#stopPromise;
   }
 
