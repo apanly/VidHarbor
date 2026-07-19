@@ -10,11 +10,13 @@ import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import type { DownloadQueue } from '../../src/services/download.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 let sandbox: string;
 let database: DatabaseConnection;
 let baseUrl: string;
 let stopServer: (() => Promise<void>) | undefined;
+let taskManager: YtDlpTaskManager;
 
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-pages-'));
@@ -23,9 +25,23 @@ beforeEach(async () => {
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
 
-  const queue: DownloadQueue = { enqueue: () => undefined };
+  taskManager = new YtDlpTaskManager(
+    join(sandbox, 'yt-dlp'),
+    1,
+    (message) => message,
+  );
+  const queue: DownloadQueue = {
+    enqueue: () => undefined,
+    cancel: async () => undefined,
+  };
   const app = createApp(
-    createApiRouter(database, downloadsMountPath, new RuntimeCoordinator(() => undefined), 'unused-yt-dlp', queue),
+    createApiRouter(
+      database,
+      downloadsMountPath,
+      new RuntimeCoordinator(() => undefined),
+      taskManager,
+      queue,
+    ),
   );
   app.set('views', new URL('../../src/views', import.meta.url).pathname);
   app.set('view engine', 'ejs');
@@ -47,6 +63,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopServer?.();
+  await taskManager.stop();
   database.close();
   await rm(sandbox, { recursive: true, force: true });
 });

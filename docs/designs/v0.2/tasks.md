@@ -179,7 +179,7 @@
   3. `rg -n "router\.(post|delete|patch|put)" src/routes/yt-dlp-tasks.ts` → 无匹配。
 
 ## task-09 · 迁移 API 组合根的其余测试调用点
-- 状态: pending
+- 状态: done
 - 依赖: task-08
 - 文件范围:
   - test/integration/database-browser.test.ts
