@@ -1,11 +1,32 @@
 <%- include('partials/header') %>
-      <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
-        <h1>下载</h1>
+      <div class="download-page-heading">
+        <div>
+          <p class="download-page-kicker">DOWNLOAD LIBRARY</p>
+          <h1>下载</h1>
+          <p class="download-page-summary">跟踪进行中的任务，查找并管理已经归档的内容。</p>
+        </div>
         <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#direct-download-modal">新建直下载</button>
       </div>
-      <section>
+      <section class="download-workspace">
         <div id="page-error" class="alert alert-danger" hidden></div>
-        <div id="download-list" class="download-list"></div>
+        <div class="download-controls">
+          <div class="download-search">
+            <label class="visually-hidden" for="download-search">搜索下载标题</label>
+            <input class="form-control" id="download-search" type="search" placeholder="搜索下载标题" autocomplete="off">
+          </div>
+          <div class="download-tabs" role="tablist" aria-label="下载状态">
+            <button class="download-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="active">下载中 <span data-download-count="active">0</span></button>
+            <button class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="completed">已完成 <span data-download-count="completed">0</span></button>
+          </div>
+        </div>
+        <div id="download-empty-state" class="download-empty-state" role="status" hidden>
+          <span class="download-empty-mark" aria-hidden="true">VH</span>
+          <h2 data-empty-title></h2>
+          <p data-empty-description></p>
+          <button class="btn btn-outline-primary" type="button" data-empty-action></button>
+        </div>
+        <div id="download-list" class="download-list" aria-live="polite"></div>
+        <nav id="download-pagination" class="list-pagination" aria-label="下载分页" hidden></nav>
       </section>
       <div class="modal fade" id="direct-download-modal" tabindex="-1" aria-labelledby="direct-download-title" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
@@ -46,9 +67,21 @@
       const form = document.querySelector('#direct-download-form');
       const list = document.querySelector('#download-list');
       const pageError = document.querySelector('#page-error');
+      const searchInput = document.querySelector('#download-search');
+      const emptyState = document.querySelector('#download-empty-state');
+      const emptyTitle = emptyState.querySelector('[data-empty-title]');
+      const emptyDescription = emptyState.querySelector('[data-empty-description]');
+      const emptyAction = emptyState.querySelector('[data-empty-action]');
+      const paginationContainer = document.querySelector('#download-pagination');
       const directDownloadModal = bootstrap.Modal.getOrCreateInstance(document.querySelector('#direct-download-modal'));
       const cards = new Map();
       const downloadState = new Map();
+      let selectedTab = 'active';
+      let searchQuery = '';
+      let currentPage = 1;
+      let currentPagination = { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 };
+      let downloadEvents = null;
+      let searchTimer = null;
       const labels = { pending: '等待下载', downloading: '运行中', running: '运行中', completed: '下载完成', failed: '下载失败', canceled: '已取消', interrupted: '已中断' };
       const styles = { pending: 'text-bg-secondary', downloading: 'text-bg-primary', running: 'text-bg-primary', completed: 'text-bg-success', failed: 'text-bg-danger', canceled: 'text-bg-warning', interrupted: 'text-bg-warning' };
 
@@ -63,6 +96,39 @@
       function detail(label, fieldName, className = '') { const node = document.createElement('div'); node.className = `download-detail ${className}`.trim(); node.append(textElement('span', 'download-detail-label', label), fieldElement('span', 'download-detail-value', fieldName)); return node; }
       function formatTimestamp(value) { if (value === null) return '—'; const timestamp = new Date(value); if (Number.isNaN(timestamp.getTime())) return value; const pad = (part) => String(part).padStart(2, '0'); return `${timestamp.getFullYear()}-${pad(timestamp.getMonth() + 1)}-${pad(timestamp.getDate())} ${pad(timestamp.getHours())}:${pad(timestamp.getMinutes())}:${pad(timestamp.getSeconds())}`; }
       function outputPathDetail() { const node = detail('输出路径', 'outputPath', 'download-path'); node.lastElementChild.className += ' download-path-value'; return node; }
+      function emptyStateFor(tab, query, total) {
+        if (total === 0) return { title: '还没有下载任务', description: '粘贴一个受支持的 HTTPS 地址，第一条任务会出现在这里。', action: 'create', actionLabel: '新建直下载' };
+        if (query !== '') return { title: `没有找到“${query}”`, description: '试试更短的标题关键词，或清除当前搜索。', action: 'clear', actionLabel: '清除搜索' };
+        if (tab === 'completed') return { title: '还没有完成的下载', description: '任务完成后会自动归档到这里。', action: 'active', actionLabel: '查看下载中' };
+        return { title: '当前没有下载中的任务', description: '新任务、失败和中断的任务都会显示在这里。', action: 'create', actionLabel: '新建直下载' };
+      }
+
+      function setSelectedTab(tab) {
+        selectedTab = tab;
+        for (const button of document.querySelectorAll('[data-download-tab]')) {
+          const active = button.dataset.downloadTab === tab;
+          button.classList.toggle('is-active', active);
+          button.setAttribute('aria-selected', String(active));
+        }
+        void refreshDownloads(1);
+      }
+
+      function updateDownloadView(statusCounts) {
+        const activeCount = statusCounts.pending + statusCounts.downloading + statusCounts.running + statusCounts.failed + statusCounts.canceled + statusCounts.interrupted;
+        const totalCount = activeCount + statusCounts.completed;
+        document.querySelector('[data-download-count="active"]').textContent = String(activeCount);
+        document.querySelector('[data-download-count="completed"]').textContent = String(statusCounts.completed);
+        const empty = downloadState.size === 0;
+        list.hidden = empty;
+        emptyState.hidden = !empty;
+        paginationContainer.hidden = empty;
+        if (!empty) return;
+        const content = emptyStateFor(selectedTab, searchQuery, totalCount);
+        emptyTitle.textContent = content.title;
+        emptyDescription.textContent = content.description;
+        emptyAction.textContent = content.actionLabel;
+        emptyAction.dataset.action = content.action;
+      }
 
       async function mutateDownload(path, method, body) {
         try {
@@ -143,6 +209,8 @@
       }
 
       function renderDownloads(downloads) {
+        currentPage = downloads.pagination.page;
+        currentPagination = downloads.pagination;
         const nextIds = new Set(downloads.items.map((download) => download.id));
         for (const [id, card] of cards) {
           if (nextIds.has(id)) continue;
@@ -159,21 +227,45 @@
           const card = cards.get(downloads.items[index].id);
           if (list.children[index] !== card) list.insertBefore(card, list.children[index] ?? null);
         }
+        updateDownloadView(downloads.statusCounts);
+        renderPagination(paginationContainer, downloads.pagination, (page) => void refreshDownloads(page));
       }
 
-      async function refreshDownloads() { renderDownloads(await request('/api/downloads')); }
+      function downloadUrl(path, page = currentPage) {
+        const parameters = new URLSearchParams({ page: String(page), tab: selectedTab });
+        if (searchQuery !== '') parameters.set('q', searchQuery);
+        return `${path}?${parameters}`;
+      }
+
+      function connectDownloadEvents() {
+        downloadEvents?.close();
+        downloadEvents = new EventSource(downloadUrl('/api/downloads/events'));
+        downloadEvents.addEventListener('downloads', (event) => renderDownloads(JSON.parse(event.data)));
+        downloadEvents.onerror = () => downloadEvents.close();
+      }
+
+      async function refreshDownloads(page = currentPage) {
+        const downloads = await request(downloadUrl('/api/downloads', page));
+        if (downloads.items.length === 0 && page > 1 && downloads.pagination.totalPages < page) return refreshDownloads(Math.max(1, downloads.pagination.totalPages));
+        renderDownloads(downloads);
+        connectDownloadEvents();
+      }
 
       async function load() {
-        const [proxies, downloads] = await Promise.all([request('/api/proxies'), request('/api/downloads')]);
+        const proxies = await request('/api/proxies');
         const proxySelect = form.elements.proxyId;
         for (const proxy of proxies.items) { const option = document.createElement('option'); option.value = String(proxy.id); option.textContent = proxy.name; proxySelect.append(option); }
-        renderDownloads(downloads);
-        const events = new EventSource('/api/downloads/events');
-        events.addEventListener('downloads', (event) => renderDownloads(JSON.parse(event.data)));
-        events.onerror = () => events.close();
+        await refreshDownloads(1);
       }
 
-
+<%- include('partials/pagination-client') %>
+      for (const button of document.querySelectorAll('[data-download-tab]')) button.addEventListener('click', () => setSelectedTab(button.dataset.downloadTab));
+      searchInput.addEventListener('input', () => { searchQuery = searchInput.value.trim(); clearTimeout(searchTimer); searchTimer = setTimeout(() => void refreshDownloads(1), 250); });
+      emptyAction.addEventListener('click', () => {
+        if (emptyAction.dataset.action === 'clear') { searchInput.value = ''; searchQuery = ''; void refreshDownloads(1); return; }
+        if (emptyAction.dataset.action === 'active') { setSelectedTab('active'); return; }
+        directDownloadModal.show();
+      });
       form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
       load().catch((error) => showError(pageError, error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
     </script>

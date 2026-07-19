@@ -2,12 +2,15 @@
       <h1 class="mb-4">总览</h1>
       <div id="page-error" class="alert alert-danger" hidden></div>
       <div id="channel-summary" class="row g-3" aria-live="polite"></div>
+      <nav id="dashboard-pagination" class="list-pagination" aria-label="总览频道分页" hidden></nav>
     </main>
     <script type="module">
       const errorRegion = document.querySelector('#page-error');
       const summary = document.querySelector('#channel-summary');
       const labels = { success: '检查成功', no_updates: '没有更新', failed: '检查失败' };
       const styles = { success: 'text-bg-success', no_updates: 'text-bg-secondary', failed: 'text-bg-danger' };
+      const requestedPage = Number(new URLSearchParams(location.search).get('page') ?? '1');
+<%- include('partials/pagination-client') %>
 
       function showError(error) {
         errorRegion.textContent = `${error.code}: ${error.message}`;
@@ -15,18 +18,19 @@
       }
 
       async function load() {
-        const [channelResponse, notificationResponse, downloadResponse] = await Promise.all([fetch('/api/channels', { credentials: 'same-origin' }), fetch('/api/notifications', { credentials: 'same-origin' }), fetch('/api/downloads', { credentials: 'same-origin' })]);
+        const [channelResponse, notificationResponse, downloadResponse] = await Promise.all([fetch(`/api/channels?page=${requestedPage}`, { credentials: 'same-origin' }), fetch('/api/notifications?page=1', { credentials: 'same-origin' }), fetch('/api/downloads?page=1', { credentials: 'same-origin' })]);
         const body = await channelResponse.json();
         const notifications = await notificationResponse.json();
         const downloads = await downloadResponse.json();
         if (!channelResponse.ok) { showError(body.error); return; }
         if (!notificationResponse.ok) { showError(notifications.error); return; }
         if (!downloadResponse.ok) { showError(downloads.error); return; }
-        const unreadCount = notifications.items.filter((item) => item.readAt === null).length;
-        const runningCount = downloads.items.filter((item) => item.status === 'pending' || item.status === 'running' || item.status === 'downloading').length;
-        const failedCount = downloads.items.filter((item) => item.status === 'failed' || item.status === 'interrupted').length;
+        const unreadCount = notifications.unreadCount;
+        const runningCount = downloads.statusCounts.pending + downloads.statusCounts.running + downloads.statusCounts.downloading;
+        const failedCount = downloads.statusCounts.failed + downloads.statusCounts.interrupted;
         const totals = document.createElement('div'); totals.className = 'col-12'; totals.innerHTML = `<div class="alert alert-info">未读提醒：${unreadCount}；运行中任务：${runningCount}；失败/中断任务：${failedCount}</div>`; summary.append(totals);
         if (body.items.length === 0) {
+          if (requestedPage > 1 && body.pagination.totalPages < requestedPage) { location.search = `?page=${Math.max(1, body.pagination.totalPages)}`; return; }
           summary.append('尚未添加频道。');
           return;
         }
@@ -59,6 +63,7 @@
           column.append(card);
           summary.append(column);
         }
+        renderPagination(document.querySelector('#dashboard-pagination'), body.pagination, (page) => { location.search = `?page=${page}`; });
       }
 
       load().catch(() => showError({ code: 'NETWORK_ERROR', message: '无法连接服务端' }));

@@ -432,6 +432,67 @@ describe('download API', () => {
     expect(JSON.stringify(body)).not.toContain(PROXY_URL);
   });
 
+  it('paginates downloads after server-side tab and title filtering', async () => {
+    const insert = database.prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, status, created_at
+      ) VALUES ('direct', ?, 'vimeo', ?, ?, 'direct', 'pending', ?)`,
+    );
+    for (let index = 1; index <= 21; index += 1) {
+      insert.run(
+        `https://vimeo.com/${String(index)}`,
+        `page_${String(index)}`,
+        index === 7 ? 'Unique Search Title' : `Download ${String(index)}`,
+        `2026-07-17T09:00:${String(index).padStart(2, '0')}.000Z`,
+      );
+    }
+    database
+      .prepare(
+        `INSERT INTO downloads (
+          source_type, source_url, platform, platform_video_id, title,
+          network_mode, status, output_path, created_at
+        ) VALUES ('direct', 'https://vimeo.com/completed', 'vimeo',
+                  'completed_page', 'Completed', 'direct', 'completed',
+                  '/downloads/completed_page.webm', ?)`,
+      )
+      .run('2026-07-17T10:00:00.000Z');
+
+    const secondPage = await request('/downloads?page=2&tab=active');
+    expect(secondPage.status).toBe(200);
+    await expect(secondPage.json()).resolves.toMatchObject({
+      items: [expect.any(Object)],
+      pagination: { page: 2, pageSize: 20, totalItems: 21, totalPages: 2 },
+      statusCounts: { pending: 21, completed: 1 },
+    });
+
+    const completed = await request('/downloads?page=1&tab=completed');
+    await expect(completed.json()).resolves.toMatchObject({
+      items: [{ title: 'Completed' }],
+      pagination: { totalItems: 1, totalPages: 1 },
+    });
+    const searched = await request('/downloads?page=1&tab=active&q=unique');
+    await expect(searched.json()).resolves.toMatchObject({
+      items: [{ title: 'Unique Search Title' }],
+      pagination: { totalItems: 1 },
+    });
+    const outOfRange = await request('/downloads?page=999&tab=active');
+    await expect(outOfRange.json()).resolves.toMatchObject({
+      items: [],
+      pagination: { page: 999, totalItems: 21, totalPages: 2 },
+    });
+    const missingDownload = await request('/downloads/999999');
+    expect(missingDownload.status).toBe(404);
+    await expect(missingDownload.json()).resolves.toMatchObject({
+      error: { code: 'DOWNLOAD_NOT_FOUND' },
+    });
+    for (const path of ['/downloads?page=0', '/downloads?page=1&tab=all', '/downloads?page=1&q=%20bad']) {
+      const response = await request(path);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    }
+  });
+
   it('maps download history persistence failures', async () => {
     database.close();
     const response = await request('/downloads');

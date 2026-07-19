@@ -2,8 +2,10 @@ import { Router } from 'express';
 
 import type { DatabaseConnection } from '../db/client.js';
 import { BusinessError } from '../errors.js';
+import { parsePage } from '../http/pagination.js';
 import {
-  listNotifications,
+  listNotificationsPage,
+  markAllNotificationsRead,
   markNotificationsRead,
 } from '../services/notification.js';
 
@@ -38,8 +40,22 @@ export function createNotificationsRouter(
 ): Router {
   const router = Router();
 
-  router.get('/', (_request, response) => {
-    response.json({ items: listNotifications(database) });
+  router.get('/', (request, response) => {
+    response.json(
+      listNotificationsPage(database, parsePage(request.query.page)),
+    );
+  });
+
+  router.post('/read-all', (request, response) => {
+    if (
+      typeof request.body !== 'object' ||
+      request.body === null ||
+      Array.isArray(request.body) ||
+      Object.keys(request.body).length !== 0
+    ) {
+      throw new BusinessError('VALIDATION_ERROR', 'invalid notification input');
+    }
+    response.json({ changed: markAllNotificationsRead(database) });
   });
 
   router.post('/:id/read', (request, response) => {

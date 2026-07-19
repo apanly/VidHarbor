@@ -4,19 +4,25 @@
       <div id="page-error" class="alert alert-danger" hidden></div>
       <button id="mark-all-read" class="btn btn-outline-primary mb-3" type="button" hidden>全部标记已读</button>
       <div id="notification-list" class="vstack gap-3" aria-live="polite"></div>
+      <nav id="notification-pagination" class="list-pagination" aria-label="提醒分页" hidden></nav>
     </main>
     <script type="module">
       const errorRegion = document.querySelector('#page-error');
       const list = document.querySelector('#notification-list');
+      const requestedPage = Number(new URLSearchParams(location.search).get('page') ?? '1');
 
       function showError(error) { errorRegion.textContent = `${error.code}: ${error.message}`; errorRegion.hidden = false; }
       async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); const result = await response.json(); if (!response.ok) throw result.error; return result; }
+<%- include('partials/pagination-client') %>
 
       async function load() {
-        const notifications = await request('/api/notifications');
-        if (notifications.items.length === 0) { list.textContent = '暂无新视频提醒。'; return; }
-        const unreadIds = notifications.items.filter((notification) => notification.readAt === null).map((notification) => notification.id);
-        const markAll = document.querySelector('#mark-all-read'); markAll.hidden = unreadIds.length === 0; markAll.addEventListener('click', async () => { try { await request('/api/notifications/read', 'POST', { ids: unreadIds }); location.reload(); } catch (error) { showError(error); } });
+        const notifications = await request(`/api/notifications?page=${requestedPage}`);
+        if (notifications.items.length === 0) {
+          if (requestedPage > 1 && notifications.pagination.totalPages < requestedPage) { location.search = `?page=${Math.max(1, notifications.pagination.totalPages)}`; return; }
+          list.textContent = '暂无新视频提醒。';
+          return;
+        }
+        const markAll = document.querySelector('#mark-all-read'); markAll.hidden = notifications.unreadCount === 0; markAll.addEventListener('click', async () => { try { await request('/api/notifications/read-all', 'POST', {}); location.reload(); } catch (error) { showError(error); } });
         for (const notification of notifications.items) {
           const card = document.createElement('article'); card.className = 'card';
           const body = document.createElement('div'); body.className = 'card-body';
@@ -28,6 +34,7 @@
           const readButton = document.createElement('button'); readButton.className = 'btn btn-sm btn-outline-primary ms-3'; readButton.type = 'button'; readButton.textContent = '标记已读'; readButton.disabled = notification.readAt !== null; readButton.addEventListener('click', async () => { try { await request(`/api/notifications/${notification.id}/read`, 'POST', {}); location.reload(); } catch (error) { showError(error); } });
           body.append(title, details, readState, channelLink, readButton); card.append(body); list.append(card);
         }
+        renderPagination(document.querySelector('#notification-pagination'), notifications.pagination, (page) => { location.search = `?page=${page}`; });
       }
 
       load().catch((error) => showError(error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));

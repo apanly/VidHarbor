@@ -229,7 +229,9 @@ describe('channel API', () => {
     expect(listResponse.status).toBe(200);
     const listed = (await listResponse.json()) as {
       items: Array<Record<string, unknown>>;
+      pagination: Record<string, unknown>;
     };
+    expect(listed.pagination).toEqual({ page: 1, pageSize: 20, totalItems: 2, totalPages: 1 });
     expect(listed.items).toHaveLength(2);
     expect(listed.items.map((channel) => channel.id)).toEqual([second.id, first.id]);
     expect(listed.items[1]).toEqual({
@@ -622,7 +624,9 @@ describe('video, check, and notification API', () => {
     expect(videoResponse.status).toBe(200);
     const videoBody = (await videoResponse.json()) as {
       items: Array<Record<string, unknown>>;
+      pagination: Record<string, unknown>;
     };
+    expect(videoBody.pagination).toEqual({ page: 1, pageSize: 20, totalItems: 2, totalPages: 1 });
     expect(videoBody.items.map((item) => item.id)).toEqual([
       newerPublishedVideoId,
       olderPublishedVideoId,
@@ -641,7 +645,9 @@ describe('video, check, and notification API', () => {
     expect(checksResponse.status).toBe(200);
     const checksBody = (await checksResponse.json()) as {
       items: Array<Record<string, unknown>>;
+      pagination: Record<string, unknown>;
     };
+    expect(checksBody.pagination).toEqual({ page: 1, pageSize: 20, totalItems: 3, totalPages: 1 });
     expect(checksBody.items.slice(0, 2).map((item) => item.id)).toEqual([
       noUpdateCheckId,
       failedCheckId,
@@ -660,7 +666,11 @@ describe('video, check, and notification API', () => {
     expect(notificationsResponse.status).toBe(200);
     const notifications = (await notificationsResponse.json()) as {
       items: Array<Record<string, unknown>>;
+      pagination: Record<string, unknown>;
+      unreadCount: number;
     };
+    expect(notifications.pagination).toEqual({ page: 1, pageSize: 20, totalItems: 2, totalPages: 1 });
+    expect(notifications.unreadCount).toBe(2);
     expect(notifications.items.map((item) => item.id)).toEqual([2, 1]);
     expect(notifications.items[0]).toEqual({
       id: 2,
@@ -674,8 +684,42 @@ describe('video, check, and notification API', () => {
         url: 'https://www.youtube.com/watch?v=fI_12-sT346',
       },
     });
+    const readAll = await request('/notifications/read-all', 'POST', {});
+    expect(readAll.status).toBe(200);
+    await expect(readAll.json()).resolves.toEqual({ changed: 2 });
+    const afterReadAll = await request('/notifications?page=1');
+    await expect(afterReadAll.json()).resolves.toMatchObject({ unreadCount: 0 });
 
     expect((await request('/notifications/1', 'PATCH', {})).status).toBe(404);
     expect((await request('/notifications/1', 'DELETE')).status).toBe(404);
+
+    const filteredVideos = await request(`/channels/${channelId}/videos?page=1&q=${encodeURIComponent('fI_12-sT345')}`);
+    await expect(filteredVideos.json()).resolves.toMatchObject({
+      items: [{ id: newerPublishedVideoId }],
+      pagination: { totalItems: 1 },
+    });
+    for (const path of [
+      '/channels?page=999',
+      `/channels/${channelId}/videos?page=999`,
+      `/channels/${channelId}/checks?page=999`,
+      '/notifications?page=999',
+    ]) {
+      const response = await request(path);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        items: [],
+        pagination: { page: 999 },
+      });
+    }
+    for (const path of [
+      '/channels?page=0',
+      `/channels/${channelId}/videos?page=x`,
+      `/channels/${channelId}/checks?page=1.5`,
+      '/notifications?page=-1',
+    ]) {
+      const response = await request(path);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    }
   });
 });

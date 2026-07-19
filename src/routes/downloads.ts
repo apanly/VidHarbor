@@ -3,6 +3,13 @@ import { type NextFunction, type Request, type Response, Router } from 'express'
 import type { DatabaseConnection } from '../db/client.js';
 import { BusinessError } from '../errors.js';
 import { closeReadableOnPrematureResponseClose } from '../http/file-stream.js';
+import {
+  PAGE_SIZE,
+  pageOffset,
+  pagination,
+  parsePage,
+  parseQuery,
+} from '../http/pagination.js';
 import type { RuntimeCoordinator } from '../runtime.js';
 import {
   cancelDownload,
@@ -137,6 +144,18 @@ interface DownloadRow {
   readonly proxy_name: string | null;
 }
 
+type DownloadTab = 'all' | 'active' | 'completed';
+
+interface DownloadStatusCounts {
+  pending: number;
+  downloading: number;
+  running: number;
+  completed: number;
+  failed: number;
+  canceled: number;
+  interrupted: number;
+}
+
 function parseDownloadId(value: string): number {
   if (!/^[1-9]\d*$/.test(value)) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid download ID');
@@ -196,37 +215,103 @@ function parseChannelInput(input: unknown): ChannelDownloadInput {
   };
 }
 
-function listDownloads(database: DatabaseConnection): unknown[] {
+function parseDownloadTab(value: unknown): DownloadTab {
+  if (value === undefined) return 'all';
+  if (value !== 'active' && value !== 'completed') {
+    throw new BusinessError('VALIDATION_ERROR', 'invalid download tab');
+  }
+  return value;
+}
+
+function toDownloadSnapshot(row: DownloadRow): Record<string, unknown> {
+  return {
+    id: row.id,
+    sourceType: row.source_type,
+    title: row.title,
+    sourceUrl: row.source_url,
+    status: row.status,
+    outputPath: row.output_path,
+    failureReason: row.failure_reason,
+    progressPercent: row.progress_percent,
+    speedText: row.speed_text,
+    etaSeconds: row.eta_seconds,
+    exitCode: row.exit_code,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    networkMode: row.network_mode,
+    proxyName: row.proxy_name,
+  };
+}
+
+function listDownloads(
+  database: DatabaseConnection,
+  page: number,
+  tab: DownloadTab,
+  query: string,
+): Record<string, unknown> {
   try {
+    const conditions: string[] = [];
+    const parameters: unknown[] = [];
+    if (tab === 'active') conditions.push("status <> 'completed'");
+    if (tab === 'completed') conditions.push("status = 'completed'");
+    if (query !== '') {
+      conditions.push('instr(lower(title), lower(?)) > 0');
+      parameters.push(query);
+    }
+    const where = conditions.length === 0 ? '' : `WHERE ${conditions.join(' AND ')}`;
+    const totalItems = database
+      .prepare(`SELECT COUNT(*) FROM downloads ${where}`)
+      .pluck()
+      .get(...parameters) as number;
     const rows = database
       .prepare(
         `SELECT id, source_type, title, source_url, status, output_path, failure_reason,
                 progress_percent, speed_text, eta_seconds, exit_code,
                 created_at, started_at, finished_at, network_mode, proxy_name
          FROM downloads
-         ORDER BY created_at DESC, id DESC`,
+         ${where}
+         ORDER BY created_at DESC, id DESC
+         LIMIT ? OFFSET ?`,
       )
-      .all() as DownloadRow[];
-
-    return rows.map((row) => ({
-      id: row.id,
-      sourceType: row.source_type,
-      title: row.title,
-      sourceUrl: row.source_url,
-      status: row.status,
-      outputPath: row.output_path,
-      failureReason: row.failure_reason,
-      progressPercent: row.progress_percent,
-      speedText: row.speed_text,
-      etaSeconds: row.eta_seconds,
-      exitCode: row.exit_code,
-      createdAt: row.created_at,
-      startedAt: row.started_at,
-      finishedAt: row.finished_at,
-      networkMode: row.network_mode,
-      proxyName: row.proxy_name,
-    }));
+      .all(...parameters, PAGE_SIZE, pageOffset(page)) as DownloadRow[];
+    const counts: DownloadStatusCounts = {
+      pending: 0,
+      downloading: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      canceled: 0,
+      interrupted: 0,
+    };
+    const countRows = database
+      .prepare('SELECT status, COUNT(*) AS count FROM downloads GROUP BY status')
+      .all() as Array<{ status: keyof DownloadStatusCounts; count: number }>;
+    for (const row of countRows) counts[row.status] = row.count;
+    return {
+      items: rows.map(toDownloadSnapshot),
+      pagination: pagination(page, totalItems),
+      statusCounts: counts,
+    };
   } catch {
+    throw new BusinessError('PERSISTENCE_ERROR', 'download persistence failed');
+  }
+}
+
+function getDownloadSnapshot(database: DatabaseConnection, downloadId: number): unknown {
+  try {
+    const row = database
+      .prepare(
+        `SELECT id, source_type, title, source_url, status, output_path, failure_reason,
+                progress_percent, speed_text, eta_seconds, exit_code,
+                created_at, started_at, finished_at, network_mode, proxy_name
+         FROM downloads WHERE id = ?`,
+      )
+      .get(downloadId) as DownloadRow | undefined;
+    if (row === undefined) throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+    return toDownloadSnapshot(row);
+  } catch (error) {
+    if (error instanceof BusinessError) throw error;
     throw new BusinessError('PERSISTENCE_ERROR', 'download persistence failed');
   }
 }
@@ -264,11 +349,19 @@ export function createDownloadsRouter(
     response.status(202).json({ download });
   });
 
-  router.get('/', (_request, response) => {
-    response.json({ items: listDownloads(database) });
+  router.get('/', (request, response) => {
+    response.json(listDownloads(
+      database,
+      parsePage(request.query.page),
+      parseDownloadTab(request.query.tab),
+      parseQuery(request.query.q),
+    ));
   });
 
   router.get('/events', (request, response) => {
+    const page = parsePage(request.query.page);
+    const tab = parseDownloadTab(request.query.tab);
+    const query = parseQuery(request.query.q);
     response.set({
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -276,7 +369,7 @@ export function createDownloadsRouter(
     });
     let previousSnapshot: string | undefined;
     const sendChangedSnapshot = () => {
-      const snapshot = JSON.stringify({ items: listDownloads(database) });
+      const snapshot = JSON.stringify(listDownloads(database, page, tab, query));
       if (snapshot === previousSnapshot) return;
       previousSnapshot = snapshot;
       response.write(`event: downloads\ndata: ${snapshot}\n\n`);
@@ -297,6 +390,10 @@ export function createDownloadsRouter(
       }
     }, DOWNLOAD_EVENT_INTERVAL_MILLISECONDS);
     request.on('close', close);
+  });
+
+  router.get('/:id', (request, response) => {
+    response.json({ download: getDownloadSnapshot(database, parseDownloadId(request.params.id)) });
   });
 
   router.get('/:id/media', async (request, response, next) => {

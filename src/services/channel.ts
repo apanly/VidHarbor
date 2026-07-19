@@ -1,5 +1,11 @@
 import type { DatabaseConnection } from '../db/client.js';
 import { BusinessError } from '../errors.js';
+import {
+  PAGE_SIZE,
+  pageOffset,
+  pagination,
+  type Paginated,
+} from '../http/pagination.js';
 import { validateChannelName } from '../filesystem.js';
 import { redactStderr } from '../redaction.js';
 import {
@@ -1242,6 +1248,36 @@ export function listChannels(database: DatabaseConnection): Channel[] {
   }
 }
 
+export function listChannelsPage(
+  database: DatabaseConnection,
+  page: number,
+): Paginated<Channel> {
+  try {
+    const totalItems = database.prepare('SELECT COUNT(*) FROM channels').pluck().get() as number;
+    const rows = database
+      .prepare(`${CHANNEL_SELECT} ORDER BY c.id DESC LIMIT ? OFFSET ?`)
+      .all(PAGE_SIZE, pageOffset(page)) as ChannelRow[];
+    return { items: rows.map(toChannel), pagination: pagination(page, totalItems) };
+  } catch (error) {
+    if (error instanceof BusinessError) throw error;
+    throw persistenceError();
+  }
+}
+
+export function getChannel(database: DatabaseConnection, channelId: number): Channel {
+  validateChannelId(channelId);
+  try {
+    const row = database
+      .prepare(`${CHANNEL_SELECT} WHERE c.id = ?`)
+      .get(channelId) as ChannelRow | undefined;
+    if (row === undefined) throw new BusinessError('CHANNEL_NOT_FOUND', 'channel not found');
+    return toChannel(row);
+  } catch (error) {
+    if (error instanceof BusinessError) throw error;
+    throw persistenceError();
+  }
+}
+
 export function updateChannel(
   database: DatabaseConnection,
   channelId: number,
@@ -1445,6 +1481,56 @@ export function listChannelVideos(
   }
 }
 
+export function listChannelVideosPage(
+  database: DatabaseConnection,
+  channelId: number,
+  page: number,
+  query: string,
+): Paginated<ChannelVideo> {
+  validateChannelId(channelId);
+  try {
+    assertChannelExists(database, channelId);
+    const titleFilter = query === '' ? '' : ' AND instr(lower(v.title), lower(?)) > 0';
+    const parameters = query === '' ? [channelId] : [channelId, query];
+    const totalItems = database
+      .prepare(`SELECT COUNT(*) FROM videos v WHERE v.channel_id = ?${titleFilter}`)
+      .pluck()
+      .get(...parameters) as number;
+    const rows = database
+      .prepare(
+        `SELECT v.id, v.title, v.published_date, v.source_url,
+                v.duration_seconds, v.thumbnail_url,
+                (
+                  SELECT d.status
+                  FROM downloads d
+                  WHERE d.video_id = v.id
+                  ORDER BY d.created_at DESC, d.id DESC
+                  LIMIT 1
+                ) AS download_status
+         FROM videos v
+         WHERE v.channel_id = ?${titleFilter}
+         ORDER BY v.published_date DESC, v.id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...parameters, PAGE_SIZE, pageOffset(page)) as ChannelVideoRow[];
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        publishedDate: row.published_date,
+        url: row.source_url,
+        durationSeconds: row.duration_seconds,
+        thumbnailUrl: row.thumbnail_url,
+        downloadStatus: row.download_status,
+      })),
+      pagination: pagination(page, totalItems),
+    };
+  } catch (error) {
+    if (error instanceof BusinessError) throw error;
+    throw persistenceError();
+  }
+}
+
 export function pauseChannel(
   database: DatabaseConnection,
   channelId: number,
@@ -1555,6 +1641,46 @@ export function listChannelChecks(
     if (error instanceof BusinessError) {
       throw error;
     }
+    throw persistenceError();
+  }
+}
+
+export function listChannelChecksPage(
+  database: DatabaseConnection,
+  channelId: number,
+  page: number,
+): Paginated<ChannelCheck> {
+  validateChannelId(channelId);
+  try {
+    assertChannelExists(database, channelId);
+    const totalItems = database
+      .prepare('SELECT COUNT(*) FROM channel_checks WHERE channel_id = ?')
+      .pluck()
+      .get(channelId) as number;
+    const rows = database
+      .prepare(
+        `SELECT id, kind, started_at, finished_at, result,
+                new_video_count, failure_reason
+         FROM channel_checks
+         WHERE channel_id = ?
+         ORDER BY started_at DESC, id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(channelId, PAGE_SIZE, pageOffset(page)) as ChannelCheckRow[];
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        startedAt: row.started_at,
+        finishedAt: row.finished_at,
+        result: row.result,
+        newVideoCount: row.new_video_count,
+        failureReason: row.failure_reason,
+      })),
+      pagination: pagination(page, totalItems),
+    };
+  } catch (error) {
+    if (error instanceof BusinessError) throw error;
     throw persistenceError();
   }
 }

@@ -2,12 +2,14 @@ import { Router } from 'express';
 
 import type { DatabaseConnection } from '../db/client.js';
 import { BusinessError } from '../errors.js';
+import { parsePage, parseQuery } from '../http/pagination.js';
 import {
   checkChannel,
   deleteChannel,
-  listChannelChecks,
-  listChannels,
-  listChannelVideos,
+  getChannel,
+  listChannelChecksPage,
+  listChannelsPage,
+  listChannelVideosPage,
   pauseChannel,
   resumeChannel,
   acceptInitialChannelSync,
@@ -35,8 +37,8 @@ export function createChannelsRouter(
 ): Router {
   const router = Router();
 
-  router.get('/', (_request, response) => {
-    response.json({ items: listChannels(database) });
+  router.get('/', (request, response) => {
+    response.json(listChannelsPage(database, parsePage(request.query.page)));
   });
 
   router.post('/', (request, response) => {
@@ -116,22 +118,31 @@ export function createChannelsRouter(
     );
   });
 
-  router.get('/:id/videos', (request, response) => {
+  router.get('/:id', (request, response) => {
     response.json({
-      items: listChannelVideos(
-        database,
-        parseChannelId(request.params.id),
-      ),
+      channel: getChannel(database, parseChannelId(request.params.id)),
     });
   });
 
-  router.get('/:id/checks', (request, response) => {
-    response.json({
-      items: listChannelChecks(
+  router.get('/:id/videos', (request, response) => {
+    response.json(
+      listChannelVideosPage(
         database,
         parseChannelId(request.params.id),
+        parsePage(request.query.page),
+        parseQuery(request.query.q),
       ),
-    });
+    );
+  });
+
+  router.get('/:id/checks', (request, response) => {
+    response.json(
+      listChannelChecksPage(
+        database,
+        parseChannelId(request.params.id),
+        parsePage(request.query.page),
+      ),
+    );
   });
 
   return router;

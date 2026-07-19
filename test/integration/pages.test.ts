@@ -107,6 +107,7 @@ describe('server-rendered pages', () => {
     expect(channelsHtml).toContain("link.target = '_blank'; link.rel = 'noopener'");
     expect(channelsHtml).toContain('confirm(`确认删除频道「${channel.customName}」？`)');
     expect(channelsHtml).toContain("request(`/api/channels/${channel.id}`, 'DELETE')");
+    expect(channelsHtml).toContain('container.hidden = value.totalItems === 0');
     expect(channelsHtml).toContain("timeZone: 'Asia/Shanghai'");
     expect(channelsHtml).toContain("formatChinaTime(channel.lastCheck.nextAt)");
     expect(channelsHtml).not.toContain('<table');
@@ -139,13 +140,22 @@ describe('server-rendered pages', () => {
     const html = await getPage('/channels/7');
 
     expect(html).toContain('id="download-form"');
-    expect(html).toContain('class="channel-detail-layout"');
-    expect(html).toContain('id="video-list" class="channel-video-grid"');
-    expect(html).toContain('class="channel-check-panel"');
+    expect(html).toContain('role="tablist" aria-label="频道详情"');
+    expect(html).toContain('data-channel-tab="videos">视频列表</button>');
+    expect(html).toContain('data-channel-tab="checks">检查记录</button>');
+    expect(html).toContain('data-channel-panel="videos"');
+    expect(html).toContain('data-channel-panel="checks" hidden');
+    expect(html).toContain('id="video-list"');
+    expect(html).toContain('id="check-list"');
+    expect(html.match(/<table/g)).toHaveLength(2);
     expect(html).not.toContain('返回频道');
     expect(html).not.toContain('channel-back-link');
-    expect(html).toContain("card.className = 'channel-video-card'");
-    expect(html).not.toContain('<table');
+    expect(html).toContain("const row = document.createElement('tr')");
+    expect(html).toContain('setChannelTab(button.dataset.channelTab)');
+    expect(html).toContain("pending: '等待下载'");
+    expect(html).toContain("completed: '下载完成'");
+    expect(html).toContain("interrupted: '已中断'");
+    expect(html).toContain("video.downloadStatus === null ? '尚未下载' : downloadStatusLabels[video.downloadStatus]");
     expect(html).toContain('name="proxyId"');
     expect(html).toContain('<option value="channel">沿用频道代理</option>');
     expect(html).toContain("request('/api/proxies')");
@@ -162,7 +172,7 @@ describe('server-rendered pages', () => {
   it('links each notification to its channel and source video without state actions', async () => {
     const html = await getPage('/notifications');
 
-    expect(html).toContain("request('/api/notifications')");
+    expect(html).toContain('request(`/api/notifications?page=${requestedPage}`)');
     expect(html).toContain('`/channels/${notification.channel.id}`');
     expect(html).toContain('notification.video.url');
     expect(html).toContain('notification.video.title');
@@ -262,7 +272,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('download.progressPercent');
     expect(html).toContain('download.speedText');
     expect(html).toContain('download.etaSeconds');
-    expect(html).toContain("new EventSource('/api/downloads/events')");
+    expect(html).toContain("new EventSource(downloadUrl('/api/downloads/events'))");
     expect(html).toContain('download.createdAt');
     expect(html).toContain('download.startedAt');
     expect(html).toContain('download.finishedAt');
@@ -279,7 +289,7 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain("list.textContent = ''");
     expect(html).toContain('if (field.textContent !== nextValue)');
     expect(html).toContain('previous === undefined || JSON.stringify(previous) !== JSON.stringify(download)');
-    expect(html).toContain("events.addEventListener('downloads'");
+    expect(html).toContain("downloadEvents.addEventListener('downloads'");
     expect(html).toContain("if (download.status === 'completed')");
     expect(html).toContain('`/downloads/preview?id=${download.id}`');
     expect(html).toContain('`/api/downloads/${download.id}/file`');
@@ -287,6 +297,37 @@ describe('server-rendered pages', () => {
     expect(html).toContain("original.target = '_blank'");
     expect(html).toContain("original.rel = 'noopener noreferrer'");
     expect(html).not.toMatch(/自动下载|播放/);
+  });
+
+  it('filters downloads by title and exposes distinct tab and empty-state contracts', async () => {
+    const html = await getPage('/downloads');
+
+    expect(html).toContain('id="download-search" type="search" placeholder="搜索下载标题"');
+    expect(html).toContain('role="tablist" aria-label="下载状态"');
+    expect(html).toContain('data-download-tab="active"');
+    expect(html).toContain('data-download-tab="completed"');
+    expect(html).toContain('id="download-empty-state"');
+    expect(html).toContain('data-empty-title');
+    expect(html).toContain('data-empty-description');
+    expect(html).toContain('data-empty-action');
+
+    const functionSource = html.slice(
+      html.indexOf('function emptyStateFor'),
+      html.indexOf('function setSelectedTab'),
+    );
+    const helpers = new Function(
+      `${functionSource}; return { emptyStateFor };`,
+    )() as {
+      emptyStateFor(tab: string, query: string, total: number): { title: string; action: string };
+    };
+
+    expect(html).toContain("new URLSearchParams({ page: String(page), tab: selectedTab })");
+    expect(html).toContain("parameters.set('q', searchQuery)");
+    expect(html).toContain('statusCounts.pending + statusCounts.downloading + statusCounts.running + statusCounts.failed + statusCounts.canceled + statusCounts.interrupted');
+    expect(helpers.emptyStateFor('active', '', 0)).toMatchObject({ title: '还没有下载任务', action: 'create' });
+    expect(helpers.emptyStateFor('active', '测试', 2)).toMatchObject({ title: '没有找到“测试”', action: 'clear' });
+    expect(helpers.emptyStateFor('completed', '', 2)).toMatchObject({ title: '还没有完成的下载', action: 'active' });
+    expect(helpers.emptyStateFor('active', '', 2)).toMatchObject({ title: '当前没有下载中的任务', action: 'create' });
   });
 
   it('renders and executes the standalone download preview contract', async () => {
@@ -301,14 +342,14 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('preview-download');
     expect(html).not.toContain('preview-original');
     expect(html).toContain('浏览器无法播放此文件，请返回下载页面下载后查看');
-    expect(html).toContain("load().catch(() => showPreviewError(errorRegion, '无法加载下载记录'))");
+    expect(html).toContain("error.code === 'DOWNLOAD_NOT_FOUND' ? '下载记录不存在' : '无法加载下载记录'");
     expect(html).not.toContain('class="app-shell"');
     expect(html).not.toContain('class="app-sidebar"');
     expect(html).not.toContain('class="app-topbar"');
     expect(html).not.toContain('deployment-warning');
     expect(html).not.toContain('可信内网');
     expect(html).not.toContain('class="app-footer"');
-    expect(html).toContain("request('/api/downloads')");
+    expect(html).toContain('request(`/api/downloads/${id}`)');
     expect(html).toContain("new URLSearchParams(location.search).get('id')");
 
     const functionSource = html.slice(
@@ -318,19 +359,18 @@ describe('server-rendered pages', () => {
     const helpers = new Function(
       `${functionSource}; return { renderPreview };`,
     )() as {
-      renderPreview(items: Array<Record<string, unknown>>, rawId: string | null, player: Record<string, unknown>, page: Record<string, unknown>, error: Record<string, unknown>): void;
+      renderPreview(download: Record<string, unknown>, rawId: string | null, player: Record<string, unknown>, page: Record<string, unknown>, error: Record<string, unknown>): void;
     };
     const player = () => ({ src: '', hidden: true });
 
-    for (const [rawId, items, message] of [
-      ['x', [], '下载记录参数无效'],
-      ['2', [], '下载记录不存在'],
-      ['2', [{ id: 2, status: 'pending' }], '文件尚不可预览'],
+    for (const [rawId, download, message] of [
+      ['x', { status: 'pending' }, '下载记录参数无效'],
+      ['2', { id: 2, status: 'pending' }, '文件尚不可预览'],
     ] as const) {
       const media = player();
       const page = { title: '下载预览' };
       const error = { textContent: '', hidden: true };
-      helpers.renderPreview([...items], rawId, media, page, error);
+      helpers.renderPreview(download, rawId, media, page, error);
       expect(media.src).toBe('');
       expect(media.hidden).toBe(true);
       expect(page.title).toBe('下载预览');
@@ -340,7 +380,7 @@ describe('server-rendered pages', () => {
     const media = player();
     const page = { title: '下载预览' };
     helpers.renderPreview(
-      [{ id: 2, status: 'completed', title: 'Video', sourceUrl: 'https://media.example/items/2' }],
+      { id: 2, status: 'completed', title: 'Video', sourceUrl: 'https://media.example/items/2' },
       '2',
       media,
       page,
@@ -412,8 +452,12 @@ describe('server-rendered pages', () => {
     expect(styles).toMatch(/\.download-path-value\s*\{[^}]*text-overflow: ellipsis;/s);
     expect(styles).toMatch(/\.download-card-times\s*\{[^}]*grid-column: 1 \/ -1;/s);
     expect(styles).toContain('.download-source {');
+    expect(styles).toContain('.download-controls {');
+    expect(styles).toContain('.download-tabs {');
+    expect(styles).toContain('.download-empty-state {');
     expect(styles).toContain('@media (max-width: 575.98px)');
     expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-card-header\s*\{[^}]*flex-direction: column;/);
+    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-controls\s*\{[^}]*flex-direction: column;/);
     expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-card-metrics,[\s\S]*\.download-card-details,[\s\S]*\.download-card-times\s*\{[^}]*grid-template-columns: 1fr;/);
     expect(styles).not.toMatch(/\.download-detail-value\s*\{[^}]*text-overflow: ellipsis;/s);
     expect(styles).toMatch(/\.preview-page\s*\{[^}]*width: 100dvw;[^}]*height: 100dvh;[^}]*overflow: hidden;[^}]*background:/s);

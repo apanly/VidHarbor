@@ -1,5 +1,11 @@
 import type { DatabaseConnection } from '../db/client.js';
 import { BusinessError } from '../errors.js';
+import {
+  PAGE_SIZE,
+  pageOffset,
+  pagination,
+  type Paginated,
+} from '../http/pagination.js';
 
 export interface Notification {
   readonly id: number;
@@ -64,6 +70,68 @@ export function listNotifications(
       'PERSISTENCE_ERROR',
       'notification persistence failed',
     );
+  }
+}
+
+export function listNotificationsPage(
+  database: DatabaseConnection,
+  page: number,
+): Paginated<Notification> & { readonly unreadCount: number } {
+  try {
+    const totalItems = database
+      .prepare('SELECT COUNT(*) FROM notifications')
+      .pluck()
+      .get() as number;
+    const unreadCount = database
+      .prepare('SELECT COUNT(*) FROM notifications WHERE read_at IS NULL')
+      .pluck()
+      .get() as number;
+    const rows = database
+      .prepare(
+        `SELECT n.id, n.created_at, c.id AS channel_id,
+                c.custom_name, n.read_at, v.id AS video_id, v.title,
+                v.published_date, v.source_url
+         FROM notifications n
+         JOIN videos v ON v.id = n.video_id
+         JOIN channels c ON c.id = v.channel_id
+         ORDER BY n.created_at DESC, n.id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(PAGE_SIZE, pageOffset(page)) as NotificationRow[];
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        createdAt: row.created_at,
+        readAt: row.read_at,
+        channel: { id: row.channel_id, customName: row.custom_name },
+        video: {
+          id: row.video_id,
+          title: row.title,
+          publishedDate: row.published_date,
+          url: row.source_url,
+        },
+      })),
+      pagination: pagination(page, totalItems),
+      unreadCount,
+    };
+  } catch {
+    throw new BusinessError('PERSISTENCE_ERROR', 'notification persistence failed');
+  }
+}
+
+export function markAllNotificationsRead(
+  database: DatabaseConnection,
+  now = new Date(),
+): number {
+  if (!Number.isFinite(now.getTime())) {
+    throw new BusinessError('VALIDATION_ERROR', 'read time is invalid');
+  }
+  try {
+    return database
+      .prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL')
+      .run(now.toISOString()).changes;
+  } catch {
+    throw new BusinessError('PERSISTENCE_ERROR', 'notification persistence failed');
   }
 }
 

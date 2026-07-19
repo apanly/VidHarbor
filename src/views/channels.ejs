@@ -3,7 +3,7 @@
         <h1>频道</h1>
         <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#channel-modal" data-channel-create>新增频道</button>
       </div>
-      <section><div id="channel-list" class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4"></div></section>
+      <section><div id="channel-list" class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4"></div><nav id="channel-pagination" class="list-pagination" aria-label="频道分页" hidden></nav></section>
       <div class="modal fade" id="channel-modal" tabindex="-1" aria-labelledby="channel-modal-title" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
@@ -46,6 +46,7 @@
       let initialSyncChannelId = null;
       let channelMode = { kind: 'create' };
       let proxyItems = [];
+      const requestedPage = Number(new URLSearchParams(location.search).get('page') ?? '1');
       const checkResultLabels = { success: '有更新', no_updates: '无更新', failed: '失败' };
       const chinaTimeFormatter = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
       function nullableNumber(value) { return value === '' ? null : Number(value); }
@@ -56,6 +57,7 @@
       function setProxyOptions(select, proxies, selectedId) { select.replaceChildren(new Option('直连', '')); for (const proxy of proxies) { const option = new Option(proxy.name, String(proxy.id)); option.selected = proxy.id === selectedId; select.append(option); } }
       function channelDetail(label, value) { const item = document.createElement('p'); item.className = 'mb-2 small'; const name = document.createElement('span'); name.className = 'text-body-secondary'; name.textContent = `${label}：`; item.append(name, value); return item; }
       function renderEmptyState(list) { const empty = document.createElement('p'); empty.className = 'col-12 text-center text-body-secondary py-5'; empty.textContent = '尚未添加频道。'; list.append(empty); }
+<%- include('partials/pagination-client') %>
       function openChannelCreateModal() {
         channelMode = { kind: 'create' };
         channelModalTitle.textContent = '新增频道';
@@ -81,13 +83,17 @@
         channelModal.show();
       }
       async function load() {
-        const [channels, proxies] = await Promise.all([request('/api/channels'), request('/api/proxies')]);
+        const [channels, proxies] = await Promise.all([request(`/api/channels?page=${requestedPage}`), request('/api/proxies')]);
         proxyItems = proxies.items;
         setProxyOptions(channelForm.elements.proxyId, proxyItems, null);
         document.querySelector('[data-channel-create]').addEventListener('click', () => openChannelCreateModal());
         const list = document.querySelector('#channel-list');
         list.replaceChildren();
-        if (channels.items.length === 0) { renderEmptyState(list); return; }
+        if (channels.items.length === 0) {
+          if (requestedPage > 1 && channels.pagination.totalPages < requestedPage) { location.search = `?page=${Math.max(1, channels.pagination.totalPages)}`; return; }
+          renderEmptyState(list);
+          return;
+        }
         for (const channel of channels.items) {
           const column = document.createElement('div'); column.className = 'col'; const card = document.createElement('article'); card.className = 'card h-100 channel-card'; card.tabIndex = 0; card.setAttribute('role', 'link'); card.setAttribute('aria-label', `打开频道 ${channel.customName}`); const openDetail = () => window.open(`/channels/${channel.id}`, '_blank', 'noopener'); card.addEventListener('click', (event) => { if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, label') !== null) return; openDetail(); }); card.addEventListener('keydown', (event) => { if (event.target === card && event.key === 'Enter') openDetail(); }); const body = document.createElement('div'); body.className = 'card-body d-flex flex-column';
           const link = document.createElement('a'); link.className = 'h5 mb-1 text-decoration-none'; link.href = `/channels/${channel.id}`; link.target = '_blank'; link.rel = 'noopener'; link.textContent = channel.customName; const source = document.createElement('a'); source.className = 'small text-body-secondary text-break'; source.href = channel.url; source.target = '_blank'; source.rel = 'noreferrer'; source.textContent = channel.url; body.append(link, source);
@@ -97,10 +103,11 @@
           const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'btn btn-outline-primary'; edit.dataset.bsToggle = 'modal'; edit.dataset.bsTarget = '#channel-modal'; edit.textContent = '编辑'; edit.addEventListener('click', () => openChannelEditModal(channel));
           const pause = document.createElement('button'); pause.type = 'button'; pause.className = 'btn btn-outline-warning'; pause.textContent = channel.pausedAt === null ? '暂停' : '恢复'; pause.addEventListener('click', async () => { try { await request(`/api/channels/${channel.id}/${channel.pausedAt === null ? 'pause' : 'resume'}`, 'POST', {}); location.reload(); } catch (error) { showError(card, error); } });
           const check = document.createElement('button'); check.type = 'button'; check.className = 'btn btn-outline-secondary'; if (channel.initialSync.status === 'succeeded') { check.textContent = '立即检查'; check.addEventListener('click', async () => { try { await request(`/api/channels/${channel.id}/check`, 'POST', {}); location.reload(); } catch (error) { showError(card, error); } }); } else { check.textContent = channel.initialSync.status === 'failed' ? '重新同步' : channel.initialSync.status === 'syncing' ? '同步中' : '首次同步'; check.disabled = channel.initialSync.status === 'syncing'; check.addEventListener('click', () => { initialSyncChannelId = channel.id; initialSyncForm.reset(); clearError(initialSyncForm); initialSyncModal.show(); }); }
-          const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline-danger'; remove.textContent = '删除'; remove.addEventListener('click', async () => { if (!confirm(`确认删除频道「${channel.customName}」？`)) return; try { await request(`/api/channels/${channel.id}`, 'DELETE'); column.remove(); if (list.children.length === 0) renderEmptyState(list); } catch (error) { showError(card, error); } });
+          const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline-danger'; remove.textContent = '删除'; remove.addEventListener('click', async () => { if (!confirm(`确认删除频道「${channel.customName}」？`)) return; try { await request(`/api/channels/${channel.id}`, 'DELETE'); location.reload(); } catch (error) { showError(card, error); } });
           const error = document.createElement('div'); error.className = 'alert alert-danger mt-2 mb-0'; error.dataset.formError = ''; error.hidden = true;
           actions.append(edit, pause, check, remove); body.append(actions, error); card.append(body); column.append(card); list.append(column);
         }
+        renderPagination(document.querySelector('#channel-pagination'), channels.pagination, (page) => { location.search = `?page=${page}`; });
       }
       channelForm.addEventListener('submit', async (event) => { event.preventDefault(); try { if (channelMode.kind === 'create') { await request('/api/channels', 'POST', { url: channelForm.elements.url.value, customName: channelForm.elements.customName.value, proxyId: nullableNumber(channelForm.elements.proxyId.value), checkIntervalMinutes: nullableNumber(channelForm.elements.checkIntervalMinutes.value) }); } else { await request(`/api/channels/${channelMode.id}`, 'PATCH', { customName: channelForm.elements.customName.value, proxyId: nullableNumber(channelForm.elements.proxyId.value), checkIntervalMinutes: nullableNumber(channelForm.elements.checkIntervalMinutes.value) }); } location.reload(); } catch (error) { showError(channelForm, error); } });
       initialSyncForm.addEventListener('submit', async (event) => { event.preventDefault(); const submit = initialSyncForm.querySelector('[type="submit"]'); submit.disabled = true; submit.textContent = '同步中'; try { await request(`/api/channels/${initialSyncChannelId}/initial-sync`, 'POST', { historyMonths: Number(initialSyncForm.elements.historyMonths.value) }); location.reload(); } catch (error) { showError(initialSyncForm, error); submit.disabled = false; submit.textContent = '开始同步'; } });
