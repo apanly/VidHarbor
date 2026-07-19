@@ -401,7 +401,7 @@
   3. `rg -n "signal\.aborted|throwIfCanceled|status = 'completed'" src/download-worker.ts` → 同一 signal 的取消检查与成功落库边界均有明确实现。
 
 ## task-19 · 取消时保留真实系统故障
-- 状态: pending
+- 状态: done
 - 依赖: task-15, task-16
 - 文件范围:
   - src/yt-dlp-task-manager.ts

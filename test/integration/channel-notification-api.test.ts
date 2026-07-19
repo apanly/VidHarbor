@@ -214,7 +214,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopServer?.();
-  await taskManager.stop();
+  await Promise.allSettled([taskManager.stop()]);
   try {
     database.close();
   } catch {
@@ -419,7 +419,7 @@ describe('channel API', () => {
     expect(taskManager.getSnapshot().at(-1)?.type).toBe('channel_initial_sync');
   });
 
-  it('settles a stopped initial synchronization without reporting a runtime failure', async () => {
+  it('does not rewrite a stopped initial synchronization rejection as cancellation', async () => {
     const savedResponse = await request('/channels', 'POST', {
       url: 'https://www.youtube.com/@blocking',
       customName: 'Canceled channel',
@@ -436,11 +436,14 @@ describe('channel API', () => {
     expect(response.status).toBe(202);
     await waitForFile(blockingSyncStartedPath);
 
-    await taskManager.stop();
+    await expect(taskManager.stop()).rejects.toMatchObject({
+      code: 'CHANNEL_FETCH_FAILED',
+    });
 
     expect(taskManager.getSnapshot().at(-1)).toMatchObject({
       type: 'channel_initial_sync',
-      status: 'canceled',
+      status: 'failed',
+      failureReason: 'yt-dlp download cancelled',
     });
     expect(
       database
@@ -501,7 +504,7 @@ describe('channel API', () => {
     expect(runtimeErrors).toEqual([]);
   });
 
-  it('reports an initial synchronization persistence failure', async () => {
+  it('reports an initial synchronization persistence failure during cancellation', async () => {
     const createResponse = await request('/channels', 'POST', {
       url: 'https://www.youtube.com/@blocking',
       customName: 'Persistence failure channel',
@@ -518,10 +521,17 @@ describe('channel API', () => {
     await waitForFile(blockingSyncStartedPath);
 
     database.close();
-    await writeFile(blockingSyncReleasePath, '');
+    await expect(taskManager.stop()).rejects.toMatchObject({
+      code: 'PERSISTENCE_ERROR',
+    });
 
     await expect.poll(() => runtimeErrors).toHaveLength(1);
     expect(runtimeErrors[0]).toMatchObject({ code: 'PERSISTENCE_ERROR' });
+    expect(taskManager.getSnapshot().at(-1)).toMatchObject({
+      type: 'channel_initial_sync',
+      status: 'failed',
+      failureReason: 'channel persistence failed',
+    });
   });
 
   it('rejects invalid channel IDs and reports missing channels', async () => {

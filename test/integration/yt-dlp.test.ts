@@ -10,6 +10,7 @@ import {
   fetchChannelEntries,
   fetchVideoMetadata,
 } from '../../src/yt-dlp.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const executablePath = fileURLToPath(
   new URL('../fixtures/fake-yt-dlp.mjs', import.meta.url),
@@ -237,6 +238,41 @@ describe('yt-dlp process results', () => {
       await expect(result).rejects.toThrow(
         'yt-dlp process group termination failed: group kill denied',
       );
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
+  it('preserves a process-group termination failure through manager stop', async () => {
+    const originalKill = process.kill.bind(process);
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid < 0) throw new Error('group kill denied');
+      return originalKill(pid, signal);
+    });
+    const manager = new YtDlpTaskManager(executablePath, 1, (message) => message);
+    const handle = manager.submit({
+      type: 'media_download',
+      execute: (operations) =>
+        operations.downloadMedia({
+          url: 'fixture://slow-download',
+          outputTemplate: '/temporary/%(id)s.%(ext)s',
+        }),
+    });
+    const result = handle.result.catch((error: unknown) => error);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const stop = manager.stop();
+      const failure = await result;
+
+      await expect(stop).rejects.toBe(failure);
+      expect(failure).toEqual(
+        new Error('yt-dlp process group termination failed: group kill denied'),
+      );
+      expect(manager.getSnapshot()[0]).toMatchObject({
+        status: 'failed',
+        failureReason: 'yt-dlp process group termination failed: group kill denied',
+      });
     } finally {
       kill.mockRestore();
     }

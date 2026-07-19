@@ -11,6 +11,7 @@ vi.mock('../../src/yt-dlp.js', () => ytDlp);
 
 import {
   YT_DLP_TASK_TYPES,
+  YtDlpTaskCancellationError,
   YtDlpTaskManager,
   type YtDlpTaskSubmission,
   type YtDlpTaskType,
@@ -324,7 +325,7 @@ describe('YtDlpTaskManager', () => {
             'abort',
             () => {
               observedAbort = true;
-              void cleanup.promise.then(() => reject(new Error('aborted')));
+              void cleanup.promise.then(() => reject(options.signal.reason));
             },
             { once: true },
           );
@@ -353,6 +354,48 @@ describe('YtDlpTaskManager', () => {
     expect(manager.getSnapshot()[0]).toMatchObject({
       status: 'canceled',
       failureReason: null,
+    });
+  });
+
+  it('preserves an explicitly typed cancellation rejection', async () => {
+    const manager = createManager();
+    const cancellation = new YtDlpTaskCancellationError();
+    const handle = manager.submit({
+      type: 'metadata_probe',
+      execute: async () => {
+        throw cancellation;
+      },
+    });
+
+    await expect(handle.result).rejects.toBe(cancellation);
+    expect(manager.getSnapshot()[0]).toMatchObject({
+      status: 'canceled',
+      failureReason: null,
+    });
+  });
+
+  it('preserves an unknown executor failure after cancellation', async () => {
+    const execution = deferred<void>();
+    const failure = new Error('cleanup failed');
+    const manager = createManager();
+    const handle = manager.submit({
+      type: 'metadata_probe',
+      execute: async () => {
+        await execution.promise;
+        throw failure;
+      },
+    });
+    const result = handle.result.catch((error: unknown) => error);
+    await schedulingTurn();
+
+    const cancel = manager.cancel(handle.id);
+    execution.resolve();
+
+    await expect(cancel).rejects.toBe(failure);
+    expect(await result).toBe(failure);
+    expect(manager.getSnapshot()[0]).toMatchObject({
+      status: 'failed',
+      failureReason: 'cleanup failed',
     });
   });
 

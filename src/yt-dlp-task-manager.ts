@@ -85,6 +85,8 @@ interface ActiveTask {
   execute: ((operations: YtDlpOperations) => Promise<unknown>) | undefined;
   controller: AbortController | undefined;
   cancelRequested: boolean;
+  failed: boolean;
+  failure: unknown;
   readonly resolveResult: (value: unknown) => void;
   readonly rejectResult: (reason: unknown) => void;
   readonly settled: Promise<void>;
@@ -218,6 +220,8 @@ export class YtDlpTaskManager {
       ) => Promise<unknown>,
       controller: undefined,
       cancelRequested: false,
+      failed: false,
+      failure: undefined,
       resolveResult: resolveResult as (value: unknown) => void,
       rejectResult,
       settled,
@@ -257,13 +261,13 @@ export class YtDlpTaskManager {
       const queueIndex = this.#downloadQueue.indexOf(id);
       if (queueIndex !== -1) this.#downloadQueue.splice(queueIndex, 1);
       this.#finishTask(activeTask, 'canceled', undefined);
-      return activeTask.settled;
+      return this.#waitForCancellation(activeTask);
     }
     if (snapshot?.status === 'running' && !activeTask.cancelRequested) {
       activeTask.cancelRequested = true;
-      activeTask.controller?.abort();
+      activeTask.controller?.abort(cancellationError());
     }
-    return activeTask.settled;
+    return this.#waitForCancellation(activeTask);
   }
 
   stop(): Promise<void> {
@@ -319,8 +323,8 @@ export class YtDlpTaskManager {
           }
         },
         (error: unknown) => {
-          if (activeTask.cancelRequested) {
-            this.#finishTask(activeTask, 'canceled', undefined);
+          if (isYtDlpTaskCancellationError(error)) {
+            this.#finishTask(activeTask, 'canceled', error);
           } else {
             this.#finishTask(activeTask, 'failed', error);
           }
@@ -340,9 +344,13 @@ export class YtDlpTaskManager {
     snapshot.finishedAt = new Date().toISOString();
     if (status === 'failed') {
       snapshot.failureReason = this.#redactFailureReason(errorMessage(outcome));
+      activeTask.failed = true;
+      activeTask.failure = outcome;
       activeTask.rejectResult(outcome);
     } else if (status === 'canceled') {
-      activeTask.rejectResult(cancellationError());
+      activeTask.rejectResult(
+        isYtDlpTaskCancellationError(outcome) ? outcome : cancellationError(),
+      );
     } else {
       activeTask.resolveResult(outcome);
     }
@@ -358,6 +366,11 @@ export class YtDlpTaskManager {
       this.#runningDownloads -= 1;
       this.#drainDownloadQueue();
     }
+  }
+
+  async #waitForCancellation(activeTask: ActiveTask): Promise<void> {
+    await activeTask.settled;
+    if (activeTask.failed) throw activeTask.failure;
   }
 
   #createOperations(signal: AbortSignal): YtDlpOperations {
