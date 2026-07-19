@@ -223,7 +223,7 @@
   3. `rg -n "waitForInitialSyncTasks|worker\?\.stop|worker\.stop" src/server.ts` → 无匹配。
 
 ## task-11 · 实现任务状态页面与导航
-- 状态: pending
+- 状态: done
 - 依赖: task-08
 - 文件范围:
   - src/routes/pages.ts
