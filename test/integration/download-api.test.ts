@@ -12,6 +12,7 @@ import type {
   DownloadQueue,
   QueuedDownload,
 } from '../../src/services/download.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const FIRST_PLATFORM_VIDEO_ID = 'aB_12-cD345';
 const SECOND_PLATFORM_VIDEO_ID = 'eF_67-gH890';
@@ -58,6 +59,7 @@ let baseUrl: string;
 let queued: QueuedDownload[];
 let stopServer: (() => Promise<void>) | undefined;
 let runtimeErrors: unknown[];
+let taskManager: YtDlpTaskManager;
 
 async function installFakeYtDlp(): Promise<void> {
   executablePath = join(sandbox, 'fake-yt-dlp.mjs');
@@ -212,10 +214,20 @@ beforeEach(async () => {
     .run(downloadRoot, '2026-07-17T08:00:00.000Z');
   queued = [];
   runtimeErrors = [];
-  const queue: DownloadQueue = { enqueue: (download) => queued.push(download) };
+  taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
+  const queue: DownloadQueue = {
+    enqueue: (download) => queued.push(download),
+    cancel: async () => undefined,
+  };
 
   const server = createApp(
-    createApiRouter(database, mountPath, new RuntimeCoordinator((error) => runtimeErrors.push(error)), executablePath, queue),
+    createApiRouter(
+      database,
+      mountPath,
+      new RuntimeCoordinator((error) => runtimeErrors.push(error)),
+      taskManager,
+      queue,
+    ),
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
     server.once('listening', resolve);
@@ -234,6 +246,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopServer?.();
+  await taskManager.stop();
   try {
     database.close();
   } catch {
@@ -392,6 +405,9 @@ describe('download API', () => {
       },
     });
     expect(queued).toHaveLength(1);
+    expect(taskManager.getSnapshot()).toMatchObject([
+      { type: 'metadata_probe', status: 'succeeded' },
+    ]);
     expect(database.prepare('SELECT platform, duration_seconds FROM downloads').get())
       .toEqual({ platform: 'vimeo', duration_seconds: 126 });
   });

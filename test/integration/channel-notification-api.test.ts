@@ -11,6 +11,7 @@ import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
+import type { DownloadQueue } from '../../src/services/download.js';
 
 const NOW = '2026-07-17T08:30:00.000Z';
 
@@ -187,7 +188,11 @@ beforeEach(async () => {
       database,
       mountPath,
       new RuntimeCoordinator(() => undefined),
-      taskManager as never,
+      taskManager,
+      {
+        enqueue: () => undefined,
+        cancel: async () => undefined,
+      } satisfies DownloadQueue,
     ),
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
@@ -410,6 +415,22 @@ describe('channel API', () => {
     await expect(response.json()).resolves.toEqual({ accepted: true });
     await waitForInitialSync(saved.channel.id, 'succeeded');
     expect(taskManager.getSnapshot().at(-1)?.type).toBe('channel_initial_sync');
+  });
+
+  it('waits for a manual check and records its fixed task type', async () => {
+    const channel = await createChannel(
+      'https://www.youtube.com/@first',
+      'Manual check channel',
+    );
+
+    const response = await request(`/channels/${channel.id}/check`, 'POST', {});
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ newVideoCount: 0 });
+    expect(taskManager.getSnapshot().at(-1)).toMatchObject({
+      type: 'channel_manual_check',
+      status: 'succeeded',
+    });
   });
 
   it('accepts only the four initial history ranges and keeps failures retryable', async () => {
