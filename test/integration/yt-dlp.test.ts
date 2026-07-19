@@ -77,6 +77,18 @@ describe('yt-dlp argument protocol', () => {
     expect(args).toContain('--break-on-reject');
   });
 
+  it('keeps Bilibili space entries flat for explicit ordinary-video parsing', async () => {
+    const [result] = await fetchChannelEntries({
+      executablePath,
+      url: 'fixture://echo',
+      flatPlaylist: true,
+    });
+    const args = (result as { args: string[] }).args;
+
+    expect(args).toContain('--flat-playlist');
+    expect(args).not.toContain('--dateafter');
+  });
+
   it('treats exit 101 as a normal date-boundary stop only for ranged fetches', async () => {
     await expect(fetchChannelEntries({
       executablePath,

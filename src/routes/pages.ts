@@ -17,6 +17,7 @@ const PAGE_ROUTES: readonly PageRoute[] = [
   { path: '/channels', view: 'channels', title: '频道' },
   { path: '/notifications', view: 'notifications', title: '提醒' },
   { path: '/downloads', view: 'downloads', title: '下载' },
+  { path: '/database', view: 'database', title: '数据库' },
   {
     path: '/downloads/preview',
     view: 'download-preview',

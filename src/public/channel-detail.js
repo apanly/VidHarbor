@@ -1,0 +1,243 @@
+import { renderPagination } from '/public/pagination.js';
+import { formatChinaTimestamp } from '/public/time.js';
+
+const channelId = Number(document.querySelector('.channel-detail-hero').dataset.channelId);
+const pageError = document.querySelector('#page-error');
+const form = document.querySelector('#download-form');
+const submit = form.querySelector('[type="submit"]');
+const selectedCount = document.querySelector('#selected-video-count');
+let videoQuery = '';
+let videoTotal = 0;
+let checkTotal = 0;
+let filterTimer = null;
+const downloadStatusLabels = {
+  pending: '等待下载',
+  downloading: '运行中',
+  running: '运行中',
+  completed: '下载完成',
+  failed: '下载失败',
+  canceled: '已取消',
+  interrupted: '已中断',
+};
+
+function showError(region, error) {
+  region.textContent = `${error.code}: ${error.message}`;
+  region.hidden = false;
+}
+function channelProxyId() {
+  const value = form.elements.proxyId.value;
+  return value === 'channel' ? 'channel' : value === '' ? null : Number(value);
+}
+async function request(path, method = 'GET', body) {
+  const response = await fetch(path, {
+    method,
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw result.error;
+  return result;
+}
+function addProxyOptions(select, proxies) {
+  for (const proxy of proxies) select.append(new Option(proxy.name, String(proxy.id)));
+}
+function formatDuration(seconds) {
+  if (seconds === null) return '时长未知';
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+}
+function formatTimestamp(value) {
+  if (value === null) return '进行中';
+  return formatChinaTimestamp(value);
+}
+function formatCompletedAt(value) {
+  return value === null ? '—' : formatTimestamp(value);
+}
+function formatBytes(value) {
+  if (value === null) return '—';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(size)} ${units[unit]}`;
+}
+function updateSelection() {
+  const count = form.querySelectorAll('input[name="videoIds"]:checked').length;
+  selectedCount.textContent = `已选择 ${count} 个`;
+  submit.disabled = count === 0;
+}
+function setChannelTab(tab) {
+  for (const button of document.querySelectorAll('[data-channel-tab]')) {
+    const active = button.dataset.channelTab === tab;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-selected', String(active));
+  }
+  for (const panel of document.querySelectorAll('[data-channel-panel]')) {
+    panel.hidden = panel.dataset.channelPanel !== tab;
+  }
+}
+function renderVideo(video) {
+  const row = document.createElement('tr');
+  const selectionCell = document.createElement('td');
+  selectionCell.className = 'channel-select-column';
+  const checkbox = document.createElement('input');
+  checkbox.className = 'form-check-input';
+  checkbox.type = 'checkbox';
+  checkbox.name = 'videoIds';
+  checkbox.value = String(video.id);
+  checkbox.ariaLabel = `选择 ${video.title}`;
+  checkbox.disabled = ['pending', 'running', 'downloading', 'completed'].includes(video.downloadStatus);
+  checkbox.addEventListener('change', updateSelection);
+  selectionCell.append(checkbox);
+
+  const videoCell = document.createElement('td');
+  const identity = document.createElement('div');
+  identity.className = 'channel-video-identity';
+  const visual = document.createElement('div');
+  visual.className = 'channel-video-thumbnail';
+  if (video.thumbnailUrl !== null) {
+    const image = document.createElement('img');
+    image.src = video.thumbnailUrl;
+    image.alt = '';
+    image.loading = 'lazy';
+    visual.append(image);
+  } else {
+    const placeholder = document.createElement('span');
+    placeholder.textContent = 'VH';
+    visual.append(placeholder);
+  }
+  const title = document.createElement('strong');
+  title.className = 'channel-video-title';
+  title.textContent = video.title;
+  identity.append(visual, title);
+  videoCell.append(identity);
+
+  const publishedCell = document.createElement('td');
+  publishedCell.textContent = video.publishedDate;
+  const durationCell = document.createElement('td');
+  durationCell.textContent = formatDuration(video.durationSeconds);
+  const stateCell = document.createElement('td');
+  const downloadSummary = document.createElement('div');
+  downloadSummary.className = 'channel-download-summary';
+  const state = document.createElement('span');
+  state.className = 'badge text-bg-light border';
+  state.textContent = video.downloadStatus === null ? '尚未下载' : downloadStatusLabels[video.downloadStatus];
+  downloadSummary.append(state);
+  if (video.downloadStatus === 'completed') {
+    const metadata = document.createElement('small');
+    metadata.textContent = `${formatBytes(video.downloadOutputSizeBytes)} · ${formatCompletedAt(video.downloadFinishedAt)}`;
+    const actions = document.createElement('div');
+    actions.className = 'channel-download-links';
+    const preview = document.createElement('a');
+    preview.href = `/downloads/preview?id=${video.downloadId}`;
+    preview.target = '_blank';
+    preview.rel = 'noopener noreferrer';
+    preview.textContent = '预览';
+    const file = document.createElement('a');
+    file.href = `/api/downloads/${video.downloadId}/file`;
+    file.textContent = '下载文件';
+    actions.append(preview, file);
+    downloadSummary.append(metadata, actions);
+  } else if (video.downloadStatus === 'failed' || video.downloadStatus === 'canceled' || video.downloadStatus === 'interrupted') {
+    const reason = document.createElement('small');
+    reason.className = 'text-danger';
+    reason.textContent = video.downloadFailureReason;
+    downloadSummary.append(reason);
+  }
+  stateCell.append(downloadSummary);
+  const sourceCell = document.createElement('td');
+  const original = document.createElement('a');
+  original.href = video.url;
+  original.target = '_blank';
+  original.rel = 'noreferrer';
+  original.textContent = '打开视频';
+  sourceCell.append(original);
+  row.append(selectionCell, videoCell, publishedCell, durationCell, stateCell, sourceCell);
+  return row;
+}
+function renderCheck(check) {
+  const resultLabels = { success: '发现更新', no_updates: '没有更新', failed: '检查失败' };
+  const row = document.createElement('tr');
+  const typeCell = document.createElement('td');
+  typeCell.textContent = check.kind === 'initial' ? '首次同步' : '定时检查';
+  const startedCell = document.createElement('td');
+  startedCell.textContent = formatTimestamp(check.startedAt);
+  const finishedCell = document.createElement('td');
+  finishedCell.textContent = formatTimestamp(check.finishedAt);
+  const resultCell = document.createElement('td');
+  const result = document.createElement('span');
+  result.className = `badge ${check.result === 'failed' ? 'text-bg-danger' : check.result === null ? 'text-bg-primary' : 'text-bg-success'}`;
+  result.textContent = check.result === null ? '进行中' : resultLabels[check.result];
+  resultCell.append(result);
+  const countCell = document.createElement('td');
+  countCell.textContent = String(check.newVideoCount);
+  const failureCell = document.createElement('td');
+  failureCell.className = check.failureReason === null ? 'text-body-secondary' : 'text-danger';
+  failureCell.textContent = check.failureReason ?? '—';
+  row.append(typeCell, startedCell, finishedCell, resultCell, countCell, failureCell);
+  return row;
+}
+function updateChannelSummary() { document.querySelector('#channel-summary').textContent = `${videoTotal} 个视频 · ${checkTotal} 次检查`; }
+async function loadVideos(page) {
+  const parameters = new URLSearchParams({ page: String(page) });
+  if (videoQuery !== '') parameters.set('q', videoQuery);
+  const videos = await request(`/api/channels/${channelId}/videos?${parameters}`);
+  if (videos.items.length === 0 && page > 1 && videos.pagination.totalPages < page) return loadVideos(Math.max(1, videos.pagination.totalPages));
+  videoTotal = videos.pagination.totalItems;
+  updateChannelSummary();
+  const videoList = document.querySelector('#video-list');
+  const emptyState = document.querySelector('#video-empty-state');
+  videoList.replaceChildren();
+  emptyState.hidden = videos.items.length !== 0;
+  emptyState.textContent = videoQuery === '' ? '当前范围内没有视频。' : `没有找到“${videoQuery}”。`;
+  for (const video of videos.items) videoList.append(renderVideo(video));
+  updateSelection();
+  renderPagination(document.querySelector('#video-pagination'), videos.pagination, (nextPage) => void loadVideos(nextPage));
+}
+async function loadChecks(page) {
+  const checks = await request(`/api/channels/${channelId}/checks?page=${page}`);
+  if (checks.items.length === 0 && page > 1 && checks.pagination.totalPages < page) return loadChecks(Math.max(1, checks.pagination.totalPages));
+  checkTotal = checks.pagination.totalItems;
+  updateChannelSummary();
+  const checkList = document.querySelector('#check-list');
+  const emptyState = document.querySelector('#check-empty-state');
+  checkList.replaceChildren();
+  emptyState.hidden = checks.items.length !== 0;
+  for (const check of checks.items) checkList.append(renderCheck(check));
+  renderPagination(document.querySelector('#check-pagination'), checks.pagination, (nextPage) => void loadChecks(nextPage));
+}
+async function load() {
+  const [channelResponse, proxies] = await Promise.all([
+    request(`/api/channels/${channelId}`),
+    request('/api/proxies'),
+  ]);
+  addProxyOptions(form.elements.proxyId, proxies.items);
+  const channel = channelResponse.channel;
+  document.querySelector('#channel-name').textContent = channel.customName;
+  document.title = `${channel.customName} · VidHarbor`;
+  await Promise.all([loadVideos(1), loadChecks(1)]);
+}
+form.elements.filter.addEventListener('input', () => {
+  videoQuery = form.elements.filter.value.trim();
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => void loadVideos(1), 250);
+});
+for (const button of document.querySelectorAll('[data-channel-tab]')) {
+  button.addEventListener('click', () => setChannelTab(button.dataset.channelTab));
+}
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const videoIds = [...form.querySelectorAll('input[name="videoIds"]:checked')].map((input) => Number(input.value));
+  if (videoIds.length === 0) {
+    showError(form.querySelector('[data-form-error]'), { code: 'VALIDATION_ERROR', message: '请至少选择一个视频' });
+    return;
+  }
+  try {
+    await request('/api/downloads/channel', 'POST', { videoIds, proxyId: channelProxyId() });
+    location.reload();
+  } catch (error) {
+    showError(form.querySelector('[data-form-error]'), error);
+  }
+});
+load().catch((error) => showError(pageError, error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));

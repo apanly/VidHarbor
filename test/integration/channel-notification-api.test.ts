@@ -208,6 +208,25 @@ afterEach(async () => {
 });
 
 describe('channel API', () => {
+  it('accepts a canonical Bilibili UP space as a pending channel', async () => {
+    const response = await request('/channels', 'POST', {
+      url: 'https://space.bilibili.com/3985676',
+      customName: 'Bilibili UP',
+      proxyId: null,
+      checkIntervalMinutes: null,
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      channel: {
+        platform: 'bilibili',
+        extractor: 'BilibiliSpaceVideo',
+        url: 'https://space.bilibili.com/3985676',
+        initialSync: { status: 'pending', error: null },
+      },
+    });
+  });
+
   it('saves before manual synchronization, then lists and updates the channel', async () => {
     const createResponse = await request('/channels', 'POST', {
       url: 'https://www.youtube.com/@first',
@@ -571,7 +590,7 @@ describe('video, check, and notification API', () => {
       .all(channelId) as number[];
     const newerPublishedVideoId = videos[0] as number;
     const olderPublishedVideoId = videos[1] as number;
-    database
+    const pendingDownloadId = Number(database
       .prepare(
         `INSERT INTO downloads (
           source_type, channel_id, video_id, source_url, platform,
@@ -583,7 +602,7 @@ describe('video, check, and notification API', () => {
                'pending', ?
         FROM videos v WHERE v.id = ?`,
       )
-      .run('2026-07-17T10:00:00.000Z', newerPublishedVideoId);
+      .run('2026-07-17T10:00:00.000Z', newerPublishedVideoId).lastInsertRowid);
 
     const failedCheckId = Number(database
       .prepare(
@@ -638,7 +657,11 @@ describe('video, check, and notification API', () => {
       url: 'https://www.youtube.com/watch?v=fI_12-sT345',
       durationSeconds: null,
       thumbnailUrl: null,
+      downloadId: pendingDownloadId,
       downloadStatus: 'pending',
+      downloadFinishedAt: null,
+      downloadOutputSizeBytes: null,
+      downloadFailureReason: null,
     });
 
     const checksResponse = await request(`/channels/${channelId}/checks`);

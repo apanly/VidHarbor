@@ -379,6 +379,7 @@ describe('single download worker', () => {
       status: 'completed',
       output_path: realChannelPath,
       thumbnail_path: await realpath(channelThumbnailPath),
+      output_size_bytes: Buffer.byteLength('media'),
       failure_reason: null,
       started_at: expect.any(String),
       finished_at: expect.any(String),
@@ -386,6 +387,7 @@ describe('single download worker', () => {
     expect(row(directId)).toMatchObject({
       status: 'completed',
       output_path: realDirectPath,
+      output_size_bytes: Buffer.byteLength('media'),
     });
     await expectTaskDirectoryRemoved(channelId);
     await expectTaskDirectoryRemoved(directId);

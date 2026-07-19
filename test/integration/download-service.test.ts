@@ -196,6 +196,45 @@ afterEach(async () => {
 });
 
 describe('download creation service', () => {
+  it('creates a Bilibili channel download with the persisted platform', async () => {
+    const channelResult = database.prepare(
+      `INSERT INTO channels (
+        platform, extractor, platform_channel_id, source_url, custom_name,
+        custom_name_key, proxy_id, check_interval_minutes,
+        initial_synced_at, created_at, updated_at
+      ) VALUES ('bilibili', 'BilibiliSpaceVideo', '3985676',
+        'https://space.bilibili.com/3985676', 'Bilibili UP', 'bilibili up',
+        NULL, NULL, ?, ?, ?)`,
+    ).run(NOW.toISOString(), NOW.toISOString(), NOW.toISOString());
+    const channelId = Number(channelResult.lastInsertRowid);
+    const videoResult = database.prepare(
+      `INSERT INTO videos (
+        channel_id, platform, platform_video_id, title, published_date,
+        source_url, discovery_kind, discovered_at
+      ) VALUES (?, 'bilibili', 'BV13x41117TL', 'Bilibili video', '2026-07-18',
+        'https://www.bilibili.com/video/BV13x41117TL', 'historical', ?)`,
+    ).run(channelId, NOW.toISOString());
+
+    await expect(createChannelDownloads(
+      database,
+      downloadRoot,
+      [Number(videoResult.lastInsertRowid)],
+      queue,
+      NOW,
+    )).resolves.toEqual([
+      expect.objectContaining({ title: 'Bilibili video', sourceType: 'channel' }),
+    ]);
+    expect(queued).toEqual([
+      expect.objectContaining({
+        sourceUrl: 'https://www.bilibili.com/video/BV13x41117TL',
+        platformVideoId: 'BV13x41117TL',
+      }),
+    ]);
+    expect(downloadRows()).toEqual([
+      expect.objectContaining({ platform: 'bilibili', platform_video_id: 'BV13x41117TL' }),
+    ]);
+  });
+
   it('creates a channel batch atomically and enqueues proxy-bearing jobs in request order', async () => {
     const proxyId = insertProxy();
     const channelId = insertChannel(proxyId);
@@ -581,6 +620,14 @@ describe('download creation service', () => {
     );
 
     database
+      .prepare("UPDATE downloads SET status = 'running' WHERE id = ?")
+      .run(first?.id);
+    await expectBusinessError(
+      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
+      'DOWNLOAD_ALREADY_EXISTS',
+    );
+
+    database
       .prepare(
         `UPDATE downloads
          SET status = 'failed', failure_reason = 'explicit failure', finished_at = ?
@@ -669,6 +716,36 @@ describe('download creation service', () => {
     } finally {
       secondDatabase.close();
     }
+  });
+
+  it('rejects a direct duplicate while the existing task is running', async () => {
+    const input = directInput(`https://youtu.be/${FIRST_VIDEO_ID}`, null);
+    const first = await createDirectDownload(
+      database,
+      executablePath,
+      downloadRoot,
+      input,
+      queue,
+      NOW,
+    );
+    database
+      .prepare("UPDATE downloads SET status = 'running', started_at = ? WHERE id = ?")
+      .run(NOW.toISOString(), first.id);
+
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        executablePath,
+        downloadRoot,
+        input,
+        queue,
+        NOW,
+      ),
+      'DOWNLOAD_ALREADY_EXISTS',
+    );
+
+    expect(downloadRows()).toHaveLength(1);
+    expect(queued).toHaveLength(1);
   });
 
   it('enqueues the validated download root snapshot when settings change during insertion', async () => {

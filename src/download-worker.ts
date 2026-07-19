@@ -14,7 +14,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import type { DatabaseConnection } from './db/client.js';
 import { validateDownloadRoot } from './filesystem.js';
-import { redactStderr } from './redaction.js';
+import { formatFailureReason } from './redaction.js';
 import type {
   DownloadQueue,
   QueuedDownload,
@@ -159,7 +159,7 @@ function isContained(basePath: string, candidatePath: string): boolean {
 
 function failureMessage(error: unknown, proxyUrl: string | undefined): string {
   const message = error instanceof Error ? error.message : 'download failed';
-  return redactStderr(message, proxyUrl === undefined ? [] : [proxyUrl]);
+  return formatFailureReason(message, proxyUrl === undefined ? [] : [proxyUrl]);
 }
 
 async function ensureDirectoryWithin(
@@ -207,7 +207,11 @@ async function createTaskDirectory(
 async function validateDownloadedFiles(
   taskDirectory: string,
   reportedPath: string,
-): Promise<{ readonly mainFilename: string; readonly filenames: readonly string[] }> {
+): Promise<{
+  readonly mainFilename: string;
+  readonly mainSizeBytes: number;
+  readonly filenames: readonly string[];
+}> {
   if (!isAbsolute(reportedPath)) {
     throw new Error('after_move filepath must be absolute');
   }
@@ -218,6 +222,7 @@ async function validateDownloadedFiles(
   }
   const entries = await readdir(taskDirectory, { withFileTypes: true });
   if (entries.length === 0) throw new Error('task directory contains no files');
+  let mainSizeBytes: number | undefined;
   for (const entry of entries) {
     if (!entry.isFile()) throw new Error('task directory contains a non-file entry');
     const path = resolve(taskDirectory, entry.name);
@@ -226,6 +231,7 @@ async function validateDownloadedFiles(
     if (!isContained(taskDirectory, realPath) || !fileStat.isFile() || fileStat.size === 0) {
       throw new Error('downloaded artifacts must be non-empty regular files');
     }
+    if (realPath === realReportedPath) mainSizeBytes = fileStat.size;
     await access(realPath, constants.R_OK);
   }
   const mainFilename = realReportedPath.slice(taskDirectory.length + 1);
@@ -236,7 +242,8 @@ async function validateDownloadedFiles(
   if (extension.length < 2) {
     throw new Error('downloaded file has no final extension');
   }
-  return { mainFilename, filenames: entries.map((entry) => entry.name) };
+  if (mainSizeBytes === undefined) throw new Error('downloaded main file is missing');
+  return { mainFilename, mainSizeBytes, filenames: entries.map((entry) => entry.name) };
 }
 
 async function tryDownloadThumbnail(
@@ -483,12 +490,19 @@ export class DownloadWorker implements DownloadQueue {
         .prepare(
           `UPDATE downloads
            SET status = 'completed', output_path = ?, thumbnail_path = ?,
+               output_size_bytes = ?,
                progress_percent = 100,
                speed_text = NULL, eta_seconds = NULL, exit_code = 0,
                finished_at = ?
            WHERE id = ? AND status = 'running'`,
         )
-        .run(targetPath, thumbnailPath, new Date().toISOString(), download.downloadId);
+        .run(
+          targetPath,
+          thumbnailPath,
+          downloadedFiles.mainSizeBytes,
+          new Date().toISOString(),
+          download.downloadId,
+        );
       if (completed.changes !== 1) {
         throw new Error('download completion state transition failed');
       }

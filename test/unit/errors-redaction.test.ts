@@ -6,7 +6,11 @@ import {
   toErrorResponse,
   type ErrorCode,
 } from '../../src/errors.js';
-import { redactProxyUrl, redactStderr } from '../../src/redaction.js';
+import {
+  formatFailureReason,
+  redactProxyUrl,
+  redactStderr,
+} from '../../src/redaction.js';
 
 describe('business errors', () => {
   it.each<[number, ErrorCode[]]>([
@@ -110,5 +114,34 @@ describe('proxy credential redaction', () => {
     expect(result).not.toContain('alice');
     expect(result).not.toContain('s3cret');
     expect(Buffer.byteLength(result, 'utf8')).toBeLessThanOrEqual(4096);
+  });
+});
+
+describe('failure reason formatting', () => {
+  it('keeps the exit code and one copy of each distinct yt-dlp diagnostic', () => {
+    const repeated = [
+      'yt-dlp exited with exit code 1:',
+      'ERROR: [BilibiliSpaceVideo] 254535526: Request is blocked by server (412), please wait and try later.',
+      'ERROR: Request is blocked by server (412), please wait and try later.',
+      'ERROR: Request is rejected by server (352)',
+      'ERROR: Request is blocked by server (412), please wait and try later.',
+    ].join(' ');
+
+    expect(formatFailureReason(repeated, [])).toBe(
+      'yt-dlp exited with exit code 1: ERROR: [BilibiliSpaceVideo] 254535526: Request is blocked by server (412), please wait and try later. ERROR: Request is rejected by server (352)',
+    );
+  });
+
+  it('redacts credentials and limits persisted failures to 1 KiB', () => {
+    const proxyUrl = 'http://alice:s3cret@proxy.example:8080';
+    const result = formatFailureReason(
+      `ERROR: failed through ${proxyUrl} ${'detail '.repeat(500)}`,
+      [proxyUrl],
+    );
+
+    expect(result).not.toContain('alice');
+    expect(result).not.toContain('s3cret');
+    expect(Buffer.byteLength(result, 'utf8')).toBeLessThanOrEqual(1024);
+    expect(result.endsWith('...')).toBe(true);
   });
 });

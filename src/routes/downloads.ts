@@ -122,6 +122,7 @@ async function sendDownloadFile(
 interface DownloadRow {
   readonly id: number;
   readonly source_type: 'channel' | 'direct';
+  readonly platform: string;
   readonly title: string;
   readonly source_url: string;
   readonly status:
@@ -145,9 +146,10 @@ interface DownloadRow {
   readonly proxy_name: string | null;
   readonly duration_seconds: number | null;
   readonly thumbnail_path: string | null;
+  readonly output_size_bytes: number | null;
 }
 
-type DownloadTab = 'all' | 'active' | 'completed';
+type DownloadTab = 'all' | 'active' | 'completed' | 'failed';
 
 interface DownloadStatusCounts {
   pending: number;
@@ -220,7 +222,7 @@ function parseChannelInput(input: unknown): ChannelDownloadInput {
 
 function parseDownloadTab(value: unknown): DownloadTab {
   if (value === undefined) return 'all';
-  if (value !== 'active' && value !== 'completed') {
+  if (value !== 'active' && value !== 'completed' && value !== 'failed') {
     throw new BusinessError('VALIDATION_ERROR', 'invalid download tab');
   }
   return value;
@@ -230,6 +232,7 @@ function toDownloadSnapshot(row: DownloadRow): Record<string, unknown> {
   return {
     id: row.id,
     sourceType: row.source_type,
+    platform: row.platform,
     title: row.title,
     sourceUrl: row.source_url,
     status: row.status,
@@ -246,6 +249,7 @@ function toDownloadSnapshot(row: DownloadRow): Record<string, unknown> {
     proxyName: row.proxy_name,
     durationSeconds: row.duration_seconds,
     thumbnailUrl: row.thumbnail_path === null ? null : `/api/downloads/${row.id}/thumbnail`,
+    outputSizeBytes: row.output_size_bytes,
   };
 }
 
@@ -258,8 +262,9 @@ function listDownloads(
   try {
     const conditions: string[] = [];
     const parameters: unknown[] = [];
-    if (tab === 'active') conditions.push("status <> 'completed'");
+    if (tab === 'active') conditions.push("status IN ('pending', 'downloading', 'running')");
     if (tab === 'completed') conditions.push("status = 'completed'");
+    if (tab === 'failed') conditions.push("status IN ('failed', 'canceled', 'interrupted')");
     if (query !== '') {
       conditions.push('instr(lower(title), lower(?)) > 0');
       parameters.push(query);
@@ -271,10 +276,10 @@ function listDownloads(
       .get(...parameters) as number;
     const rows = database
       .prepare(
-        `SELECT id, source_type, title, source_url, status, output_path, failure_reason,
+        `SELECT id, source_type, platform, title, source_url, status, output_path, failure_reason,
                 progress_percent, speed_text, eta_seconds, exit_code,
                 created_at, started_at, finished_at, network_mode, proxy_name,
-                duration_seconds, thumbnail_path
+                duration_seconds, thumbnail_path, output_size_bytes
          FROM downloads
          ${where}
          ORDER BY created_at DESC, id DESC
@@ -308,10 +313,10 @@ function getDownloadSnapshot(database: DatabaseConnection, downloadId: number): 
   try {
     const row = database
       .prepare(
-        `SELECT id, source_type, title, source_url, status, output_path, failure_reason,
+        `SELECT id, source_type, platform, title, source_url, status, output_path, failure_reason,
                 progress_percent, speed_text, eta_seconds, exit_code,
                 created_at, started_at, finished_at, network_mode, proxy_name,
-                duration_seconds, thumbnail_path
+                duration_seconds, thumbnail_path, output_size_bytes
          FROM downloads WHERE id = ?`,
       )
       .get(downloadId) as DownloadRow | undefined;

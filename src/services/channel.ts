@@ -7,7 +7,13 @@ import {
   type Paginated,
 } from '../http/pagination.js';
 import { validateChannelName } from '../filesystem.js';
-import { redactStderr } from '../redaction.js';
+import { formatFailureReason } from '../redaction.js';
+import {
+  parseBilibiliChannelUrl,
+  parseBilibiliFlatVideoUrl,
+  parseBilibiliVideoMetadata,
+  type BilibiliVideoMetadata,
+} from '../bilibili.js';
 import {
   parseYouTubeVideoUrl,
   isWithinUtcYearWindow,
@@ -19,8 +25,8 @@ import { fetchChannelEntries, fetchVideoMetadata } from '../yt-dlp.js';
 
 export interface Channel {
   readonly id: number;
-  readonly platform: 'youtube';
-  readonly extractor: 'YoutubeTab';
+  readonly platform: ChannelPlatform;
+  readonly extractor: ChannelExtractor;
   readonly url: string;
   readonly customName: string;
   readonly proxyId: number | null;
@@ -47,12 +53,19 @@ export interface ChannelVideo {
   readonly url: string;
   readonly durationSeconds: number | null;
   readonly thumbnailUrl: string | null;
+  readonly downloadId: number | null;
   readonly downloadStatus:
     | 'pending'
     | 'downloading'
+    | 'running'
     | 'completed'
     | 'failed'
+    | 'canceled'
+    | 'interrupted'
     | null;
+  readonly downloadFinishedAt: string | null;
+  readonly downloadOutputSizeBytes: number | null;
+  readonly downloadFailureReason: string | null;
 }
 
 export interface ChannelCheck {
@@ -97,8 +110,8 @@ interface UpdateChannelInput {
 
 interface ChannelRow {
   readonly id: number;
-  readonly platform: 'youtube';
-  readonly extractor: 'YoutubeTab';
+  readonly platform: ChannelPlatform;
+  readonly extractor: ChannelExtractor;
   readonly source_url: string;
   readonly custom_name: string;
   readonly proxy_id: number | null;
@@ -121,12 +134,19 @@ interface ChannelVideoRow {
   readonly source_url: string;
   readonly duration_seconds: number | null;
   readonly thumbnail_url: string | null;
+  readonly download_id: number | null;
   readonly download_status:
     | 'pending'
     | 'downloading'
+    | 'running'
     | 'completed'
     | 'failed'
+    | 'canceled'
+    | 'interrupted'
     | null;
+  readonly download_finished_at: string | null;
+  readonly download_output_size_bytes: number | null;
+  readonly download_failure_reason: string | null;
 }
 
 interface ChannelCheckRow {
@@ -141,7 +161,7 @@ interface ChannelCheckRow {
 
 interface PreparedEntry {
   readonly channelId: string;
-  readonly video: YouTubeVideoMetadata;
+  readonly video: ChannelVideoMetadata;
 }
 
 interface InitialConfiguration {
@@ -166,6 +186,7 @@ interface PreparedInitialSync {
 
 interface ScheduledChannel {
   readonly id: number;
+  readonly platform: ChannelPlatform;
   readonly platformChannelId: string | undefined;
   readonly url: string;
   readonly proxyUrl: string | undefined;
@@ -173,6 +194,7 @@ interface ScheduledChannel {
 
 interface ScheduledChannelRow {
   readonly id: number;
+  readonly platform: ChannelPlatform;
   readonly platform_channel_id: string | null;
   readonly source_url: string;
   readonly proxy_id: number | null;
@@ -183,6 +205,38 @@ interface ScheduledChannelRow {
 const CHANNEL_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MINUTE_MILLISECONDS = 60_000;
 const SCHEDULED_DISCOVERY_MONTHS = 1;
+
+type ChannelPlatform = 'youtube' | 'bilibili';
+type ChannelExtractor = 'YoutubeTab' | 'BilibiliSpaceVideo';
+type ChannelVideoMetadata = YouTubeVideoMetadata | BilibiliVideoMetadata;
+
+interface ChannelSource {
+  readonly platform: ChannelPlatform;
+  readonly extractor: ChannelExtractor;
+  readonly platformChannelId: string | undefined;
+  readonly fetchUrl: string;
+  readonly flatPlaylist: boolean;
+}
+
+function parseChannelSource(url: string): ChannelSource {
+  if (url.startsWith('https://www.youtube.com/')) {
+    return {
+      platform: 'youtube',
+      extractor: 'YoutubeTab',
+      platformChannelId: undefined,
+      fetchUrl: normalizeYouTubeChannelUrl(url),
+      flatPlaylist: false,
+    };
+  }
+  if (url.startsWith('https://space.bilibili.com/')) {
+    const source = parseBilibiliChannelUrl(url);
+    return { ...source, flatPlaylist: true };
+  }
+  throw new BusinessError(
+    'NOT_A_CHANNEL_URL',
+    'URL must be a supported YouTube or Bilibili channel URL',
+  );
+}
 
 function persistenceError(): BusinessError {
   return new BusinessError('PERSISTENCE_ERROR', 'channel persistence failed');
@@ -218,7 +272,7 @@ function parseInput(input: unknown): ChannelInput {
   }
 
   validateChannelName(value.customName);
-  normalizeYouTubeChannelUrl(value.url);
+  parseChannelSource(value.url);
   return {
     url: value.url,
     customName: value.customName,
@@ -284,14 +338,18 @@ function toChannel(row: ChannelRow): Channel {
     pausedAt: row.paused_at,
     initialSync: {
       status: row.initial_sync_status,
-      error: row.initial_sync_error,
+      error: row.initial_sync_error === null
+        ? null
+        : formatFailureReason(row.initial_sync_error, []),
     },
     unreadNotificationCount: row.unread_notification_count,
     lastCheck: {
       startedAt: row.last_check_started_at,
       nextAt: row.next_check_at,
       result: row.last_check_result,
-      error: row.last_check_error,
+      error: row.last_check_error === null
+        ? null
+        : formatFailureReason(row.last_check_error, []),
     },
   };
 }
@@ -355,7 +413,7 @@ function loadInitialConfiguration(
 }
 
 function failureReason(error: BusinessError, proxyUrl: string | undefined): string {
-  return redactStderr(
+  return formatFailureReason(
     error.message,
     proxyUrl === undefined ? [] : [proxyUrl],
   );
@@ -395,7 +453,7 @@ function nextCheckAt(startedAt: string, intervalMinutes: number): string {
   return new Date(started + intervalMinutes * MINUTE_MILLISECONDS).toISOString();
 }
 
-async function prepareEntries(
+async function prepareYouTubeEntries(
   values: readonly unknown[],
   startedAt: Date,
   detailLoader: (url: string) => Promise<unknown>,
@@ -487,6 +545,67 @@ async function prepareEntries(
   return entries;
 }
 
+async function prepareBilibiliEntries(
+  values: readonly unknown[],
+  source: ChannelSource,
+  startedAt: Date,
+  earliestPublishedDate: string,
+  detailLoader: (url: string) => Promise<unknown>,
+): Promise<readonly PreparedEntry[]> {
+  const channelId = source.platformChannelId;
+  if (channelId === undefined) {
+    throw asChannelMetadataError('Bilibili space ID is missing');
+  }
+  const entries: PreparedEntry[] = [];
+  const videoIds = new Set<string>();
+  const latestPublishedDate = startedAt.toISOString().slice(0, 10);
+  for (const value of values) {
+    const videoUrl = parseBilibiliFlatVideoUrl(value);
+    if (videoUrl === null) continue;
+    const video = parseBilibiliVideoMetadata(
+      await detailLoader(videoUrl),
+      channelId,
+      videoUrl,
+    );
+    if (videoIds.has(video.platformVideoId)) {
+      throw asChannelMetadataError('Bilibili space contains duplicate video IDs');
+    }
+    videoIds.add(video.platformVideoId);
+    if (video.publishedDate < earliestPublishedDate) break;
+    if (video.publishedDate <= latestPublishedDate) {
+      entries.push({ channelId, video });
+    }
+  }
+  return entries;
+}
+
+async function prepareChannelEntries(
+  values: readonly unknown[],
+  source: ChannelSource,
+  startedAt: Date,
+  earliestPublishedDate: string,
+  detailLoader: (url: string) => Promise<unknown>,
+  expectedChannelId?: string,
+): Promise<readonly PreparedEntry[]> {
+  if (source.platform === 'bilibili') {
+    return prepareBilibiliEntries(
+      values,
+      source,
+      startedAt,
+      earliestPublishedDate,
+      detailLoader,
+    );
+  }
+  return prepareYouTubeEntries(
+    values,
+    startedAt,
+    detailLoader,
+    expectedChannelId,
+    true,
+    earliestPublishedDate,
+  );
+}
+
 function validateChannelId(channelId: number): void {
   if (!Number.isSafeInteger(channelId) || channelId < 1) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel ID');
@@ -500,7 +619,7 @@ function loadScheduledChannel(
   try {
     const row = database
       .prepare(
-        `SELECT c.id, c.platform_channel_id, c.source_url, c.proxy_id,
+        `SELECT c.id, c.platform, c.platform_channel_id, c.source_url, c.proxy_id,
                 p.proxy_url, c.initial_sync_status
          FROM channels c
          LEFT JOIN proxies p ON p.id = c.proxy_id
@@ -518,6 +637,7 @@ function loadScheduledChannel(
     }
     return {
       id: row.id,
+      platform: row.platform,
       platformChannelId: row.platform_channel_id ?? undefined,
       url: row.source_url,
       proxyUrl: row.proxy_url ?? undefined,
@@ -620,12 +740,12 @@ function completeScheduledCheck(
       const duplicate = database
         .prepare(
           `SELECT 1 FROM channels
-           WHERE platform = 'youtube' AND platform_channel_id = ? AND id <> ?`,
+           WHERE platform = ? AND platform_channel_id = ? AND id <> ?`,
         )
         .pluck()
-        .get(discoveredChannelId, channel.id);
+        .get(channel.platform, discoveredChannelId, channel.id);
       if (duplicate !== undefined) {
-        throw new BusinessError('CHANNEL_ALREADY_EXISTS', 'YouTube channel already exists');
+        throw new BusinessError('CHANNEL_ALREADY_EXISTS', 'channel already exists');
       }
       database
         .prepare('UPDATE channels SET platform_channel_id = ? WHERE id = ?')
@@ -634,7 +754,7 @@ function completeScheduledCheck(
     const findVideo = database
       .prepare(
         `SELECT id FROM videos
-         WHERE platform = 'youtube' AND platform_video_id = ?`,
+         WHERE platform = ? AND platform_video_id = ?`,
       )
       .pluck();
     const insertVideo = database.prepare(
@@ -642,7 +762,7 @@ function completeScheduledCheck(
         channel_id, platform, platform_video_id, title, published_date,
         source_url, duration_seconds, thumbnail_url, discovery_kind,
         discovered_at
-      ) VALUES (?, 'youtube', ?, ?, ?, ?, ?, ?, 'new', ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)`,
     );
     const insertNotification = database.prepare(
       `INSERT INTO notifications (video_id, created_at) VALUES (?, ?)`,
@@ -650,11 +770,12 @@ function completeScheduledCheck(
 
     let newVideoCount = 0;
     for (const entry of entries) {
-      if (findVideo.get(entry.video.platformVideoId) !== undefined) {
+      if (findVideo.get(channel.platform, entry.video.platformVideoId) !== undefined) {
         continue;
       }
       const insertedVideo = insertVideo.run(
         channel.id,
+        channel.platform,
         entry.video.platformVideoId,
         entry.video.title,
         entry.video.publishedDate,
@@ -732,21 +853,22 @@ function insertSynchronizedChannel(
   checkId: number,
   globalCheckIntervalMinutes: number,
   channelId: number,
+  source: ChannelSource,
 ): CreateChannelResult {
-  const firstEntry = entries[0];
+  const platformChannelId = entries[0]?.channelId ?? source.platformChannelId;
   database.exec('BEGIN IMMEDIATE');
   try {
-    const duplicateChannelId = firstEntry === undefined ? undefined : database
+    const duplicateChannelId = platformChannelId === undefined ? undefined : database
       .prepare(
         `SELECT id FROM channels
-         WHERE platform = 'youtube' AND platform_channel_id = ?`,
+         WHERE platform = ? AND platform_channel_id = ?`,
       )
       .pluck()
-      .get(firstEntry.channelId);
+      .get(source.platform, platformChannelId);
     if (duplicateChannelId !== undefined && duplicateChannelId !== channelId) {
       throw new BusinessError(
         'CHANNEL_ALREADY_EXISTS',
-        'YouTube channel already exists',
+        'channel already exists',
       );
     }
 
@@ -762,7 +884,7 @@ function insertSynchronizedChannel(
          WHERE id = ? AND initial_sync_status = 'syncing'`,
       )
       .run(
-        firstEntry?.channelId ?? null,
+        platformChannelId ?? null,
         completedAt,
         nextCheckAt(completedAt, effectiveIntervalMinutes),
         completedAt,
@@ -775,11 +897,12 @@ function insertSynchronizedChannel(
         channel_id, platform, platform_video_id, title, published_date,
         source_url, duration_seconds, thumbnail_url, discovery_kind,
         discovered_at
-      ) VALUES (?, 'youtube', ?, ?, ?, ?, ?, ?, 'historical', ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'historical', ?)`,
     );
     for (const entry of entries) {
       insertVideo.run(
         channelId,
+        source.platform,
         entry.video.platformVideoId,
         entry.video.title,
         entry.video.publishedDate,
@@ -806,8 +929,8 @@ function insertSynchronizedChannel(
     return {
       channel: {
         id: channelId,
-        platform: 'youtube',
-        extractor: 'YoutubeTab',
+        platform: source.platform,
+        extractor: source.extractor,
         url: input.url,
         customName: input.customName,
         proxyId: input.proxyId,
@@ -835,7 +958,7 @@ async function completeChannelCreation(
   database: DatabaseConnection,
   ytDlpExecutablePath: string,
   channelInput: ChannelInput,
-  normalizedUrl: string,
+  source: ChannelSource,
   configuration: InitialConfiguration,
   checkId: number,
   startedAt: Date,
@@ -847,11 +970,11 @@ async function completeChannelCreation(
   try {
     values = await fetchChannelEntries({
       executablePath: ytDlpExecutablePath,
-      url: normalizedUrl,
+      url: source.fetchUrl,
       ...(configuration.proxyUrl === undefined
         ? {}
         : { proxyUrl: configuration.proxyUrl }),
-      dateAfter,
+      ...(source.flatPlaylist ? { flatPlaylist: true } : { dateAfter }),
       allowEmpty: true,
     });
   } catch (error) {
@@ -870,9 +993,11 @@ async function completeChannelCreation(
 
   let entries: readonly PreparedEntry[];
   try {
-    entries = await prepareEntries(
+    entries = await prepareChannelEntries(
       values,
+      source,
       startedAt,
+      earliestPublishedDate,
       (url) =>
         fetchVideoMetadata({
           executablePath: ytDlpExecutablePath,
@@ -881,15 +1006,12 @@ async function completeChannelCreation(
             ? {}
             : { proxyUrl: configuration.proxyUrl }),
         }),
-      undefined,
-      true,
-      earliestPublishedDate,
     );
   } catch (error) {
     const businessError =
       error instanceof BusinessError
         ? error
-        : asChannelMetadataError('YouTube channel metadata is invalid');
+        : asChannelMetadataError('channel metadata is invalid');
     recordFailedCheck(
       database,
       checkId,
@@ -907,6 +1029,7 @@ async function completeChannelCreation(
       checkId,
       configuration.globalCheckIntervalMinutes,
       channelId,
+      source,
     );
   } catch (error) {
     const businessError =
@@ -959,7 +1082,7 @@ export function saveChannel(
   if (!Number.isFinite(now.getTime())) {
     throw new BusinessError('VALIDATION_ERROR', 'channel creation time is invalid');
   }
-  normalizeYouTubeChannelUrl(channelInput.url);
+  const source = parseChannelSource(channelInput.url);
   loadInitialConfiguration(database, channelInput.proxyId);
   const createdAt = now.toISOString();
 
@@ -971,7 +1094,7 @@ export function saveChannel(
       .pluck()
       .get(channelInput.url);
     if (sameUrl !== undefined) {
-      throw new BusinessError('CHANNEL_ALREADY_EXISTS', 'YouTube channel already exists');
+      throw new BusinessError('CHANNEL_ALREADY_EXISTS', 'channel already exists');
     }
     const result = database
       .prepare(
@@ -980,10 +1103,12 @@ export function saveChannel(
           custom_name_key, proxy_id, check_interval_minutes, paused_at,
           initial_sync_status, initial_sync_error, initial_synced_at,
           created_at, updated_at
-        ) VALUES ('youtube', 'YoutubeTab', NULL, ?, ?, ?, ?, ?, NULL,
+        ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL,
                   'pending', NULL, NULL, ?, ?)`,
       )
       .run(
+        source.platform,
+        source.extractor,
         channelInput.url,
         channelInput.customName,
         channelInput.customName.toLowerCase(),
@@ -1090,6 +1215,7 @@ async function completeInitialSync(
   } = prepared;
 
   const earliestPublishedDate = historyStartDate(startedAt, historyMonths);
+  const source = parseChannelSource(row.source_url);
   try {
     return await completeChannelCreation(
       database,
@@ -1100,7 +1226,7 @@ async function completeInitialSync(
         proxyId: row.proxy_id,
         checkIntervalMinutes: row.check_interval_minutes,
       },
-      normalizeYouTubeChannelUrl(row.source_url),
+      source,
       configuration,
       checkId,
       startedAt,
@@ -1176,7 +1302,14 @@ export async function checkChannel(
   }
 
   const channel = loadScheduledChannel(database, channelId);
-  const normalizedUrl = normalizeYouTubeChannelUrl(channel.url);
+  const source = parseChannelSource(channel.url);
+  if (
+    source.platform !== channel.platform ||
+    (source.platformChannelId !== undefined &&
+      source.platformChannelId !== channel.platformChannelId)
+  ) {
+    throw persistenceError();
+  }
   const earliestPublishedDate = historyStartDate(
     startedAt,
     SCHEDULED_DISCOVERY_MONTHS,
@@ -1191,11 +1324,13 @@ export async function checkChannel(
   try {
     values = await fetchChannelEntries({
       executablePath: ytDlpExecutablePath,
-      url: normalizedUrl,
+      url: source.fetchUrl,
       ...(channel.proxyUrl === undefined
         ? {}
         : { proxyUrl: channel.proxyUrl }),
-      dateAfter: earliestPublishedDate.replaceAll('-', ''),
+      ...(source.flatPlaylist
+        ? { flatPlaylist: true }
+        : { dateAfter: earliestPublishedDate.replaceAll('-', '') }),
       allowEmpty: true,
     });
   } catch (error) {
@@ -1209,9 +1344,11 @@ export async function checkChannel(
 
   let entries: readonly PreparedEntry[];
   try {
-    entries = await prepareEntries(
+    entries = await prepareChannelEntries(
       values,
+      source,
       startedAt,
+      earliestPublishedDate,
       (url) =>
         fetchVideoMetadata({
           executablePath: ytDlpExecutablePath,
@@ -1221,14 +1358,12 @@ export async function checkChannel(
             : { proxyUrl: channel.proxyUrl }),
       }),
       channel.platformChannelId,
-      true,
-      earliestPublishedDate,
     );
   } catch (error) {
     const businessError =
       error instanceof BusinessError
         ? error
-        : asChannelMetadataError('YouTube channel metadata is invalid');
+        : asChannelMetadataError('channel metadata is invalid');
     recordScheduledFailure(database, channel, checkId, businessError);
     throw businessError;
   }
@@ -1461,14 +1596,18 @@ export function listChannelVideos(
       .prepare(
         `SELECT v.id, v.title, v.published_date, v.source_url,
                 v.duration_seconds, v.thumbnail_url,
-                (
-                  SELECT d.status
-                  FROM downloads d
-                  WHERE d.video_id = v.id
-                  ORDER BY d.created_at DESC, d.id DESC
-                  LIMIT 1
-                ) AS download_status
+                d.id AS download_id, d.status AS download_status,
+                d.finished_at AS download_finished_at,
+                d.output_size_bytes AS download_output_size_bytes,
+                d.failure_reason AS download_failure_reason
          FROM videos v
+         LEFT JOIN downloads d ON d.id = (
+           SELECT latest.id
+           FROM downloads latest
+           WHERE latest.video_id = v.id
+           ORDER BY latest.created_at DESC, latest.id DESC
+           LIMIT 1
+         )
          WHERE v.channel_id = ?
          ORDER BY v.published_date DESC, v.id DESC`,
       )
@@ -1480,7 +1619,11 @@ export function listChannelVideos(
       url: row.source_url,
       durationSeconds: row.duration_seconds,
       thumbnailUrl: row.thumbnail_url,
+      downloadId: row.download_id,
       downloadStatus: row.download_status,
+      downloadFinishedAt: row.download_finished_at,
+      downloadOutputSizeBytes: row.download_output_size_bytes,
+      downloadFailureReason: row.download_failure_reason,
     }));
   } catch (error) {
     if (error instanceof BusinessError) {
@@ -1509,14 +1652,18 @@ export function listChannelVideosPage(
       .prepare(
         `SELECT v.id, v.title, v.published_date, v.source_url,
                 v.duration_seconds, v.thumbnail_url,
-                (
-                  SELECT d.status
-                  FROM downloads d
-                  WHERE d.video_id = v.id
-                  ORDER BY d.created_at DESC, d.id DESC
-                  LIMIT 1
-                ) AS download_status
+                d.id AS download_id, d.status AS download_status,
+                d.finished_at AS download_finished_at,
+                d.output_size_bytes AS download_output_size_bytes,
+                d.failure_reason AS download_failure_reason
          FROM videos v
+         LEFT JOIN downloads d ON d.id = (
+           SELECT latest.id
+           FROM downloads latest
+           WHERE latest.video_id = v.id
+           ORDER BY latest.created_at DESC, latest.id DESC
+           LIMIT 1
+         )
          WHERE v.channel_id = ?${titleFilter}
          ORDER BY v.published_date DESC, v.id DESC
          LIMIT ? OFFSET ?`,
@@ -1530,7 +1677,11 @@ export function listChannelVideosPage(
         url: row.source_url,
         durationSeconds: row.duration_seconds,
         thumbnailUrl: row.thumbnail_url,
+        downloadId: row.download_id,
         downloadStatus: row.download_status,
+        downloadFinishedAt: row.download_finished_at,
+        downloadOutputSizeBytes: row.download_output_size_bytes,
+        downloadFailureReason: row.download_failure_reason,
       })),
       pagination: pagination(page, totalItems),
     };
@@ -1644,7 +1795,9 @@ export function listChannelChecks(
       finishedAt: row.finished_at,
       result: row.result,
       newVideoCount: row.new_video_count,
-      failureReason: row.failure_reason,
+      failureReason: row.failure_reason === null
+        ? null
+        : formatFailureReason(row.failure_reason, []),
     }));
   } catch (error) {
     if (error instanceof BusinessError) {
@@ -1684,7 +1837,9 @@ export function listChannelChecksPage(
         finishedAt: row.finished_at,
         result: row.result,
         newVideoCount: row.new_video_count,
-        failureReason: row.failure_reason,
+        failureReason: row.failure_reason === null
+          ? null
+          : formatFailureReason(row.failure_reason, []),
       })),
       pagination: pagination(page, totalItems),
     };

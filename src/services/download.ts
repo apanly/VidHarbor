@@ -79,6 +79,7 @@ interface ChannelVideoRow {
   readonly video_id: number;
   readonly channel_id: number;
   readonly source_url: string;
+  readonly platform: 'youtube' | 'bilibili';
   readonly platform_video_id: string;
   readonly title: string;
   readonly published_date: string;
@@ -338,7 +339,7 @@ function loadChannelVideos(
 ): readonly ChannelVideoRow[] {
   try {
     const statement = database.prepare(
-      `SELECT v.id AS video_id, v.channel_id, v.source_url,
+      `SELECT v.id AS video_id, v.channel_id, v.source_url, v.platform,
               v.platform_video_id, v.title, v.published_date,
               v.duration_seconds, c.proxy_id, p.name AS proxy_name,
               p.proxy_url
@@ -378,7 +379,7 @@ function assertNoExistingDownload(
       .prepare(
         `SELECT id FROM downloads
          WHERE platform = ? AND platform_video_id = ?
-           AND status IN ('pending', 'downloading', 'completed')
+           AND status IN ('pending', 'downloading', 'running', 'completed')
          LIMIT 1`,
       )
       .pluck()
@@ -414,7 +415,7 @@ async function prepareChannelDownloads(
   const downloads: PreparedDownload[] = [];
 
   for (const row of rows) {
-    assertNoExistingDownload(database, 'youtube', row.platform_video_id);
+    assertNoExistingDownload(database, row.platform, row.platform_video_id);
     const selectedProxy =
       overrideProxy ??
       (row.proxy_id === null
@@ -429,7 +430,7 @@ async function prepareChannelDownloads(
       channelId: row.channel_id,
       videoId: row.video_id,
       sourceUrl: row.source_url,
-      platform: 'youtube',
+      platform: row.platform,
       platformVideoId: row.platform_video_id,
       title: row.title,
       publishedDate: row.published_date,
@@ -884,6 +885,7 @@ export async function retryDownload(
       .prepare(
         `UPDATE downloads
          SET status = 'pending', output_path = NULL, thumbnail_path = NULL,
+             output_size_bytes = NULL,
              archive_layout = 'download_directory', failure_reason = NULL,
              progress_percent = NULL, speed_text = NULL, eta_seconds = NULL,
              exit_code = NULL, started_at = NULL, finished_at = NULL,

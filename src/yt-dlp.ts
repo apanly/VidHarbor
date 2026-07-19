@@ -18,6 +18,7 @@ interface CommonOptions {
 export interface FetchOptions extends CommonOptions {
   readonly dateAfter?: string;
   readonly allowEmpty?: boolean;
+  readonly flatPlaylist?: boolean;
 }
 
 export interface DownloadOptions extends CommonOptions {
@@ -297,6 +298,9 @@ function fetchArgs(options: FetchOptions, singleVideo: boolean): string[] {
     SOCKET_TIMEOUT_SECONDS,
     '--dump-json',
   ];
+  if (options.flatPlaylist === true) {
+    args.push('--flat-playlist');
+  }
   if (singleVideo) {
     args.push('--no-playlist');
   }

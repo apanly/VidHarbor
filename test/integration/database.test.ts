@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe('SQLite database', () => {
-  it('configures each file connection and migrates an empty database to schema 4', async () => {
+  it('configures each file connection and migrates an empty database to schema 6', async () => {
     const database = openDatabase(await temporaryDatabasePath());
 
     try {
@@ -52,7 +52,7 @@ describe('SQLite database', () => {
 
       expect(
         database.prepare('SELECT version FROM schema_migrations ORDER BY version').pluck().all(),
-      ).toEqual([1, 2, 3, 4]);
+      ).toEqual([1, 2, 3, 4, 5, 6]);
       expect(
         database
           .prepare(
@@ -77,6 +77,15 @@ describe('SQLite database', () => {
           .pluck()
           .get(),
       ).toContain("extractor TEXT NOT NULL DEFAULT 'YoutubeTab'");
+      expect(
+        database
+          .prepare(
+            `SELECT sql FROM sqlite_schema
+             WHERE type = 'table' AND name = 'channels'`,
+          )
+          .pluck()
+          .get(),
+      ).toContain("platform IN ('youtube','bilibili')");
       expect(
         database
           .prepare(
@@ -109,7 +118,7 @@ describe('SQLite database', () => {
     }
   });
 
-  it('does not change an already migrated schema 4 database', async () => {
+  it('does not change an already migrated schema 6 database', async () => {
     const database = openDatabase(await temporaryDatabasePath());
 
     try {
@@ -127,7 +136,7 @@ describe('SQLite database', () => {
 
       expect(
         database.prepare('SELECT COUNT(*) FROM schema_migrations').pluck().get(),
-      ).toBe(4);
+      ).toBe(6);
       expect(database.prepare('SELECT COUNT(*) FROM settings').pluck().get()).toBe(1);
       expect(
         database
@@ -246,15 +255,16 @@ describe('SQLite database', () => {
       migrateDatabase(database);
 
       expect(database.prepare('SELECT version FROM schema_migrations ORDER BY version').pluck().all())
-        .toEqual([1, 2, 3, 4]);
+        .toEqual([1, 2, 3, 4, 5, 6]);
       expect(database.prepare('SELECT platform_video_id FROM downloads').pluck().all())
         .toEqual(['aB_12-cD345']);
       expect(database.prepare(
-        'SELECT duration_seconds, thumbnail_path, archive_layout FROM downloads',
+        'SELECT duration_seconds, thumbnail_path, archive_layout, output_size_bytes FROM downloads',
       ).get()).toEqual({
         duration_seconds: null,
         thumbnail_path: null,
         archive_layout: 'legacy_file',
+        output_size_bytes: null,
       });
       expect(() =>
         database
@@ -314,6 +324,13 @@ describe('SQLite database', () => {
           )
           .run(),
       ).toThrow(/CHECK constraint failed/);
+      expect(() =>
+        database
+          .prepare(
+            "INSERT INTO downloads (source_type, source_url, platform, platform_video_id, title, network_mode, status, output_size_bytes, created_at) VALUES ('direct', 'https://www.youtube.com/watch?v=video', 'youtube', 'video', 'Title', 'direct', 'pending', 1, '2026-07-17T00:00:00.000Z')",
+          )
+          .run(),
+      ).toThrow(/CHECK constraint failed/);
     } finally {
       database.close();
     }
@@ -324,9 +341,9 @@ describe('SQLite database', () => {
 
     try {
       migrateDatabase(database);
-      database.prepare('UPDATE schema_migrations SET version = 5 WHERE version = 4').run();
+      database.prepare('UPDATE schema_migrations SET version = 7 WHERE version = 6').run();
 
-      expect(() => migrateDatabase(database)).toThrow('Unknown schema migration version: 1, 2, 3, 5');
+      expect(() => migrateDatabase(database)).toThrow('Unknown schema migration version: 1, 2, 3, 4, 5, 7');
     } finally {
       database.close();
     }

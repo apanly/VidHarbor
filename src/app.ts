@@ -14,6 +14,7 @@ import type { DatabaseConnection } from './db/client.js';
 import { DownloadWorker } from './download-worker.js';
 import { requireSameOrigin } from './http/same-origin.js';
 import { createChannelsRouter } from './routes/channels.js';
+import { createDatabaseRouter } from './routes/database.js';
 import { createDownloadsRouter } from './routes/downloads.js';
 import { createNotificationsRouter } from './routes/notifications.js';
 import { createPagesRouter } from './routes/pages.js';
@@ -107,6 +108,7 @@ export function createApiRouter(
   const router = express.Router();
 
   router.use('/settings', createSettingsRouter(database, downloadsMountPath));
+  router.use('/database', createDatabaseRouter(database));
   router.use('/proxies', createProxiesRouter(database));
   router.use('/channels', createChannelsRouter(database, ytDlpExecutablePath, runtime));
   router.use('/notifications', createNotificationsRouter(database));

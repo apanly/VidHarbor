@@ -21,6 +21,12 @@ const BILIBILI_VIDEO_ID = 'BV13x41117TL';
 const BILIBILI_VIDEO_URL = `https://www.bilibili.com/video/${BILIBILI_VIDEO_ID}`;
 const X_VIDEO_ID = '2001841416071450628';
 const X_VIDEO_URL = 'https://x.com/TopHeroes_/status/2001950365332455490';
+const FACEBOOK_VIDEO_ID = '3676516585958356';
+const FACEBOOK_VIDEO_URL = `https://www.facebook.com/radiokicksfm/videos/${FACEBOOK_VIDEO_ID}`;
+const FACEBOOK_REEL_ID = '1195289147628387';
+const FACEBOOK_REEL_URL = `https://www.facebook.com/reel/${FACEBOOK_REEL_ID}`;
+const DOUYIN_VIDEO_ID = '6961737553342991651';
+const DOUYIN_VIDEO_URL = `https://www.douyin.com/video/${DOUYIN_VIDEO_ID}`;
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
 
 const DEFAULT_ADVANCED_OPTIONS = {
@@ -92,6 +98,23 @@ if (url === '${X_VIDEO_URL}') {
     extractor_key: 'Twitter',
     id: '${X_VIDEO_ID}',
     title: 'X video'
+  }) + '\\n');
+  process.exit(0);
+}
+if (url === '${FACEBOOK_VIDEO_URL}' || url === '${FACEBOOK_REEL_URL}') {
+  const isReel = url === '${FACEBOOK_REEL_URL}';
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Facebook',
+    id: isReel ? '${FACEBOOK_REEL_ID}' : '${FACEBOOK_VIDEO_ID}',
+    title: isReel ? 'Facebook Reel' : 'Facebook video'
+  }) + '\\n');
+  process.exit(0);
+}
+if (url === '${DOUYIN_VIDEO_URL}') {
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Douyin',
+    id: '${DOUYIN_VIDEO_ID}',
+    title: 'Douyin video'
   }) + '\\n');
   process.exit(0);
 }
@@ -376,6 +399,9 @@ describe('download API', () => {
   it.each([
     [BILIBILI_VIDEO_URL, 'Bilibili video', 'bilibili', BILIBILI_VIDEO_ID],
     [X_VIDEO_URL, 'X video', 'twitter', X_VIDEO_ID],
+    [FACEBOOK_VIDEO_URL, 'Facebook video', 'facebook', FACEBOOK_VIDEO_ID],
+    [FACEBOOK_REEL_URL, 'Facebook Reel', 'facebook', FACEBOOK_REEL_ID],
+    [DOUYIN_VIDEO_URL, 'Douyin video', 'douyin', DOUYIN_VIDEO_ID],
   ])('creates a direct download for %s', async (url, title, platform, platformVideoId) => {
     const response = await request('/downloads/direct', 'POST', directInput(url, null));
 
@@ -456,6 +482,7 @@ describe('download API', () => {
     expect(Object.keys(body.items[0] ?? {})).toEqual([
       'id',
       'sourceType',
+      'platform',
       'title',
       'sourceUrl',
       'status',
@@ -472,6 +499,7 @@ describe('download API', () => {
       'proxyName',
       'durationSeconds',
       'thumbnailUrl',
+      'outputSizeBytes',
     ]);
     expect(body.items[0]?.sourceUrl).toBe(
       `https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}`,
@@ -498,25 +526,50 @@ describe('download API', () => {
       .prepare(
         `INSERT INTO downloads (
           source_type, source_url, platform, platform_video_id, title,
-          network_mode, status, output_path, created_at
+          network_mode, status, output_path, output_size_bytes, created_at
         ) VALUES ('direct', 'https://vimeo.com/completed', 'vimeo',
                   'completed_page', 'Completed', 'direct', 'completed',
-                  '/downloads/completed_page.webm', ?)`,
+                  '/downloads/completed_page.webm', 2048, ?)`,
       )
       .run('2026-07-17T10:00:00.000Z');
+    const insertTerminal = database.prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, status, failure_reason, created_at, finished_at
+      ) VALUES ('direct', ?, 'vimeo', ?, ?, 'direct', ?, 'stopped', ?, ?)`,
+    );
+    for (const [status, id] of [['failed', 'failed_page'], ['canceled', 'canceled_page'], ['interrupted', 'interrupted_page']] as const) {
+      insertTerminal.run(
+        `https://vimeo.com/${id}`,
+        id,
+        id,
+        status,
+        '2026-07-17T10:01:00.000Z',
+        '2026-07-17T10:02:00.000Z',
+      );
+    }
 
     const secondPage = await request('/downloads?page=2&tab=active');
     expect(secondPage.status).toBe(200);
     await expect(secondPage.json()).resolves.toMatchObject({
       items: [expect.any(Object)],
       pagination: { page: 2, pageSize: 20, totalItems: 21, totalPages: 2 },
-      statusCounts: { pending: 21, completed: 1 },
+      statusCounts: { pending: 21, completed: 1, failed: 1, canceled: 1, interrupted: 1 },
     });
 
     const completed = await request('/downloads?page=1&tab=completed');
     await expect(completed.json()).resolves.toMatchObject({
-      items: [{ title: 'Completed' }],
+      items: [{ title: 'Completed', outputSizeBytes: 2048 }],
       pagination: { totalItems: 1, totalPages: 1 },
+    });
+    const failed = await request('/downloads?page=1&tab=failed');
+    await expect(failed.json()).resolves.toMatchObject({
+      items: [
+        { status: 'interrupted' },
+        { status: 'canceled' },
+        { status: 'failed' },
+      ],
+      pagination: { totalItems: 3, totalPages: 1 },
     });
     const searched = await request('/downloads?page=1&tab=active&q=unique');
     await expect(searched.json()).resolves.toMatchObject({

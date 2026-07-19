@@ -14,6 +14,7 @@ import {
 
 const STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
 const DIRECT_URL = 'https://www.youtube.com/@direct';
+const BILIBILI_CHANNEL_URL = 'https://space.bilibili.com/3985676';
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
 
 let sandbox: string;
@@ -36,7 +37,34 @@ function metadata(
   };
 }
 
+function bilibiliMetadata(id: string, uploadDate: string): Record<string, unknown> {
+  return {
+    extractor_key: 'BiliBili',
+    id,
+    uploader_id: '3985676',
+    title: `Bilibili ${id}`,
+    upload_date: uploadDate,
+    webpage_url: `https://www.bilibili.com/video/${id}`,
+    duration: 10.2,
+  };
+}
+
 const fixtureByUrl: Record<string, readonly Record<string, unknown>[]> = {
+  'https://space.bilibili.com/3985676/video': [
+    { _type: 'url', ie_key: 'BiliBili', id: 'BV13x41117TL', url: 'https://www.bilibili.com/video/BV13x41117TL' },
+    { _type: 'url', ie_key: 'BilibiliCollectionList', id: '3985676_1', url: 'https://space.bilibili.com/3985676/lists/1?type=season' },
+    { _type: 'url', ie_key: 'BiliBili', id: 'BV11x411K7CN', url: 'https://www.bilibili.com/video/BV11x411K7CN' },
+    { _type: 'url', ie_key: 'BiliBili', id: 'BV1bK411W797', url: 'https://www.bilibili.com/video/BV1bK411W797' },
+  ],
+  'https://www.bilibili.com/video/BV13x41117TL': [
+    bilibiliMetadata('BV13x41117TL', '20260716'),
+  ],
+  'https://www.bilibili.com/video/BV11x411K7CN': [
+    bilibiliMetadata('BV11x411K7CN', '20250717'),
+  ],
+  'https://www.bilibili.com/video/BV1bK411W797': [
+    bilibiliMetadata('BV1bK411W797', '20250716'),
+  ],
   'https://www.youtube.com/@direct/videos': [
     metadata('bO_12-dA345', 'UC-direct', '20250717'),
     metadata('nE_12-wB345', 'UC-direct', '20260717'),
@@ -77,11 +105,14 @@ async function installFakeYtDlp(): Promise<void> {
 const fixtures = ${fixtures};
 const args = process.argv.slice(2);
 const url = args.at(-1);
+if (url === 'https://space.bilibili.com/3985676/video' && !args.includes('--flat-playlist')) process.exit(10);
+if (url?.startsWith('https://www.bilibili.com/video/') && !args.includes('--no-playlist')) process.exit(11);
 if (url === 'https://www.youtube.com/@failure/videos') {
   process.stderr.write('cannot use ${PROXY_URL} with alice:secret');
   process.exit(3);
 }
 if (url === 'https://www.youtube.com/@empty/videos') process.exit(0);
+if (url === 'https://space.bilibili.com/999/video') process.exit(0);
 if (url === 'https://www.youtube.com/@proxy/videos') {
   const index = args.indexOf('--proxy');
   if (index < 0 || args[index + 1] !== '${PROXY_URL}') process.exit(9);
@@ -159,6 +190,66 @@ afterEach(async () => {
 });
 
 describe('channel initial synchronization', () => {
+  it('synchronizes ordinary Bilibili UP submissions and excludes collections', async () => {
+    const result = await createChannel(
+      database,
+      executablePath,
+      {
+        url: BILIBILI_CHANNEL_URL,
+        customName: 'Bilibili UP',
+        proxyId: null,
+        checkIntervalMinutes: null,
+      },
+      STARTED_AT,
+    );
+
+    expect(result).toMatchObject({
+      channel: {
+        platform: 'bilibili',
+        extractor: 'BilibiliSpaceVideo',
+        url: BILIBILI_CHANNEL_URL,
+      },
+      historicalVideoCount: 2,
+    });
+    expect(database.prepare(
+      `SELECT platform, platform_channel_id FROM channels WHERE id = ?`,
+    ).get(result.channel.id)).toEqual({
+      platform: 'bilibili',
+      platform_channel_id: '3985676',
+    });
+    expect(database.prepare(
+      `SELECT platform, platform_video_id, published_date, duration_seconds
+       FROM videos WHERE channel_id = ? ORDER BY published_date DESC`,
+    ).all(result.channel.id)).toEqual([
+      { platform: 'bilibili', platform_video_id: 'BV13x41117TL', published_date: '2026-07-16', duration_seconds: 11 },
+      { platform: 'bilibili', platform_video_id: 'BV11x411K7CN', published_date: '2025-07-17', duration_seconds: 11 },
+    ]);
+    expect(count('notifications')).toBe(0);
+  });
+
+  it('keeps the Bilibili UP identity when the selected history is empty', async () => {
+    const result = await createChannel(
+      database,
+      executablePath,
+      {
+        url: 'https://space.bilibili.com/999',
+        customName: 'Empty Bilibili UP',
+        proxyId: null,
+        checkIntervalMinutes: null,
+      },
+      STARTED_AT,
+    );
+
+    expect(result).toMatchObject({
+      channel: { platform: 'bilibili', initialSync: { status: 'succeeded' } },
+      historicalVideoCount: 0,
+    });
+    expect(database.prepare(
+      'SELECT platform_channel_id FROM channels WHERE id = ?',
+    ).pluck().get(result.channel.id)).toBe('999');
+  });
+
+
   it('commits one channel and only the inclusive one-year historical window without notifications', async () => {
     const result = await createChannel(
       database,

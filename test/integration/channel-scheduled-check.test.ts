@@ -36,6 +36,20 @@ function metadata(
 }
 
 const fixtures: Record<string, readonly Record<string, unknown>[]> = {
+  'https://space.bilibili.com/3985676/video': [
+    { _type: 'url', ie_key: 'BiliBili', id: 'BV13x41117TL', url: 'https://www.bilibili.com/video/BV13x41117TL' },
+    { _type: 'url', ie_key: 'BiliBili', id: 'BV11x411K7CN', url: 'https://www.bilibili.com/video/BV11x411K7CN' },
+  ],
+  'https://www.bilibili.com/video/BV13x41117TL': [{
+    extractor_key: 'BiliBili', id: 'BV13x41117TL', uploader_id: '3985676',
+    title: 'New Bilibili video', upload_date: '20260716',
+    webpage_url: 'https://www.bilibili.com/video/BV13x41117TL',
+  }],
+  'https://www.bilibili.com/video/BV11x411K7CN': [{
+    extractor_key: 'BiliBili', id: 'BV11x411K7CN', uploader_id: '3985676',
+    title: 'Old Bilibili video', upload_date: '20260616',
+    webpage_url: 'https://www.bilibili.com/video/BV11x411K7CN',
+  }],
   'https://www.youtube.com/@updates/videos': [
     metadata('oL_12-dA345', 'UC-updates', '20260716', 'Changed existing title'),
     metadata('nE_12-wB345', 'UC-updates', '20260717'),
@@ -140,6 +154,23 @@ function insertHistoricalVideo(
   return Number(result.lastInsertRowid);
 }
 
+function insertBilibiliChannel(): number {
+  const result = database.prepare(
+    `INSERT INTO channels (
+      platform, extractor, platform_channel_id, source_url, custom_name,
+      custom_name_key, proxy_id, check_interval_minutes,
+      initial_synced_at, created_at, updated_at
+    ) VALUES ('bilibili', 'BilibiliSpaceVideo', '3985676',
+      'https://space.bilibili.com/3985676', 'Bilibili UP', 'bilibili up',
+      NULL, NULL, ?, ?, ?)`,
+  ).run(
+    FIRST_STARTED_AT.toISOString(),
+    FIRST_STARTED_AT.toISOString(),
+    FIRST_STARTED_AT.toISOString(),
+  );
+  return Number(result.lastInsertRowid);
+}
+
 function createProxy(): number {
   const result = database
     .prepare(
@@ -192,6 +223,23 @@ afterEach(async () => {
 });
 
 describe('scheduled channel checks', () => {
+  it('discovers recent Bilibili submissions and stops at the one-month boundary', async () => {
+    const channelId = insertBilibiliChannel();
+
+    await expect(
+      checkChannel(database, executablePath, channelId, FIRST_STARTED_AT),
+    ).resolves.toEqual({ newVideoCount: 1 });
+
+    expect(database.prepare(
+      `SELECT platform, platform_video_id, title FROM videos WHERE channel_id = ?`,
+    ).all(channelId)).toEqual([{
+      platform: 'bilibili',
+      platform_video_id: 'BV13x41117TL',
+      title: 'New Bilibili video',
+    }]);
+    expect(database.prepare('SELECT COUNT(*) FROM notifications').pluck().get()).toBe(1);
+  });
+
   it('atomically saves unseen videos and one notification for each without changing existing metadata', async () => {
     const channelId = insertChannel('updates', 'UC-updates');
     const existingUrl = 'https://www.youtube.com/watch?v=oL_12-dA345';

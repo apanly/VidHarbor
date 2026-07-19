@@ -256,8 +256,22 @@ describe('offline v0.1 end-to-end contract', () => {
     expect(listChannels(database)).toHaveLength(1);
     expect(listChannelVideos(database, created.channel.id)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ title: 'New video', downloadStatus: 'completed' }),
-        expect.objectContaining({ title: 'FFmpeg failure video', downloadStatus: 'failed' }),
+        expect.objectContaining({
+          title: 'New video',
+          downloadId: downloads[0]?.id,
+          downloadStatus: 'completed',
+          downloadFinishedAt: expect.any(String),
+          downloadOutputSizeBytes: Buffer.byteLength('fake media'),
+          downloadFailureReason: null,
+        }),
+        expect.objectContaining({
+          title: 'FFmpeg failure video',
+          downloadId: downloads[1]?.id,
+          downloadStatus: 'failed',
+          downloadFinishedAt: expect.any(String),
+          downloadOutputSizeBytes: null,
+          downloadFailureReason: expect.any(String),
+        }),
       ]),
     );
     expect(listNotifications(database)).toHaveLength(1);
