@@ -44,7 +44,7 @@
   3. `rg -n "from './yt-dlp\.js'" src --glob '*.ts'` → 仅 `src/yt-dlp-task-manager.ts` 命中。
 
 ## task-03 · 将下载 worker 接入管理器
-- 状态: pending
+- 状态: done
 - 依赖: task-02
 - 文件范围:
   - src/download-worker.ts
