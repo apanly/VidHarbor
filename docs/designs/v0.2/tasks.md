@@ -375,3 +375,135 @@
 - 验收标准:
   1. `npx vitest run test/integration/pages.test.ts` → 页面任务快照及其余页面回归测试全部通过且进程正常退出。
   2. `rg -n "try|finally|Promise\.allSettled" test/integration/pages.test.ts` → gate 用例包含无条件清理与任务收敛逻辑。
+
+## task-18 · 收紧下载后处理的取消边界
+- 状态: done
+- 依赖: task-15
+- 文件范围:
+  - src/download-worker.ts
+  - test/integration/download-worker.test.ts
+- 关键约束:
+  - 不能依赖错误消息字符串识别取消，不能在 `completed` 落库后留下仍可改写管理器终态的异步清理窗口。
+  - 不能改动下载目录布局、普通失败映射或相邻无关功能。
+- 任务目的: 修复 bugfix-06 描述的问题；修复 bugfix-07 描述的问题
+- 实现入口: `src/download-worker.ts:260`（`tryDownloadThumbnail`）、`src/download-worker.ts:281`（`isCancellationError`）、`src/download-worker.ts:379`（`DownloadWorker.#run`）、`src/download-worker.ts:503`（完成落库与临时目录清理边界）、`src/download-worker.ts:617`（`#throwIfCanceled`）
+- 问题描述原文:
+  - bugfix-06: review-2 在 src/download-worker.ts:503 发现 completed 落库后仍 await 临时目录清理，任务保持 running 且可被取消，最终可能出现下载记录 completed、管理器 canceled 且归档文件保留。必须在成功落库前完成清理并作最后一次取消检查，在业务终态确定前保留归档回滚信息。
+  - bugfix-07: review-2 在 src/download-worker.ts:281 发现 isCancellationError 依赖固定英文 message，可能在取消期间把进程组终止等非固定消息异常当普通缩略图失败吞掉。必须使用任务 signal 或类型化取消契约判断，并覆盖取消期间底层抛出其他错误的负向测试。
+- 期望行为: 下载成功路径在临时目录清理完成并通过最后一次取消检查后才写入 `completed`，在此之前保留归档回滚信息；缩略图阶段依据同一任务 signal 或类型化取消契约传播取消，取消期间底层抛出的其他错误不会被误当成可忽略的普通缩略图失败。
+- 范围边界:
+  - 必须: 覆盖清理期间取消、成功落库前取消、归档回滚，以及取消期间底层非固定消息错误不得被吞掉的负向测试。
+  - 不能: 不能改动与本 bug 无关的模块，不能新增第二套取消状态或通过消息文本、宽松 catch 猜测取消。
+  - 不做: 不改变下载目录布局、进度字段、下载状态集合、普通缩略图失败可忽略的既有契约或管理器调度协议。
+- 验收标准:
+  1. `npx vitest run test/integration/download-worker.test.ts` → 下载成功、后处理取消、回滚、缩略图普通失败及取消期间异常用例全部通过。
+  2. `test -z "$(rg -n 'error\.message.*yt-dlp download cancelled' src/download-worker.ts)"` → 下载 worker 不再以固定错误消息识别取消。
+  3. `rg -n "signal\.aborted|throwIfCanceled|status = 'completed'" src/download-worker.ts` → 同一 signal 的取消检查与成功落库边界均有明确实现。
+
+## task-19 · 取消时保留真实系统故障
+- 状态: pending
+- 依赖: task-15, task-16
+- 文件范围:
+  - src/yt-dlp-task-manager.ts
+  - test/unit/yt-dlp-task-manager.test.ts
+  - test/integration/yt-dlp.test.ts
+  - test/unit/scheduler.test.ts
+  - test/integration/channel-notification-api.test.ts
+- 关键约束:
+  - 不能仅凭 `cancelRequested` 将执行器随后抛出的任意异常改写为 `canceled`，也不能吞掉进程组终止、持久化、归档、清理或未知系统故障。
+  - 不能使用错误消息字符串或宽松异常匹配识别正常取消，不能改动相邻无关功能。
+- 任务目的: 修复 bugfix-08 描述的问题；修复 bugfix-11 描述的问题
+- 实现入口: `src/yt-dlp-task-manager.ts:114`（`cancellationError`）、`src/yt-dlp-task-manager.ts:238`（`cancel`）、`src/yt-dlp-task-manager.ts:304`（`#startTask` 的执行结果分类）、`src/yt-dlp-task-manager.ts:329`（`#finishTask`）
+- 问题描述原文:
+  - bugfix-08: review-2 在 src/yt-dlp-task-manager.ts:321 发现 cancelRequested 会把执行器随后抛出的任何持久化、归档、清理或未知系统错误改写为 canceled。只有可类型识别的正常取消结果才能落 canceled；真实系统错误必须保留 failed 终态和原始拒绝并继续上报。
+  - bugfix-11: review-2 在 src/yt-dlp-task-manager.ts:321 复现取消期间 process.kill(-pid) 失败后 stop 仍成功且任务为 canceled；进程组终止失败和频道清理持久化失败必须保留 failed 并让 stop 或 runtime 故障边界感知。
+- 期望行为: 取消请求后，只有执行成功收敛或抛出可类型识别的正常取消错误时任务进入 `canceled`；进程组终止、频道持久化、归档、清理及未知执行异常进入 `failed`，任务结果保留原始拒绝，并由 `stop()` 或既有 runtime 故障边界感知。
+- 范围边界:
+  - 必须: 覆盖取消成功、取消期间执行成功、进程组终止失败、频道清理持久化失败和未知系统异常的终态、拒绝值及故障上报。
+  - 不能: 不能改动与本 bug 无关的模块，不能用 `cancelRequested` 单独决定拒绝路径终态，不能吞掉或重写真实系统异常。
+  - 不做: 不新增任务状态、频道 `canceled` 业务状态、重试、兼容错误类型或新的 runtime 故障通道。
+- 验收标准:
+  1. `npx vitest run test/unit/yt-dlp-task-manager.test.ts test/integration/yt-dlp.test.ts test/unit/scheduler.test.ts test/integration/channel-notification-api.test.ts` → 正常取消、终止失败、持久化失败及故障上报用例全部通过。
+  2. `rg -n "isYtDlpTaskCancellationError|cancelRequested|status.*failed|#finishTask" src/yt-dlp-task-manager.ts` → 类型化取消与失败终态分类均有明确实现。
+
+## task-20 · 保证失败快照原因非空
+- 状态: pending
+- 依赖: task-19
+- 文件范围:
+  - src/yt-dlp-task-manager.ts
+  - test/unit/yt-dlp-task-manager.test.ts
+- 关键约束:
+  - 不能允许 `failed` 快照的 `failureReason` 为 `''`，也不能暴露脱敏前的原始失败文本。
+  - 不能为未知错误格式增加字段别名、递归解析或猜测式 fallback。
+- 任务目的: 修复 bugfix-09 描述的问题
+- 实现入口: `src/yt-dlp-task-manager.ts:117`（`errorMessage`）、`src/yt-dlp-task-manager.ts:329`（`#finishTask` 的失败原因写入）
+- 问题描述原文: review-2 在 src/yt-dlp-task-manager.ts:342 发现执行器以空字符串拒绝或脱敏函数返回空字符串时可产生 failed 且 failureReason 为空，违反固定快照/API 契约。必须规范化并校验为固定非空失败描述。
+- 期望行为: 执行器以空字符串拒绝、空消息错误拒绝或脱敏函数返回空字符串时，任务仍进入 `failed`，且快照获得固定、非空、已脱敏的失败描述；其他失败原因沿用既有脱敏结果。
+- 范围边界:
+  - 必须: 对原始空字符串、空消息 `Error` 和脱敏后空字符串分别覆盖负向测试，并断言 `failureReason` 非空。
+  - 不能: 不能改动与本 bug 无关的模块，不能返回原始敏感文本，不能把失败任务改写成其他终态。
+  - 不做: 不改变快照字段集合、API 返回结构、脱敏函数契约或非空失败文本的现有格式。
+- 验收标准:
+  1. `npx vitest run test/unit/yt-dlp-task-manager.test.ts` → 空失败值、空错误消息、脱敏为空及既有脱敏用例全部通过。
+  2. `rg -n "failureReason|errorMessage|redactFailureReason" src/yt-dlp-task-manager.ts` → 失败原因规范化与脱敏边界均有明确实现。
+
+## task-21 · 恢复窄桌面任务表格横向可达性
+- 状态: pending
+- 依赖: task-11
+- 文件范围:
+  - src/styles/main.scss
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 不能通过隐藏、删除或压缩掉固定任务字段解决裁切，也不能改变任务页面的数据与交互契约。
+  - 不能改动相邻无关页面样式。
+- 任务目的: 修复 bugfix-10 描述的问题
+- 实现入口: `src/styles/main.scss:1181`（`.yt-dlp-tasks-table-shell`）、`src/styles/main.scss:1189`（`.yt-dlp-tasks-table`）、`test/integration/pages.test.ts:811`（任务表格响应式样式验收）
+- 问题描述原文: review-2 在 src/styles/main.scss:1182 发现自定义 overflow: hidden 覆盖 Bootstrap table-responsive 的横向滚动，略高于移动断点且有侧栏时会裁掉时间与失败原因列。必须保留横向滚动或调整卡片断点，确保固定字段可见。
+- 期望行为: 在移动卡片断点以上但可用宽度不足的窄桌面布局中，任务表格可横向滚动查看任务 ID、类型、状态、三个时间字段和失败原因；移动卡片布局及圆角视觉保持现有行为。
+- 范围边界:
+  - 必须: 保留所有固定列，并以机械样式断言证明表格容器允许横向滚动且移动断点规则仍存在。
+  - 不能: 不能改动与本 bug 无关的模块，不能隐藏固定字段、增加新断点交互或依赖页面脚本补偿布局。
+  - 不做: 不改变任务 API、页面文案、表格列集合、筛选、分页、轮询或任务操作能力。
+- 验收标准:
+  1. `npx vitest run test/integration/pages.test.ts` → 任务页面桌面、窄桌面和移动布局契约测试通过。
+  2. `rg -n "yt-dlp-tasks-table-shell|overflow-x: auto|yt-dlp-tasks-table" src/styles/main.scss` → 任务表格容器及横向滚动规则均命中。
+
+## task-22 · 通过真实 load 路径验收任务页面
+- 状态: pending
+- 依赖: task-17
+- 文件范围:
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 不能在测试中复制生产分类逻辑或绕过 `load()` 直接调用 `renderGroup` 代替核心接线验收。
+  - 不能删除或弱化既有页面、快照、固定映射和脱敏断言。
+- 任务目的: 修复 bugfix-12 描述的问题
+- 实现入口: `test/integration/pages.test.ts:109`（任务页面可控 DOM helper）、`test/integration/pages.test.ts:697`（固定类型与状态快照用例）、`src/public/yt-dlp-tasks.js:81`（被测试执行的 `load` 路径）
+- 问题描述原文: review-2 在 test/integration/pages.test.ts:741 发现核心页面用例自行请求 API、复制分类逻辑并直接调用 renderGroup，未执行生产模块的 load、fetch、分类与渲染接线。必须在可控 DOM 中执行完整加载路径并从最终 DOM 断言。
+- 期望行为: 核心任务页面用例在可控 DOM 和 fetch 环境中执行生产脚本的完整 `load()` 路径，由真实 fetch、响应校验、固定类型/状态校验、活动/终态分类和渲染接线生成最终 DOM，并仅从最终 DOM 验证标签、计数、空状态和脱敏结果。
+- 范围边界:
+  - 必须: 可控环境执行真实生产加载入口，并覆盖成功快照、未知 type/status 错误和 fetch/API 失败的最终 DOM 表现。
+  - 不能: 不能改动与本 bug 无关的模块，不能复制生产分类条件，不能直接调用 `renderGroup` 作为核心加载路径的替代。
+  - 不做: 不引入浏览器端到端框架、自动刷新、轮询、生产测试钩子或新的页面行为。
+- 验收标准:
+  1. `npx vitest run test/integration/pages.test.ts` → 真实加载接线、最终 DOM、未知契约值和脱敏用例全部通过且正常退出。
+  2. `rg -n "fetch|load|final|document|taskPage" test/integration/pages.test.ts` → 可控 DOM 中的生产加载路径测试有明确实现。
+
+## task-23 · 强化唯一底层入口的绕过扫描
+- 状态: pending
+- 依赖: task-12
+- 文件范围:
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 不能只匹配静态 `from` 导入，也不能通过改名、字符串拼接或动态加载隐藏底层依赖。
+  - 不能误伤管理器中唯一合法的静态直接导入。
+- 任务目的: 修复 bugfix-13 描述的问题
+- 实现入口: `test/integration/pages.test.ts:158`（`typeScriptFiles`）、`test/integration/pages.test.ts:822`（唯一 yt-dlp 底层入口测试）
+- 问题描述原文: review-2 在 test/integration/pages.test.ts:823 发现唯一底层入口检查只匹配静态 from 语法，无法发现 import()、require() 或拼接动态导入。必须按确认契约覆盖并拒绝这些绕过形态，增加负向测试。
+- 期望行为: 全部 `src/**/*.ts` 只允许 `src/yt-dlp-task-manager.ts` 使用确认的静态 `from './yt-dlp.js'` 导入；扫描会拒绝其他文件中的静态导入、`import()`、`require()` 以及字符串拼接构造的底层模块加载，并由负向样本证明各绕过形态可被发现。
+- 范围边界:
+  - 必须: 扫描完整生产 TypeScript 源码，并为静态导入、动态 import、require 和拼接加载提供机械负向测试。
+  - 不能: 不能改动与本 bug 无关的模块，不能允许动态加载白名单，不能以重命名或字符串变形规避扫描。
+  - 不做: 不引入通用 AST 工具、修改生产导入结构、扫描测试或构建产物、扩大到未确认的其他模块路径。
+- 验收标准:
+  1. `npx vitest run test/integration/pages.test.ts` → 唯一合法入口及各类绕过负向样本测试全部通过。
+  2. `rg -n "importPattern|import\(|require\(|yt-dlp" test/integration/pages.test.ts` → 静态与动态绕过扫描规则及负向样本均有明确实现。

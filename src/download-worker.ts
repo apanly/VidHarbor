@@ -271,15 +271,11 @@ async function tryDownloadThumbnail(
     await link(sourcePath, targetPath);
     return thumbnail.name;
   } catch (error) {
-    if (isCancellationError(error)) throw error;
+    if (operations.signal.aborted) throw error;
     return undefined;
   } finally {
     await rm(thumbnailDirectory, { recursive: true, force: true }).catch(() => undefined);
   }
-}
-
-function isCancellationError(error: unknown): error is Error {
-  return error instanceof Error && error.message === 'yt-dlp download cancelled';
 }
 
 function cancellationError(): Error {
@@ -384,6 +380,7 @@ export class DownloadWorker implements DownloadQueue {
     let started = false;
     let archivedDirectory: string | undefined;
     const archivedFiles: string[] = [];
+    let preCompletionCleanupFailure: Error | undefined;
     let boundaryFailure: Error | undefined;
     let taskFailure: unknown;
 
@@ -479,6 +476,15 @@ export class DownloadWorker implements DownloadQueue {
         ? null
         : join(targetDirectory, thumbnailFilename);
 
+      try {
+        await rm(taskDirectory, { recursive: true, force: true });
+      } catch (cleanupError) {
+        preCompletionCleanupFailure = new Error(
+          failureMessage(cleanupError, download.proxyUrl),
+        );
+        throw cleanupError;
+      }
+      taskDirectory = undefined;
       this.#throwIfCanceled(operations.signal);
       const completeDownload = this.#database.prepare(
         `UPDATE downloads
@@ -521,10 +527,7 @@ export class DownloadWorker implements DownloadQueue {
       }
       if (started) {
         const reason = failureMessage(failure, download.proxyUrl);
-        const failedStatus =
-          operations.signal.aborted || isCancellationError(failure)
-            ? 'canceled'
-            : 'failed';
+        const failedStatus = operations.signal.aborted ? 'canceled' : 'failed';
         const exitCode =
           typeof failure === 'object' &&
           failure !== null &&
@@ -558,7 +561,10 @@ export class DownloadWorker implements DownloadQueue {
       }
     } finally {
       try {
-        if (taskDirectory !== undefined) {
+        if (
+          taskDirectory !== undefined &&
+          preCompletionCleanupFailure === undefined
+        ) {
           await rm(taskDirectory, { recursive: true, force: true });
         }
       } catch (cleanupError) {
@@ -600,6 +606,17 @@ export class DownloadWorker implements DownloadQueue {
             failures.map((failure) => failure.message).join('; '),
           );
         }
+      }
+    }
+
+    if (preCompletionCleanupFailure !== undefined) {
+      if (boundaryFailure === undefined) {
+        boundaryFailure = preCompletionCleanupFailure;
+      } else {
+        boundaryFailure = new AggregateError(
+          [boundaryFailure, preCompletionCleanupFailure],
+          `${boundaryFailure.message}; ${preCompletionCleanupFailure.message}`,
+        );
       }
     }
 

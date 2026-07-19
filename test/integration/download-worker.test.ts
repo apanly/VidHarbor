@@ -1,5 +1,6 @@
 import {
   access,
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -18,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const fsControl = vi.hoisted(() => ({
   createTargetAtArchiveBoundary: false,
   rejectedRmPath: undefined as string | undefined,
+  beforeRm: undefined as ((path: string) => Promise<void>) | undefined,
   rmPaths: [] as string[],
   rejectLink: false,
   linkPaths: [] as Array<readonly [string, string]>,
@@ -38,6 +40,7 @@ vi.mock('node:fs/promises', async () => {
         code: 'EACCES',
       });
     }
+    await fsControl.beforeRm?.(pathText);
     return actual.rm(path, options);
   };
   const controlledLink: typeof actual.link = async (oldPath, newPath) => {
@@ -277,6 +280,7 @@ afterEach(async () => {
   await taskManager?.stop();
   fsControl.createTargetAtArchiveBoundary = false;
   fsControl.rejectedRmPath = undefined;
+  fsControl.beforeRm = undefined;
   fsControl.rmPaths.length = 0;
   fsControl.rejectLink = false;
   fsControl.linkPaths.length = 0;
@@ -404,6 +408,56 @@ describe('single download worker', () => {
       await expectTaskDirectoryRemoved(downloadId);
     },
   );
+
+  it('cancels during successful task cleanup before completion and rolls back', async () => {
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const worker = createWorker();
+    const realDownloadRoot = await realpath(downloadRoot);
+    const taskDirectory = join(
+      realDownloadRoot,
+      '.vidharbor-tmp',
+      String(downloadId),
+    );
+    const targetDirectory = join(realDownloadRoot, String(downloadId));
+    let releaseCleanup!: () => void;
+    const cleanupRelease = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    let markCleanupStarted!: () => void;
+    const cleanupStarted = new Promise<void>((resolve) => {
+      markCleanupStarted = resolve;
+    });
+    fsControl.beforeRm = async (path) => {
+      if (path !== taskDirectory) return;
+      markCleanupStarted();
+      await cleanupRelease;
+    };
+
+    worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success'));
+    let cancellation: Promise<void> | undefined;
+    try {
+      await cleanupStarted;
+      expect(row(downloadId)).toMatchObject({ status: 'running', output_path: null });
+      await expect(readFile(join(targetDirectory, `${FIRST_VIDEO_ID}.mp4`), 'utf8'))
+        .resolves.toBe('media');
+      cancellation = taskManager?.cancel(1);
+    } finally {
+      releaseCleanup();
+    }
+    await cancellation;
+    await worker.waitForIdle();
+
+    expect(row(downloadId)).toMatchObject({
+      status: 'canceled',
+      output_path: null,
+      failure_reason: 'yt-dlp download cancelled',
+    });
+    expect(taskManager?.getSnapshot()).toEqual([
+      expect.objectContaining({ type: 'media_download', status: 'canceled' }),
+    ]);
+    await expect(readdir(targetDirectory)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expectTaskDirectoryRemoved(downloadId);
+  });
 
   it('cancels a queued manager task without starting its process', async () => {
     const firstId = insertPending(FIRST_VIDEO_ID);
@@ -542,6 +596,56 @@ describe('single download worker', () => {
     });
     expect(await readdir(join(downloadRoot, String(downloadId))))
       .toEqual([`${FIRST_VIDEO_ID}.mp4`]);
+  });
+
+  it('propagates a non-cancellation thumbnail error when the task signal is aborted', async () => {
+    const blockingExecutable = join(sandbox, 'blocking-thumbnail.mjs');
+    await writeFile(
+      blockingExecutable,
+      `#!/usr/bin/env node
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+const args = process.argv.slice(2);
+const output = args[args.indexOf('--output') + 1];
+const controlDirectory = process.env.VIDHARBOR_FAKE_YT_DLP_DIR;
+if (args.includes('--skip-download')) {
+  await writeFile(join(controlDirectory, 'thumbnail.running'), 'running');
+  setInterval(() => undefined, 1_000);
+} else {
+  const filepath = output.replace('%(id)s', '${FIRST_VIDEO_ID}').replace('%(ext)s', 'mp4');
+  await mkdir(dirname(filepath), { recursive: true });
+  await writeFile(filepath, 'media');
+  process.stdout.write(filepath + '\\n');
+}
+`,
+    );
+    await chmod(blockingExecutable, 0o755);
+    executablePath = blockingExecutable;
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const worker = createWorker();
+    const processKill = process.kill.bind(process);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid < 0) throw new Error('thumbnail termination exploded');
+      return processKill(pid, signal);
+    });
+
+    try {
+      worker.enqueue(job(downloadId, FIRST_VIDEO_ID, 'fixture://thumbnail-cancel'));
+      await waitForFile(join(sandbox, 'thumbnail.running'));
+      await taskManager?.cancel(1);
+      await worker.waitForIdle();
+    } finally {
+      killSpy.mockRestore();
+    }
+
+    expect(row(downloadId)).toMatchObject({
+      status: 'canceled',
+      output_path: null,
+      failure_reason: expect.stringContaining('thumbnail termination exploded'),
+    });
+    await expect(readdir(join(downloadRoot, String(downloadId))))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    await expectTaskDirectoryRemoved(downloadId);
   });
 
   it('passes exactly one configured proxy argument and no proxy argument for direct', async () => {
