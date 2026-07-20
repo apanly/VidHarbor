@@ -85,11 +85,30 @@ VidHarbor 不会自动决定下载内容。频道检查只负责建立视频记�
 
 总览中的 yt-dlp 任务快照只保存在当前服务进程内存中。服务或容器重启后，任务历史会清空、任务 ID 会重新从 1 开始；SQLite 中的下载、频道和提醒等业务记录不会因此删除。
 
-## 启动与首次配置
+## 部署与首次配置
 
-项目要求 Docker 与 Docker Compose，并固定 Node.js、yt-dlp、FFmpeg 和系统包版本。Dockerfile 支持 `linux/amd64` 和 `linux/arm64`：Intel/AMD Linux、x86_64 服务器和 Intel Mac 使用 AMD64 镜像，ARM64 Linux、ARM 服务器和 Apple Silicon 使用 ARM64 镜像。构建时会按容器架构选择并校验对应的 yt-dlp 二进制；其他架构会明确失败。
+项目要求 Docker 与 Docker Compose，支持 `linux/amd64` 和 `linux/arm64`。Intel/AMD Linux、x86_64 服务器和 Intel Mac 使用 AMD64 镜像，ARM64 Linux、ARM 服务器和 Apple Silicon 使用 ARM64 镜像；其他架构不受支持。
+
+### 使用 GHCR 镜像（推荐）
+
+此方式直接使用 GitHub Container Registry 上的多架构镜像，不需要下载源码或在本机编译：
 
 ```sh
+mkdir vidharbor && cd vidharbor
+curl --fail --location \
+  https://raw.githubusercontent.com/apanly/VidHarbor/main/compose.image.yaml \
+  --output compose.yaml
+docker compose up -d
+docker compose ps
+```
+
+### 使用源码构建
+
+此方式会下载源码，并使用固定的 Node.js、yt-dlp、FFmpeg 和系统包版本在本机生成镜像：
+
+```sh
+git clone https://github.com/apanly/VidHarbor.git
+cd VidHarbor
 docker compose up --build -d
 docker compose ps
 ```
@@ -141,7 +160,15 @@ docker compose start app
 
 ### 升级
 
-升级前先完成备份，然后执行：
+升级前先完成备份。使用 GHCR 镜像部署时执行：
+
+```sh
+docker compose pull
+docker compose up -d
+docker compose ps
+```
+
+使用源码构建时执行：
 
 ```sh
 git pull --ff-only

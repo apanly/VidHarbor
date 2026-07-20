@@ -2,6 +2,12 @@
 
 All notable user-visible changes are documented here. The project follows Semantic Versioning.
 
+## Unreleased
+
+### Added
+
+- Added a public GHCR deployment path alongside local source builds.
+
 ## 0.2.0 - 2026-07-20
 
 ### Added
