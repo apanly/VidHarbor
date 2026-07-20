@@ -11,7 +11,10 @@ import {
 } from '../../src/download-worker.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
-import { recoverInterruptedChannelSyncs } from '../../src/services/channel.js';
+import {
+  deleteChannel,
+  recoverInterruptedChannelSyncs,
+} from '../../src/services/channel.js';
 
 const FINISHED_AT = '2026-07-17T12:00:00.000Z';
 
@@ -104,6 +107,50 @@ describe('restart recovery', () => {
       result: 'failed',
       failure_reason: 'initial synchronization interrupted by restart',
     });
+  });
+
+  it('finishes an interrupted scheduled check and no longer blocks channel deletion', () => {
+    const channelId = Number(database
+      .prepare(
+        `INSERT INTO channels (
+          platform, platform_channel_id, source_url, custom_name,
+          custom_name_key, initial_sync_status, initial_synced_at,
+          last_check_started_at, created_at, updated_at
+        ) VALUES ('youtube', 'UC-recovery', ?, 'Recovery', 'recovery',
+                  'succeeded', ?, ?, ?, ?)`,
+      )
+      .run(
+        'https://www.youtube.com/@recovery',
+        FINISHED_AT,
+        FINISHED_AT,
+        FINISHED_AT,
+        FINISHED_AT,
+      )
+      .lastInsertRowid);
+    database
+      .prepare(
+        `INSERT INTO channel_checks (kind, channel_id, requested_url, started_at)
+         VALUES ('scheduled', ?, ?, ?)`,
+      )
+      .run(channelId, 'https://www.youtube.com/@recovery', FINISHED_AT);
+
+    recoverInterruptedChannelSyncs(database, FINISHED_AT);
+
+    expect(
+      database.prepare('SELECT result, failure_reason FROM channel_checks WHERE channel_id = ?').get(channelId),
+    ).toEqual({
+      result: 'failed',
+      failure_reason: 'scheduled check interrupted by restart',
+    });
+    expect(
+      database.prepare('SELECT last_check_result, last_check_error FROM channels WHERE id = ?').get(channelId),
+    ).toEqual({
+      last_check_result: 'failed',
+      last_check_error: 'scheduled check interrupted by restart',
+    });
+
+    expect(() => deleteChannel(database, channelId)).not.toThrow();
+    expect(database.prepare('SELECT 1 FROM channels WHERE id = ?').get(channelId)).toBeUndefined();
   });
 
   it('interrupts pending and active records in one recovery while preserving terminal records', () => {
