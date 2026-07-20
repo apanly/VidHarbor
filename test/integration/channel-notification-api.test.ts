@@ -334,6 +334,49 @@ describe('channel API', () => {
     });
   });
 
+  it('lists every channel whose latest check found updates without pagination', async () => {
+    const channelIds: number[] = [];
+    for (let index = 1; index <= 22; index += 1) {
+      const response = await request('/channels', 'POST', {
+        url: `https://www.youtube.com/@dashboard${String(index)}`,
+        customName: `Dashboard channel ${String(index)}`,
+        proxyId: null,
+        checkIntervalMinutes: null,
+      });
+      expect(response.status).toBe(201);
+      const body = (await response.json()) as { channel: { id: number } };
+      channelIds.push(body.channel.id);
+    }
+    database
+      .prepare(
+        `UPDATE channels
+         SET last_check_started_at = ?, last_check_result = ?
+         WHERE id = ?`,
+      )
+      .run(NOW, 'no_updates', channelIds.at(-1));
+    const markUpdated = database.prepare(
+      `UPDATE channels
+       SET last_check_started_at = ?, last_check_result = 'success'
+       WHERE id = ?`,
+    );
+    for (const channelId of channelIds.slice(0, -1)) {
+      markUpdated.run(NOW, channelId);
+    }
+
+    const response = await request('/channels/updates');
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      items: Array<{ id: number; lastCheck: { result: string } }>;
+      pagination?: unknown;
+    };
+    expect(body.pagination).toBeUndefined();
+    expect(body.items).toHaveLength(21);
+    expect(body.items.map((channel) => channel.id)).toEqual(
+      channelIds.slice(0, -1).reverse(),
+    );
+    expect(body.items.every((channel) => channel.lastCheck.result === 'success')).toBe(true);
+  });
+
   it('rejects non-contract updates, missing dependencies, and name conflicts', async () => {
     const first = await createChannel(
       'https://www.youtube.com/@first',

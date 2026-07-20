@@ -1135,31 +1135,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.yt-dlp-tasks-heading {
-  margin-bottom: 1.5rem;
-}
-
-.yt-dlp-tasks-heading h1 {
-  margin-bottom: 0.35rem;
-  color: #172033;
-  font-size: clamp(2.2rem, 5vw, 3.8rem);
-  font-weight: 900;
-  letter-spacing: -0.055em;
-}
-
-.yt-dlp-tasks-heading > p:last-child {
-  margin: 0;
-  color: #64748b;
-}
-
-.yt-dlp-tasks-kicker {
-  margin-bottom: 0.35rem;
-  color: #0f766e;
-  font-size: 0.75rem;
-  font-weight: 850;
-  letter-spacing: 0.16em;
-}
-
 .yt-dlp-tasks-section {
   margin-top: 1.5rem;
 }

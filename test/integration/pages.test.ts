@@ -327,7 +327,6 @@ describe('server-rendered pages', () => {
     ['/channels/7', '频道详情'],
     ['/notifications', '新视频提醒'],
     ['/downloads', '<h1>下载</h1>'],
-    ['/yt-dlp-tasks', '<h1>任务状态</h1>'],
     ['/guide', '<h1>VidHarbor</h1>'],
   ] as const)('renders %s with the shared page shell', async (path, marker) => {
     const html = await getPage(path);
@@ -341,9 +340,9 @@ describe('server-rendered pages', () => {
     expect(html).toContain('href="/channels">频道</a>');
     expect(html).toContain('href="/notifications">提醒</a>');
     expect(html).toContain('href="/downloads">下载</a>');
-    expect(html).toContain('href="/yt-dlp-tasks">任务状态</a>');
+    expect(html).not.toContain('href="/yt-dlp-tasks">任务状态</a>');
     expect(html).toContain('href="/guide">说明</a>');
-    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/yt-dlp-tasks">任务状态<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/guide">说明<\/a>/);
+    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/database">数据库<\/a>[\s\S]*href="\/guide">说明<\/a>/);
     expect(html).not.toContain('navbar-nav flex-row');
     expect(html).not.toContain('deployment-warning');
     expect(html).not.toContain('切勿直接暴露到公网');
@@ -805,15 +804,22 @@ describe('server-rendered pages', () => {
     expect(downloadsScript).not.toMatch(/get(?:FullYear|Month|Date|Hours|Minutes|Seconds)\(/);
   });
 
-  it('renders the task snapshot page with fixed tables, empty states, and refresh contract', async () => {
-    const html = await getPage('/yt-dlp-tasks');
+  it('renders the task snapshot on the dashboard with fixed tables and empty states', async () => {
+    const html = await getPage('/');
+    const dashboardScript = await getPublicScript('dashboard.js');
     const script = await getPublicScript('yt-dlp-tasks.js');
+    const removedPage = await fetch(`${baseUrl}/yt-dlp-tasks`);
 
-    expect(html).toContain('<title>任务状态 · VidHarbor</title>');
-    expect(html).toContain('class="sidebar-link active" href="/yt-dlp-tasks">任务状态</a>');
-    expect(html).toContain('刷新浏览器可查看最新状态。');
+    expect(html).toContain('<title>总览 · VidHarbor</title>');
+    expect(html).not.toContain('href="/yt-dlp-tasks">任务状态</a>');
+    expect(removedPage.status).toBe(404);
+    expect(html).not.toContain('id="dashboard-pagination"');
+    expect(dashboardScript).toContain("fetch('/api/channels/updates'");
+    expect(dashboardScript).not.toContain('renderPagination');
+    expect(dashboardScript).not.toContain('requestedPage');
+    expect(dashboardScript).toContain('当前没有发现更新的频道。');
     expect(html).toContain('<h2 id="active-tasks-title">活动任务</h2>');
-    expect(html).toContain('<h2 id="terminal-tasks-title">已结束任务</h2>');
+    expect(html).toContain('<h2 id="terminal-tasks-title">最近已结束任务</h2>');
     expect(html.match(/<table class="table yt-dlp-tasks-table align-middle mb-0">/g)).toHaveLength(2);
     expect(html.match(/<th scope="col">任务 ID<\/th><th scope="col">任务类型<\/th><th scope="col">状态<\/th><th scope="col">创建时间<\/th><th scope="col">开始时间<\/th><th scope="col">结束时间<\/th><th scope="col">失败原因<\/th>/g)).toHaveLength(2);
     expect(html).toContain('id="active-task-empty" class="yt-dlp-tasks-empty" role="status" hidden>当前没有排队或运行中的任务。</div>');
@@ -837,6 +843,31 @@ describe('server-rendered pages', () => {
     expect(helpers.nodes.get('terminal-task-empty')).toMatchObject({ hidden: false });
     expect(helpers.nodes.get('active-task-count')?.textContent).toBe('0');
     expect(helpers.nodes.get('terminal-task-count')?.textContent).toBe('0');
+  });
+
+  it('shows only the 30 most recent terminal tasks in newest-first order', async () => {
+    const tasks = Array.from({ length: 31 }, (_, index): YtDlpTaskSnapshot => ({
+      id: index + 1,
+      type: 'metadata_probe',
+      status: 'succeeded',
+      createdAt: '2026-07-19T00:00:00.000Z',
+      startedAt: '2026-07-19T00:00:00.000Z',
+      finishedAt: '2026-07-19T00:00:01.000Z',
+      failureReason: null,
+    }));
+    const helpers = taskPageHelpers(
+      await getPublicScript('yt-dlp-tasks.js'),
+      async () => new Response(JSON.stringify({ tasks })),
+    );
+
+    await helpers.loaded;
+
+    const rows = helpers.nodes.get('terminal-task-list')?.children ?? [];
+    expect(rows).toHaveLength(30);
+    expect(rows.map((row) => row.children[0]?.textContent)).toEqual(
+      Array.from({ length: 30 }, (_, index) => String(31 - index)),
+    );
+    expect(helpers.nodes.get('terminal-task-count')?.textContent).toBe('30');
   });
 
   it('renders all fixed task types and statuses from one redacted manager snapshot', async () => {
@@ -1076,7 +1107,7 @@ describe('server-rendered pages', () => {
     expect(downloadsScript).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
   });
 
-  it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/downloads', '/yt-dlp-tasks', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {
+  it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/downloads', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {
     const html = await getPage(path);
 
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);

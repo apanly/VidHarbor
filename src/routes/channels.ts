@@ -10,6 +10,7 @@ import {
   getChannel,
   listChannelChecksPage,
   listChannelsPage,
+  listUpdatedChannels,
   listChannelVideosPage,
   pauseChannel,
   resumeChannel,
@@ -57,6 +58,10 @@ export function createChannelsRouter(
 
   router.get('/', (request, response) => {
     response.json(listChannelsPage(database, parsePage(request.query.page)));
+  });
+
+  router.get('/updates', (_request, response) => {
+    response.json({ items: listUpdatedChannels(database) });
   });
 
   router.post('/', (request, response) => {

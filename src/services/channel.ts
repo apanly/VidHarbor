@@ -1436,6 +1436,24 @@ export function listChannelsPage(
   }
 }
 
+export function listUpdatedChannels(
+  database: DatabaseConnection,
+): readonly Channel[] {
+  try {
+    const rows = database
+      .prepare(
+        `${CHANNEL_SELECT}
+         WHERE c.last_check_result = 'success'
+         ORDER BY c.last_check_started_at DESC, c.id DESC`,
+      )
+      .all() as ChannelRow[];
+    return rows.map(toChannel);
+  } catch (error) {
+    if (error instanceof BusinessError) throw error;
+    throw persistenceError();
+  }
+}
+
 export function getChannel(database: DatabaseConnection, channelId: number): Channel {
   validateChannelId(channelId);
   try {

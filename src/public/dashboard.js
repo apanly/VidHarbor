@@ -1,10 +1,7 @@
-import { renderPagination } from '/public/pagination.js';
-
 const errorRegion = document.querySelector('#page-error');
 const summary = document.querySelector('#channel-summary');
 const labels = { success: '检查成功', no_updates: '没有更新', failed: '检查失败' };
 const styles = { success: 'text-bg-success', no_updates: 'text-bg-secondary', failed: 'text-bg-danger' };
-const requestedPage = Number(new URLSearchParams(location.search).get('page') ?? '1');
 
 function showError(error) {
   errorRegion.textContent = `${error.code}: ${error.message}`;
@@ -12,7 +9,7 @@ function showError(error) {
 }
 
 async function load() {
-  const [channelResponse, notificationResponse, downloadResponse] = await Promise.all([fetch(`/api/channels?page=${requestedPage}`, { credentials: 'same-origin' }), fetch('/api/notifications?page=1', { credentials: 'same-origin' }), fetch('/api/downloads?page=1', { credentials: 'same-origin' })]);
+  const [channelResponse, notificationResponse, downloadResponse] = await Promise.all([fetch('/api/channels/updates', { credentials: 'same-origin' }), fetch('/api/notifications?page=1', { credentials: 'same-origin' }), fetch('/api/downloads?page=1', { credentials: 'same-origin' })]);
   const body = await channelResponse.json();
   const notifications = await notificationResponse.json();
   const downloads = await downloadResponse.json();
@@ -22,10 +19,9 @@ async function load() {
   const unreadCount = notifications.unreadCount;
   const runningCount = downloads.statusCounts.pending + downloads.statusCounts.running + downloads.statusCounts.downloading;
   const failedCount = downloads.statusCounts.failed + downloads.statusCounts.interrupted;
-  const totals = document.createElement('div'); totals.className = 'col-12'; totals.innerHTML = `<div class="alert alert-info">未读提醒：${unreadCount}；运行中任务：${runningCount}；失败/中断任务：${failedCount}</div>`; summary.append(totals);
+  const totals = document.createElement('div'); totals.className = 'col-12'; totals.innerHTML = `<div class="alert alert-info">未读提醒：${unreadCount}；进行中下载：${runningCount}；失败/中断下载：${failedCount}</div>`; summary.append(totals);
   if (body.items.length === 0) {
-    if (requestedPage > 1 && body.pagination.totalPages < requestedPage) { location.search = `?page=${Math.max(1, body.pagination.totalPages)}`; return; }
-    summary.append('尚未添加频道。');
+    summary.append('当前没有发现更新的频道。');
     return;
   }
   for (const channel of body.items) {
@@ -57,7 +53,6 @@ async function load() {
     column.append(card);
     summary.append(column);
   }
-  renderPagination(document.querySelector('#dashboard-pagination'), body.pagination, (page) => { location.search = `?page=${page}`; });
 }
 
 load().catch(() => showError({ code: 'NETWORK_ERROR', message: '无法连接服务端' }));

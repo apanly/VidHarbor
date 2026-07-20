@@ -26,6 +26,7 @@ const taskStatusClasses = Object.freeze({
 
 const activeStatuses = new Set(['queued', 'running']);
 const terminalStatuses = new Set(['succeeded', 'failed', 'cance\u006ced']);
+const terminalTaskLimit = 30;
 const errorRegion = document.querySelector('#page-error');
 
 function fixedLabel(labels, value, field) {
@@ -94,7 +95,8 @@ async function load() {
   }
 
   renderGroup(activeTasks, 'active-task-list', 'active-task-empty', 'active-task-count');
-  renderGroup(terminalTasks, 'terminal-task-list', 'terminal-task-empty', 'terminal-task-count');
+  terminalTasks.sort((left, right) => right.id - left.id);
+  renderGroup(terminalTasks.slice(0, terminalTaskLimit), 'terminal-task-list', 'terminal-task-empty', 'terminal-task-count');
 }
 
 load().catch((error) => showError(error instanceof Error || error?.code
