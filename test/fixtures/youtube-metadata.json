@@ -1,0 +1,42 @@
+{
+  "video": {
+    "extractor_key": "Youtube",
+    "id": "aB_12-cD345",
+    "title": "A complete ordinary video",
+    "upload_date": "20250717",
+    "webpage_url": "https://www.youtube.com/watch?v=aB_12-cD345",
+    "live_status": "not_live"
+  },
+  "short": {
+    "extractor_key": "Youtube",
+    "id": "sH_12-rT345",
+    "title": "A short",
+    "upload_date": "20250717",
+    "webpage_url": "https://www.youtube.com/shorts/sH_12-rT345",
+    "live_status": "not_live"
+  },
+  "live": {
+    "extractor_key": "Youtube",
+    "id": "lI_12-vE345",
+    "title": "A live stream",
+    "upload_date": "20250717",
+    "webpage_url": "https://www.youtube.com/watch?v=lI_12-vE345",
+    "live_status": "is_live"
+  },
+  "replay": {
+    "extractor_key": "Youtube",
+    "id": "rE_12-pL345",
+    "title": "A live replay",
+    "upload_date": "20250717",
+    "webpage_url": "https://www.youtube.com/watch?v=rE_12-pL345",
+    "live_status": "was_live"
+  },
+  "unknownStatus": {
+    "extractor_key": "Youtube",
+    "id": "uN_12-kN345",
+    "title": "Unknown status",
+    "upload_date": "20250717",
+    "webpage_url": "https://www.youtube.com/watch?v=uN_12-kN345",
+    "live_status": "post_live"
+  }
+}

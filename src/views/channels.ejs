@@ -1,0 +1,39 @@
+<%- include('partials/header') %>
+      <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
+        <h1>频道</h1>
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#channel-modal" data-channel-create>新增频道</button>
+      </div>
+      <section><div id="channel-list" class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4"></div><nav id="channel-pagination" class="list-pagination" aria-label="频道分页" hidden></nav></section>
+      <div class="modal fade" id="channel-modal" tabindex="-1" aria-labelledby="channel-modal-title" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <form id="channel-form" class="form-stack">
+              <div class="modal-header">
+                <h2 class="modal-title h5" id="channel-modal-title">新增频道</h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
+              </div>
+              <div class="modal-body">
+                <div class="mb-3"><label class="form-label" for="channel-url">频道地址</label><input class="form-control" id="channel-url" name="url" required><div class="form-text">支持 YouTube 频道和 Bilibili UP 主空间，例如 https://space.bilibili.com/3985676</div></div>
+                <div class="mb-3"><label class="form-label" for="channel-custom-name">自定义名称</label><input class="form-control" id="channel-custom-name" name="customName" required></div>
+                <div class="mb-3"><label class="form-label" for="channel-proxy">网络路径</label><select class="form-select" id="channel-proxy" name="proxyId"><option value="">直连</option></select></div>
+                <div class="mb-3"><label class="form-label" for="channel-check-interval">频道覆盖间隔（分钟）</label><input class="form-control" id="channel-check-interval" type="number" min="1" step="1" name="checkIntervalMinutes" placeholder="留空使用全局值"></div>
+                <div class="alert alert-danger" data-form-error hidden></div>
+              </div>
+              <div class="modal-footer">
+                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" type="submit" data-channel-submit>新增频道</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div class="modal fade" id="initial-sync-modal" tabindex="-1" aria-labelledby="initial-sync-title" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered"><form id="initial-sync-form" class="modal-content">
+          <div class="modal-header"><h2 class="modal-title h5" id="initial-sync-title">首次同步</h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+          <div class="modal-body"><label class="form-label" for="initial-sync-months">历史范围</label><select class="form-select" id="initial-sync-months" name="historyMonths"><option value="1">最近 1 个月</option><option value="3">最近 3 个月</option><option value="6">最近 6 个月</option><option value="12">最近 1 年</option></select><div class="alert alert-danger mt-3 mb-0" data-form-error hidden></div></div>
+          <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">取消</button><button class="btn btn-primary" type="submit">开始同步</button></div>
+        </form></div>
+      </div>
+    </main>
+    <script type="module" src="/public/channels.js"></script>
+<%- include('partials/footer') %>

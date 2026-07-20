@@ -1,0 +1,17 @@
+services:
+  app:
+    image: vidharbor:v0.1
+    build:
+      context: .
+    ports:
+      - "3002:3000"
+    environment:
+      DATABASE_PATH: /data/vidharbor.db
+      DOWNLOADS_MOUNT_PATH: /downloads
+    volumes:
+      - vidharbor-data:/data
+      - vidharbor-downloads:/downloads
+
+volumes:
+  vidharbor-data:
+  vidharbor-downloads:

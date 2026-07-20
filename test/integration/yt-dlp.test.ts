@@ -1,0 +1,426 @@
+import { access, chmod, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+
+import {
+  downloadMedia,
+  fetchChannelEntries,
+  fetchVideoMetadata,
+} from '../../src/yt-dlp.js';
+
+const executablePath = fileURLToPath(
+  new URL('../fixtures/fake-yt-dlp.mjs', import.meta.url),
+);
+
+beforeAll(async () => {
+  await chmod(executablePath, 0o755);
+});
+
+describe('yt-dlp argument protocol', () => {
+  it('passes fetch arguments as an array with one proxy option', async () => {
+    const proxyUrl = 'http://alice:s3cret@proxy.example:8080';
+    const [result] = await fetchChannelEntries({
+      executablePath,
+      url: 'fixture://echo',
+      proxyUrl,
+    });
+
+    expect(result).toEqual({
+      args: [
+        '--ignore-config',
+        '--js-runtimes',
+        'node',
+        '--socket-timeout',
+        '30',
+        '--dump-json',
+        '--proxy',
+        proxyUrl,
+        'fixture://echo',
+      ],
+    });
+  });
+
+  it('omits proxy and cookie options for direct fetches', async () => {
+    const [result] = await fetchChannelEntries({
+      executablePath,
+      url: 'fixture://echo',
+    });
+    const args = (result as { args: string[] }).args;
+
+    expect(args).not.toContain('--proxy');
+    expect(args.some((argument) => argument.includes('cookie'))).toBe(false);
+  });
+
+  it('disables playlist expansion for a single-resource probe', async () => {
+    const result = await fetchVideoMetadata({
+      executablePath,
+      url: 'fixture://echo',
+    });
+    const args = (result as { args: string[] }).args;
+
+    expect(args).toContain('--no-playlist');
+  });
+
+  it('passes the manual history boundary and stops after the first rejected entry', async () => {
+    const [result] = await fetchChannelEntries({
+      executablePath,
+      url: 'fixture://echo',
+      dateAfter: '20260618',
+    });
+    const args = (result as { args: string[] }).args;
+
+    expect(args).toContain('--dateafter');
+    expect(args).toContain('20260618');
+    expect(args).toContain('--break-on-reject');
+  });
+
+  it('keeps Bilibili space entries flat for explicit ordinary-video parsing', async () => {
+    const [result] = await fetchChannelEntries({
+      executablePath,
+      url: 'fixture://echo',
+      flatPlaylist: true,
+    });
+    const args = (result as { args: string[] }).args;
+
+    expect(args).toContain('--flat-playlist');
+    expect(args).not.toContain('--dateafter');
+  });
+
+  it('treats exit 101 as a normal date-boundary stop only for ranged fetches', async () => {
+    await expect(fetchChannelEntries({
+      executablePath,
+      url: 'fixture://date-boundary-reached',
+      dateAfter: '20260618',
+      allowEmpty: true,
+    })).resolves.toEqual([]);
+
+    await expect(fetchChannelEntries({
+      executablePath,
+      url: 'fixture://date-boundary-reached',
+      allowEmpty: true,
+    })).rejects.toThrow('yt-dlp exited with exit code 101');
+  });
+
+  it('uses the fixed download format, after-move output, and progress protocol', async () => {
+    const result = await downloadMedia({
+      executablePath,
+      url: 'fixture://echo',
+      outputTemplate: '/temporary/%(id)s.%(ext)s',
+    });
+
+    expect(result).toBe(
+      JSON.stringify({
+        args: [
+          '--ignore-config',
+          '--js-runtimes',
+          'node',
+          '--socket-timeout',
+          '30',
+          '--no-playlist',
+          '--format',
+          'bestvideo*+bestaudio/best',
+          '--progress',
+          '--newline',
+          '--progress-template',
+          'download:vidharbor-progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress.eta)s',
+          '--output',
+          '/temporary/%(id)s.%(ext)s',
+          '--print',
+          'after_move:filepath',
+          'fixture://echo',
+        ],
+      }),
+    );
+  });
+
+});
+
+describe('yt-dlp process results', () => {
+  it('cancels the complete download process tree', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-process-tree-'));
+    const pidPath = join(sandbox, 'child.pid');
+    process.env.VIDHARBOR_FAKE_CHILD_PID_PATH = pidPath;
+    const controller = new AbortController();
+    const operation = downloadMedia({
+      executablePath,
+      url: 'fixture://child-tree-download',
+      outputTemplate: '/temporary/%(id)s.%(ext)s',
+      signal: controller.signal,
+    }).catch((error: unknown) => error);
+
+    let childPid = 0;
+    try {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          await access(pidPath);
+          childPid = Number(await readFile(pidPath, 'utf8'));
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+      expect(childPid).toBeGreaterThan(0);
+      controller.abort();
+      const settled = await Promise.race([
+        operation.then(() => true),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 500)),
+      ]);
+      if (!settled) process.kill(childPid, 'SIGKILL');
+      expect(settled).toBe(true);
+      expect(() => process.kill(childPid, 0)).toThrow();
+      await expect(operation).resolves.toBeInstanceOf(Error);
+    } finally {
+      delete process.env.VIDHARBOR_FAKE_CHILD_PID_PATH;
+      if (childPid > 0) {
+        try {
+          process.kill(childPid, 'SIGKILL');
+        } catch {
+          // The process group cancellation already removed it.
+        }
+      }
+      await operation;
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces a process-group termination failure', async () => {
+    const controller = new AbortController();
+    const originalKill = process.kill.bind(process);
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid < 0) throw new Error('group kill denied');
+      return originalKill(pid, signal);
+    });
+    try {
+      const result = downloadMedia({
+        executablePath,
+        url: 'fixture://slow-download',
+        outputTemplate: '/temporary/%(id)s.%(ext)s',
+        signal: controller.signal,
+      });
+
+      controller.abort();
+
+      await expect(result).rejects.toThrow(
+        'yt-dlp process group termination failed: group kill denied',
+      );
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
+  it('returns every JSON line across chunks without counting empty end remainders', async () => {
+    await expect(
+      fetchChannelEntries({ executablePath, url: 'fixture://channel-success' }),
+    ).resolves.toEqual([{ id: 'first' }, { id: 'second' }]);
+  });
+
+  it('requires exactly one JSON line for a video probe', async () => {
+    await expect(
+      fetchVideoMetadata({ executablePath, url: 'fixture://video-success' }),
+    ).resolves.toEqual({ id: 'video' });
+    await expect(
+      fetchVideoMetadata({ executablePath, url: 'fixture://channel-success' }),
+    ).rejects.toThrow('produced multiple JSON values for a video probe');
+  });
+
+  it('reports download progress before the process exits', async () => {
+    const progressEvents: Array<{
+      progressPercent: number;
+      speedText: string | null;
+      etaSeconds: number | null;
+    }> = [];
+    let settled = false;
+    const operation = downloadMedia({
+      executablePath,
+      url: 'fixture://download-progress-before-exit',
+      outputTemplate: '/temporary/%(id)s.%(ext)s',
+      onProgress: (progress) => progressEvents.push(progress),
+    }).finally(() => {
+      settled = true;
+    });
+
+    for (let attempt = 0; attempt < 100 && progressEvents.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(settled).toBe(false);
+    expect(progressEvents).toEqual([
+      { progressPercent: 42.5, speedText: '1.2MiB/s', etaSeconds: 17 },
+    ]);
+    await expect(operation).resolves.toBe('/temporary/video.mp4');
+  });
+
+  it('parses yt-dlp human progress fields', async () => {
+    const progressEvents: Array<{
+      progressPercent: number;
+      speedText: string | null;
+      etaSeconds: number | null;
+    }> = [];
+
+    await downloadMedia({
+      executablePath,
+      url: 'fixture://download-human-progress',
+      outputTemplate: '/temporary/%(id)s.%(ext)s',
+      onProgress: (progress) => progressEvents.push(progress),
+    });
+
+    expect(progressEvents).toEqual([
+      { progressPercent: 7.8, speedText: '928.19KiB/s', etaSeconds: 93 },
+      { progressPercent: 100, speedText: null, etaSeconds: null },
+    ]);
+  });
+
+  it('rejects a negative fractional ETA', async () => {
+    await expect(downloadMedia({
+      executablePath,
+      url: 'fixture://download-negative-fractional-eta',
+      outputTemplate: '/temporary/%(id)s.%(ext)s',
+    })).rejects.toThrow('invalid yt-dlp progress line');
+  });
+
+  it('returns one after_move filepath without counting its empty end remainder', async () => {
+    await expect(
+      downloadMedia({
+        executablePath,
+        url: 'fixture://download-success',
+        outputTemplate: '/temporary/%(id)s.%(ext)s',
+      }),
+    ).resolves.toBe('/temporary/video.mp4');
+  });
+
+  it('rejects nonzero close and redacts then limits stderr without retrying direct', async () => {
+    const proxyUrl = 'http://alice:s3cret@proxy.example:8080';
+
+    await expect(
+      fetchChannelEntries({
+        executablePath,
+        url: 'fixture://nonzero',
+        proxyUrl,
+      }),
+    ).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(Error);
+      const message = (error as Error).message;
+      expect(message).toContain('exit code 3');
+      expect(message).toContain('http://***@proxy.example:8080');
+      expect(message).not.toContain('alice');
+      expect(message).not.toContain('s3cret');
+      expect(Buffer.byteLength(message, 'utf8')).toBeLessThanOrEqual(4096);
+      return true;
+    });
+  });
+
+  it('rejects termination by signal', async () => {
+    await expect(
+      fetchChannelEntries({ executablePath, url: 'fixture://signal' }),
+    ).rejects.toThrow('signal SIGTERM');
+  });
+
+  it('kills and rejects a fetch that exceeds the 15 minute process limit', async () => {
+    vi.useFakeTimers();
+    try {
+      const result = fetchChannelEntries({
+        executablePath,
+        url: 'fixture://hang',
+      });
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+      await expect(result).rejects.toThrow('timed out after 900000 ms');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('kills and rejects a download with no process output for 15 minutes', async () => {
+    vi.useFakeTimers();
+    try {
+      const result = downloadMedia({
+        executablePath,
+        url: 'fixture://slow-download',
+        outputTemplate: '/temporary/%(id)s.%(ext)s',
+      });
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+      await expect(result).rejects.toThrow('no output for 900000 ms');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('kills and rejects a cancelled download', async () => {
+    const controller = new AbortController();
+    const result = downloadMedia({
+      executablePath,
+      url: 'fixture://slow-download',
+      outputTemplate: '/temporary/%(id)s.%(ext)s',
+      signal: controller.signal,
+    });
+
+    controller.abort();
+
+    await expect(result).rejects.toThrow('yt-dlp download cancelled');
+  });
+
+  it('rejects malformed JSON even when the process exits zero', async () => {
+    await expect(
+      fetchChannelEntries({ executablePath, url: 'fixture://malformed' }),
+    ).rejects.toThrow('malformed JSON output');
+  });
+
+  it.each(['fixture://json-lf-empty-line', 'fixture://json-crlf-empty-line'])(
+    'rejects a complete empty JSON line from %s',
+    async (url) => {
+      await expect(
+        fetchChannelEntries({ executablePath, url }),
+      ).rejects.toThrow('malformed JSON output');
+    },
+  );
+
+  it('rejects missing JSON and filepath output', async () => {
+    await expect(
+      fetchChannelEntries({ executablePath, url: 'fixture://missing' }),
+    ).rejects.toThrow('produced no JSON output');
+    await expect(
+      downloadMedia({
+        executablePath,
+        url: 'fixture://missing',
+        outputTemplate: '/temporary/%(id)s.%(ext)s',
+      }),
+    ).rejects.toThrow('produced no after_move filepath');
+  });
+
+  it('rejects multiple after_move filepaths', async () => {
+    await expect(
+      downloadMedia({
+        executablePath,
+        url: 'fixture://multiple-downloads',
+        outputTemplate: '/temporary/%(id)s.%(ext)s',
+      }),
+    ).rejects.toThrow('produced multiple after_move filepaths');
+  });
+
+  it.each([
+    'fixture://download-lf-empty-line',
+    'fixture://download-crlf-empty-line',
+  ])('rejects a complete empty after_move line from %s', async (url) => {
+    await expect(
+      downloadMedia({
+        executablePath,
+        url,
+        outputTemplate: '/temporary/%(id)s.%(ext)s',
+      }),
+    ).rejects.toThrow('produced multiple after_move filepaths');
+  });
+
+  it('rejects a sole complete empty after_move line as missing output', async () => {
+    await expect(
+      downloadMedia({
+        executablePath,
+        url: 'fixture://download-only-empty-line',
+        outputTemplate: '/temporary/%(id)s.%(ext)s',
+      }),
+    ).rejects.toThrow('produced no after_move filepath');
+  });
+});

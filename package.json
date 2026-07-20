@@ -1,0 +1,29 @@
+{
+  "name": "vidharbor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json && npm run build:sass && cp node_modules/bootstrap/dist/js/bootstrap.bundle.min.js dist/public/bootstrap.bundle.min.js && cp src/public/*.js dist/public/ && mkdir -p dist/db/migrations dist/views && cp src/db/migrations/*.sql dist/db/migrations/ && cp -R src/views/. dist/views/",
+    "build:sass": "sass --quiet-deps --load-path=node_modules --no-source-map src/styles/main.scss dist/public/main.css",
+    "start": "node dist/server.js",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.11.1",
+    "ejs": "6.0.1",
+    "express": "5.2.1",
+    "marked": "18.0.6"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "24.13.3",
+    "bootstrap": "5.3.8",
+    "sass": "1.101.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

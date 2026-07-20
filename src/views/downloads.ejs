@@ -1,0 +1,66 @@
+<%- include('partials/header') %>
+      <div class="download-page-heading">
+        <div>
+          <p class="download-page-kicker">DOWNLOAD LIBRARY</p>
+          <h1>下载</h1>
+          <p class="download-page-summary">跟踪进行中的任务，查找并管理已经归档的内容。</p>
+        </div>
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#direct-download-modal">新建直下载</button>
+      </div>
+      <section class="download-workspace">
+        <div id="page-error" class="alert alert-danger" hidden></div>
+        <div class="download-controls">
+          <div class="download-tabs" role="tablist" aria-label="下载状态">
+            <button class="download-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed">已完成 <span data-download-count="completed">0</span></button>
+            <button class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active">下载中 <span data-download-count="active">0</span></button>
+            <button class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed">失败 <span data-download-count="failed">0</span></button>
+          </div>
+          <div class="download-search">
+            <label class="visually-hidden" for="download-search">搜索下载标题</label>
+            <input class="form-control" id="download-search" type="search" placeholder="搜索下载标题" autocomplete="off">
+          </div>
+        </div>
+        <div id="download-empty-state" class="download-empty-state" role="status" hidden>
+          <span class="download-empty-mark" aria-hidden="true">VH</span>
+          <h2 data-empty-title></h2>
+          <p data-empty-description></p>
+          <button class="btn btn-outline-primary" type="button" data-empty-action></button>
+        </div>
+        <div id="download-list" class="download-list" aria-live="polite"></div>
+        <nav id="download-pagination" class="list-pagination" aria-label="下载分页" hidden></nav>
+      </section>
+      <div class="modal fade" id="direct-download-modal" tabindex="-1" aria-labelledby="direct-download-title" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+          <form id="direct-download-form" class="modal-content form-stack">
+              <div class="modal-header">
+                <h2 class="modal-title h5" id="direct-download-title">单视频直下载</h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
+              </div>
+              <div class="modal-body">
+                <h3 class="h6">基础信息</h3>
+                <div class="mb-3"><label class="form-label" for="direct-url">视频地址</label><input class="form-control" id="direct-url" type="url" name="url" required><div class="form-text">支持 YouTube、Bilibili、Vimeo、X、Facebook 公开单视频或 Reel，以及抖音公开单视频的 HTTPS 地址；Bilibili 用 ?p=序号选择分 P，X 一帖多视频用 /video/序号选择。不展开主页、列表或合集，频道订阅支持 YouTube 和 Bilibili。</div></div>
+                <div class="mb-3"><label class="form-label" for="direct-proxy">网络路径</label><select class="form-select" id="direct-proxy" name="proxyId"><option value="">直连</option></select></div>
+                <h3 class="h6">媒体选项</h3>
+                <div class="mb-3"><label class="form-label" for="direct-media-type">媒体类型</label><select class="form-select" id="direct-media-type" name="mediaType"><option value="video">视频</option><option value="audio">音频</option></select></div>
+                <div class="mb-3"><label class="form-label" for="direct-format">格式</label><input class="form-control" id="direct-format" name="format" placeholder="留空使用默认"></div>
+                <div class="mb-3"><label class="form-label" for="direct-quality">质量</label><input class="form-control" id="direct-quality" name="quality" placeholder="例如 1080"></div>
+                <div class="mb-3"><label class="form-label" for="direct-codec">编码</label><input class="form-control" id="direct-codec" name="codec" placeholder="例如 mp4"></div>
+                <div class="mb-4"><label class="form-label" for="direct-filename-preset">文件名预设</label><input class="form-control" id="direct-filename-preset" name="filenamePreset" placeholder="留空使用视频 ID"></div>
+                <h3 class="h6">附加内容</h3>
+                <div class="mb-2 form-check"><input class="form-check-input" type="checkbox" name="writeSubtitles" id="writeSubtitles"><label class="form-check-label" for="writeSubtitles">字幕</label></div>
+                <div class="mb-4 form-check"><input class="form-check-input" type="checkbox" name="splitChapters" id="splitChapters"><label class="form-check-label" for="splitChapters">章节切分</label></div>
+                <h3 class="h6">时间裁剪</h3>
+                <div class="mb-3"><label class="form-label" for="direct-time-start">起始时间</label><input class="form-control" id="direct-time-start" name="timeRangeStart" placeholder="00:00:00"></div>
+                <div class="mb-3"><label class="form-label" for="direct-time-end">结束时间</label><input class="form-control" id="direct-time-end" name="timeRangeEnd" placeholder="00:10:00"></div>
+                <div class="alert alert-danger" data-form-error hidden></div>
+              </div>
+              <div class="modal-footer">
+                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" type="submit">开始下载</button>
+              </div>
+          </form>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/public/downloads.js"></script>
+<%- include('partials/footer') %>

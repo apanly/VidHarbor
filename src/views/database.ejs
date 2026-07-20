@@ -1,0 +1,28 @@
+<%- include('partials/header') %>
+      <div class="database-page-heading">
+        <div>
+          <p class="database-page-kicker">DATABASE EXPLORER</p>
+          <h1>数据库</h1>
+          <p class="database-page-summary">查看当前 SQLite 数据；查询仅支持只读 SQL。</p>
+        </div>
+      </div>
+      <div id="database-page-error" class="alert alert-danger" hidden></div>
+      <section class="database-workspace">
+        <aside class="database-table-panel" aria-labelledby="database-table-title">
+          <h2 id="database-table-title">数据表</h2>
+          <div id="database-table-list" class="list-group list-group-flush" aria-live="polite"></div>
+        </aside>
+        <div class="database-query-panel">
+          <form id="database-query-form" class="database-query-form">
+            <label class="form-label" for="database-sql">只读 SQL</label>
+            <textarea id="database-sql" class="form-control font-monospace" name="sql" rows="5" required placeholder="SELECT * FROM channels LIMIT 200"></textarea>
+            <button id="database-run" class="btn btn-primary" type="submit">执行查询</button>
+          </form>
+          <div id="database-result" class="database-result" aria-live="polite">
+            <div class="database-result-empty">选择数据表或输入查询。</div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/public/database.js"></script>
+<%- include('partials/footer') %>

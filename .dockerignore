@@ -1,0 +1,13 @@
+.git
+.cc-drive-agent
+node_modules
+dist
+coverage
+docs
+test
+data
+downloads
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+npm-debug.log*
