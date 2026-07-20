@@ -42,6 +42,7 @@ RUN npm_config_build_from_source=true npm ci
 
 COPY tsconfig.json ./
 COPY README.md ./
+COPY LICENSE ./
 COPY src ./src
 
 RUN npm run build \
@@ -73,6 +74,7 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/README.md ./README.md
+COPY --from=build --chown=node:node /app/LICENSE ./LICENSE
 
 RUN test "$(yt-dlp --version)" = "2026.07.04" \
     && file /usr/local/bin/yt-dlp | grep -q 'ARM aarch64' \

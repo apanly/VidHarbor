@@ -1,10 +1,10 @@
 services:
   app:
-    image: vidharbor:v0.1
+    image: vidharbor:v0.2
     build:
       context: .
     ports:
-      - "3002:3000"
+      - "127.0.0.1:3002:3000"
     environment:
       DATABASE_PATH: /data/vidharbor.db
       DOWNLOADS_MOUNT_PATH: /downloads

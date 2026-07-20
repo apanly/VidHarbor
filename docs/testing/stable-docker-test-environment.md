@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the stable Docker test environment for VidHarbor MVP acceptance. Use this environment for repeatable Docker-level verification before declaring issue #1 or #2 complete.
+This document defines the stable Docker test environment for VidHarbor release acceptance.
 
 The goal is not to prove every real network condition. The goal is to prove that the application image, container startup, SQLite persistence, download mount, health endpoint, and basic API contracts work in one fixed local Docker baseline.
 
@@ -13,7 +13,7 @@ Use this baseline unless a change explicitly updates this document:
 - Host Docker server: Linux `arm64`
 - Docker Engine: `29.4.0`
 - Docker Compose: `v5.1.2`
-- Application image tag: `vidharbor:v0.1`
+- Application image tag: `vidharbor:v0.2`
 - Container database path: `/data/vidharbor.db`
 - Container downloads mount: `/downloads`
 - Application port inside container: `3000`
@@ -26,6 +26,7 @@ This environment validates:
 
 - Docker image builds successfully from the repository.
 - Container starts with `yt-dlp`, `ffmpeg`, SQLite, `/data`, and `/downloads` available.
+- Runtime image contains the project `LICENSE`.
 - The home page responds successfully.
 - The read-only database page responds successfully.
 - JSON API reads settings successfully.
@@ -45,7 +46,7 @@ This environment does not validate:
 Run these before Docker acceptance:
 
 ```sh
-npm test -- --run
+npm test -- --run --maxWorkers=1
 npm run build
 docker version
 docker compose version
@@ -65,15 +66,18 @@ docker compose build
 Verify the image exists and is `linux/arm64`:
 
 ```sh
-docker image inspect vidharbor:v0.1 \
+docker image inspect vidharbor:v0.2 \
   --format 'Image={{.Id}} Architecture={{.Architecture}} Os={{.Os}} Size={{.Size}}'
+docker run --rm --entrypoint sh vidharbor:v0.2 \
+  -c "grep -q 'GNU AFFERO GENERAL PUBLIC LICENSE' /app/LICENSE"
 ```
 
 Expected contract:
 
 - `Architecture=arm64`
 - `Os=linux`
-- image tag `vidharbor:v0.1` exists
+- image tag `vidharbor:v0.2` exists
+- `/app/LICENSE` contains the AGPL license text
 
 ## Startup Smoke Test
 
@@ -86,7 +90,7 @@ CID=$(docker run --rm -d \
   -p 127.0.0.1::3000 \
   -v "$DATA_DIR:/data" \
   -v "$DL_DIR:/downloads" \
-  vidharbor:v0.1)
+  vidharbor:v0.2)
 PORT=$(docker port "$CID" 3000/tcp | sed 's/.*://')
 ```
 
@@ -146,7 +150,7 @@ CID1=$(docker run --rm -d \
   -p 127.0.0.1::3000 \
   -v "$DATA_DIR:/data" \
   -v "$DL_DIR:/downloads" \
-  vidharbor:v0.1)
+  vidharbor:v0.2)
 PORT1=$(docker port "$CID1" 3000/tcp | sed 's/.*://')
 ORIGIN1="http://127.0.0.1:${PORT1}"
 
@@ -160,7 +164,7 @@ done
 curl -fsS -X PUT "$ORIGIN1/api/settings" \
   -H 'Content-Type: application/json' \
   -H "Origin: $ORIGIN1" \
-  --data '{"downloadRoot":"/downloads","globalCheckIntervalMinutes":15}'
+  --data '{"downloadRoot":"/downloads","globalCheckIntervalMinutes":15,"downloadConcurrency":2}'
 
 docker stop "$CID1"
 ```
@@ -172,7 +176,7 @@ CID2=$(docker run --rm -d \
   -p 127.0.0.1::3000 \
   -v "$DATA_DIR:/data" \
   -v "$DL_DIR:/downloads" \
-  vidharbor:v0.1)
+  vidharbor:v0.2)
 PORT2=$(docker port "$CID2" 3000/tcp | sed 's/.*://')
 
 for i in $(seq 1 30); do
@@ -188,7 +192,7 @@ docker stop "$CID2"
 Expected API response after restart:
 
 ```json
-{"downloadRoot":"/downloads","globalCheckIntervalMinutes":15}
+{"downloadRoot":"/downloads","globalCheckIntervalMinutes":15,"downloadConcurrency":2}
 ```
 
 Also verify that the host data directory contains SQLite files:
@@ -218,7 +222,7 @@ Only clean resources that are known to belong to VidHarbor tests.
 Allowed cleanup:
 
 ```sh
-docker ps -a --filter ancestor=vidharbor:v0.1
+docker ps -a --filter ancestor=vidharbor:v0.2
 docker image prune -f
 ```
 
@@ -235,10 +239,10 @@ Do not remove unrelated running services, such as `helm`, `new-api`, `postgres`,
 
 A Docker test run passes this baseline when all of the following are true:
 
-- `npm test -- --run` passes.
+- `npm test -- --run --maxWorkers=1` passes.
 - `npm run build` passes.
 - `docker compose config` passes.
-- `docker compose build` produces `vidharbor:v0.1` for `linux/arm64`.
+- `docker compose build` produces `vidharbor:v0.2` for `linux/arm64`.
 - A fresh container starts and serves `/`, `/database`, and `/api/settings`.
 - Startup logs contain the required lifecycle events.
 - Settings persisted in `/data/vidharbor.db` survive container restart.

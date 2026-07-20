@@ -4,6 +4,8 @@ VidHarbor 是部署在可信内网中的单用户视频管理工具，用来关�
 
 项目的关键特征是：单用户、无登录、本地存储、由用户决定下载内容。
 
+当前版本为 `0.2.0`，仅支持 Linux ARM64。项目采用 GNU AGPL v3.0 许可证，正文见 `LICENSE`。
+
 ## 当前功能
 
 - 关注 YouTube 与 Bilibili 频道，人工同步历史视频，并按计划检查新视频。
@@ -81,16 +83,20 @@ VidHarbor 不会自动决定下载内容。频道检查只负责建立视频记�
 
 下载、频道、频道视频、频道检查记录和提醒列表均由服务端分页，每页固定 20 条。搜索和状态筛选先在服务端应用，再对结果分页。“全部标记已读”作用于全部提醒，不受当前页限制。
 
+总览中的 yt-dlp 任务快照只保存在当前服务进程内存中。服务或容器重启后，任务历史会清空、任务 ID 会重新从 1 开始；SQLite 中的下载、频道和提醒等业务记录不会因此删除。
+
 ## 启动与首次配置
 
-项目要求 Docker 与 Docker Compose，并固定 Node.js、yt-dlp、FFmpeg 和系统包版本。
+项目要求 Docker 与 Docker Compose，并固定 Node.js、yt-dlp、FFmpeg 和系统包版本。当前 Dockerfile 只支持 `linux/arm64`，适用于 ARM64 Linux 和使用 ARM64 容器的 Apple Silicon；`linux/amd64`、Intel Mac 和 x86_64 服务器尚未支持。
 
 ```sh
 docker compose up --build -d
 docker compose ps
 ```
 
-Compose 默认映射到 `http://localhost:3002`。容器健康检查请求总览页 `GET /`；健康只表示进程能够提供页面，不代表 YouTube、Bilibili 或代理可达。
+Compose 默认只监听 `127.0.0.1:3002`，访问地址为 `http://localhost:3002`。容器健康检查请求总览页 `GET /`；健康只表示进程能够提供页面，不代表 YouTube、Bilibili 或代理可达。
+
+如需从可信局域网中的其他设备访问，可将 `compose.yaml` 的端口映射明确改为 `"3002:3000"`，并同时使用宿主机防火墙限制来源。不要把该端口映射到公网。
 
 首次使用顺序：
 
@@ -116,6 +122,35 @@ Compose 默认映射到 `http://localhost:3002`。容器健康检查请求总览
 
 若使用 bind mount，需预先创建宿主机目录，并确认容器用户具有读取、写入和进入权限。持续监控 `/downloads` 的容量、权限和挂载状态。
 
+### 备份
+
+备份必须同时包含 `/data` 和 `/downloads`。以下命令先停止应用，再从当前容器挂载创建两个归档：
+
+```sh
+mkdir -p backups
+docker compose stop app
+docker run --rm \
+  --volumes-from "$(docker compose ps -aq app)" \
+  -v "$PWD/backups:/backup" \
+  alpine:3.22 \
+  sh -c 'tar czf /backup/vidharbor-data.tgz -C /data . && tar czf /backup/vidharbor-downloads.tgz -C /downloads .'
+docker compose start app
+```
+
+归档可能包含代理明文凭据和已下载媒体，应按敏感数据保存。恢复时应停止应用，并把两个归档分别解压到空的 `/data` 与 `/downloads` 挂载；不要在应用运行时替换 SQLite 文件。
+
+### 升级
+
+升级前先完成备份，然后执行：
+
+```sh
+git pull --ff-only
+docker compose up --build -d
+docker compose ps
+```
+
+启动时会自动执行数据库迁移。项目不保证旧版本能够读取新版本已经迁移的数据库，因此回滚代码时必须同时恢复升级前的 `/data` 备份。
+
 ## 失败如何处理
 
 - 频道检查失败会记录失败原因，不会伪装成“没有更新”，也不会阻断其他频道。
@@ -133,8 +168,23 @@ Compose 默认映射到 `http://localhost:3002`。容器健康检查请求总览
 
 ```sh
 npm ci
-npm test
+npm test -- --run --maxWorkers=1
 npm run build
 ```
 
 真实站点冒烟不属于默认测试。升级固定的 yt-dlp、FFmpeg、Node.js 基础镜像或原生依赖前，必须在目标 CPU 架构和实际部署网络中验证 YouTube 与 Bilibili 频道元数据、YouTube、Bilibili、Vimeo、X、Facebook 和抖音单项资源、需要 FFmpeg 合并的下载、原子归档，以及代理和直连路径。
+
+## 项目文档
+
+- 文档索引：`docs/README.md`
+- 贡献指南：`CONTRIBUTING.md`
+- 安全策略：`SECURITY.md`
+- 版本记录：`CHANGELOG.md`
+
+## 许可证
+
+Copyright (C) 2026 VidHarbor contributors.
+
+VidHarbor 使用 GNU Affero General Public License v3.0，SPDX 标识为 `AGPL-3.0-only`。如果修改本项目并通过网络向用户提供服务，必须按许可证要求向这些用户提供对应版本的完整源代码。具体权利和义务以 `LICENSE` 正文为准。
+
+通过网络提供 VidHarbor 服务的部署者负责向其用户提供实际运行版本的对应源代码；仅提供上游未修改版本的链接，不能替代对部署者修改内容的源码提供义务。
