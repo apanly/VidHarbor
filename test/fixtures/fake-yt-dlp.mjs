@@ -165,7 +165,9 @@ switch (url) {
   case 'fixture://hang':
     setInterval(() => {}, 1000);
     break;
-  case 'fixture://child-tree-download': {
+  case 'fixture://child-tree-download':
+  case 'fixture://child-tree-channel-fetch':
+  case 'fixture://child-tree-video-metadata': {
     const pidPath = process.env.VIDHARBOR_FAKE_CHILD_PID_PATH;
     if (pidPath === undefined) throw new Error('child PID path is required');
     const child = spawn(

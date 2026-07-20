@@ -9,7 +9,7 @@ import {
   validateDownloadFile,
   validateDownloadRoot,
 } from '../filesystem.js';
-import { fetchVideoMetadata } from '../yt-dlp.js';
+import type { YtDlpTaskManager } from '../yt-dlp-task-manager.js';
 
 export interface Download {
   readonly id: number;
@@ -42,7 +42,7 @@ export interface QueuedDownload {
 
 export interface DownloadQueue {
   enqueue(download: QueuedDownload): void;
-  cancel?(downloadId: number): void;
+  cancel(downloadId: number): Promise<void>;
 }
 
 export interface DownloadFile extends ValidatedDownloadFile {
@@ -575,7 +575,7 @@ export async function createChannelDownloads(
 
 export async function createDirectDownload(
   database: DatabaseConnection,
-  ytDlpExecutablePath: string,
+  taskManager: YtDlpTaskManager,
   downloadsMountPath: string,
   input: unknown,
   queue: DownloadQueue,
@@ -590,11 +590,13 @@ export async function createDirectDownload(
 
   let rawMetadata: unknown;
   try {
-    rawMetadata = await fetchVideoMetadata({
-      executablePath: ytDlpExecutablePath,
-      url: directInput.url,
-      ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
-    });
+    rawMetadata = await taskManager.submit({
+      type: 'metadata_probe',
+      execute: (operations) => operations.fetchVideoMetadata({
+        url: directInput.url,
+        ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
+      }),
+    }).result;
   } catch (error) {
     throw new BusinessError(
       'VIDEO_FETCH_FAILED',
@@ -722,7 +724,7 @@ export async function cancelDownload(
       )
       .run('download canceled by user', now.toISOString(), downloadId);
     if (result.changes === 1) {
-      queue.cancel?.(downloadId);
+      await queue.cancel(downloadId);
     }
   } catch (error) {
     if (error instanceof BusinessError) throw error;

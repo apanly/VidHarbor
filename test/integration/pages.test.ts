@@ -1,20 +1,34 @@
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
+import {
+  createScanner,
+  LanguageVariant,
+  SyntaxKind,
+  type SyntaxKind as TypeScriptSyntaxKind,
+} from 'typescript/unstable/ast';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApiRouter, createApp } from '../../src/app.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { formatFailureReason } from '../../src/redaction.js';
 import type { DownloadQueue } from '../../src/services/download.js';
+import {
+  YtDlpTaskManager,
+  type YtDlpTaskSnapshot,
+} from '../../src/yt-dlp-task-manager.js';
+
+const credentialedProxyUrl = 'http://alice:secret@proxy.example:8080';
 
 let sandbox: string;
 let database: DatabaseConnection;
 let baseUrl: string;
 let stopServer: (() => Promise<void>) | undefined;
+let taskManager: YtDlpTaskManager;
 
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-pages-'));
@@ -23,9 +37,23 @@ beforeEach(async () => {
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
 
-  const queue: DownloadQueue = { enqueue: () => undefined };
+  taskManager = new YtDlpTaskManager(
+    join(sandbox, 'yt-dlp'),
+    1,
+    (message) => formatFailureReason(message, [credentialedProxyUrl]),
+  );
+  const queue: DownloadQueue = {
+    enqueue: () => undefined,
+    cancel: async () => undefined,
+  };
   const app = createApp(
-    createApiRouter(database, downloadsMountPath, new RuntimeCoordinator(() => undefined), 'unused-yt-dlp', queue),
+    createApiRouter(
+      database,
+      downloadsMountPath,
+      new RuntimeCoordinator(() => undefined),
+      taskManager,
+      queue,
+    ),
   );
   app.set('views', new URL('../../src/views', import.meta.url).pathname);
   app.set('view engine', 'ejs');
@@ -47,6 +75,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopServer?.();
+  await taskManager.stop();
   database.close();
   await rm(sandbox, { recursive: true, force: true });
 });
@@ -62,6 +91,234 @@ function getPublicScript(name: string): Promise<string> {
   return readFile(join(process.cwd(), 'src/public', name), 'utf8');
 }
 
+async function schedulingTurn(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+interface FakeTaskNode {
+  className: string;
+  textContent: string;
+  hidden: boolean;
+  readonly dataset: Record<string, string>;
+  readonly children: FakeTaskNode[];
+  append(...children: FakeTaskNode[]): void;
+}
+
+function fakeTaskNode(): FakeTaskNode {
+  return {
+    className: '',
+    textContent: '',
+    hidden: false,
+    dataset: {},
+    children: [],
+    append(...children) {
+      this.children.push(...children);
+    },
+  };
+}
+
+function taskNodeText(node: FakeTaskNode): string {
+  return [node.textContent, ...node.children.map(taskNodeText)].join(' ');
+}
+
+function taskPageHelpers(
+  script: string,
+  fetchTaskPage: (input: string, init?: RequestInit) => Promise<Response>,
+): {
+  readonly nodes: ReadonlyMap<string, FakeTaskNode>;
+  readonly loaded: Promise<void>;
+} {
+  const ids = [
+    'page-error',
+    'active-task-list',
+    'active-task-empty',
+    'active-task-count',
+    'terminal-task-list',
+    'terminal-task-empty',
+    'terminal-task-count',
+  ];
+  const nodes = new Map(ids.map((id) => [id, fakeTaskNode()]));
+  nodes.get('page-error')!.hidden = true;
+  nodes.get('active-task-empty')!.hidden = true;
+  nodes.get('terminal-task-empty')!.hidden = true;
+  const fakeDocument = {
+    createElement: () => fakeTaskNode(),
+    querySelector: (selector: string) => nodes.get(selector.slice(1)),
+  };
+  const loadCallStart = script.indexOf('\nload().catch');
+  const executableSource = script.slice(script.indexOf('const taskTypeLabels'), loadCallStart);
+  const loadCall = script.slice(loadCallStart).trim();
+  const loaded = new Function(
+    'document',
+    'formatChinaTimestamp',
+    'fetch',
+    `${executableSource}; return ${loadCall}`,
+  )(
+    fakeDocument,
+    (value: string) => value,
+    fetchTaskPage,
+  ) as Promise<void>;
+  return { nodes, loaded };
+}
+
+async function typeScriptFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(entries.map(async (entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return typeScriptFiles(path);
+    return entry.isFile() && entry.name.endsWith('.ts') ? [path] : [];
+  }));
+  return nested.flat();
+}
+
+interface ScannedToken {
+  readonly kind: TypeScriptSyntaxKind;
+  readonly value: string;
+}
+
+interface ConstantExpression {
+  readonly kind: 'StringLiteral' | 'TemplateExpression' | 'BinaryExpression' | 'Identifier' | 'ParenthesizedExpression';
+  readonly value: string;
+  readonly next: number;
+}
+
+type ConstantBindings = ReadonlyMap<string, readonly number[]>;
+
+function scanTypeScript(source: string): ScannedToken[] {
+  const scanner = createScanner(true, LanguageVariant.Standard, source);
+  const tokens: ScannedToken[] = [];
+  const templateBraceDepths: number[] = [];
+
+  for (let kind = scanner.scan(); kind !== SyntaxKind.EndOfFile; kind = scanner.scan()) {
+    if (scanner.getTokenEnd() === scanner.getTokenStart()) {
+      scanner.resetTokenState(scanner.getTokenStart() + 1);
+      continue;
+    }
+    if (kind === SyntaxKind.TemplateHead) templateBraceDepths.push(0);
+
+    if (kind === SyntaxKind.OpenBraceToken && templateBraceDepths.length > 0) {
+      const last = templateBraceDepths.length - 1;
+      templateBraceDepths[last] += 1;
+    } else if (kind === SyntaxKind.CloseBraceToken && templateBraceDepths.length > 0) {
+      const last = templateBraceDepths.length - 1;
+      if (templateBraceDepths[last] === 0) {
+        kind = scanner.reScanTemplateToken(false);
+        if (kind === SyntaxKind.TemplateTail) templateBraceDepths.pop();
+      } else {
+        templateBraceDepths[last] -= 1;
+      }
+    }
+
+    tokens.push({ kind, value: scanner.getTokenValue() });
+  }
+
+  return tokens;
+}
+
+function constantStrings(
+  tokens: readonly ScannedToken[],
+  start: number,
+  bindings: ConstantBindings,
+  resolving = new Set<string>(),
+): ConstantExpression[] {
+  const token = tokens[start];
+  if (token === undefined) return [];
+
+  let expressions: ConstantExpression[] = [];
+  if (token.kind === SyntaxKind.StringLiteral
+    || token.kind === SyntaxKind.NoSubstitutionTemplateLiteral) {
+    expressions = [{ kind: 'StringLiteral', value: token.value, next: start + 1 }];
+  } else if (token.kind === SyntaxKind.TemplateHead) {
+    let partials = [{ value: token.value, next: start + 1 }];
+    while (partials.length > 0) {
+      const completed: ConstantExpression[] = [];
+      const continued: typeof partials = [];
+      for (const partial of partials) {
+        for (const interpolation of constantStrings(tokens, partial.next, bindings, resolving)) {
+          const templateToken = tokens[interpolation.next];
+          if (templateToken?.kind !== SyntaxKind.TemplateMiddle
+            && templateToken?.kind !== SyntaxKind.TemplateTail) continue;
+          const value = partial.value + interpolation.value + templateToken.value;
+          const next = interpolation.next + 1;
+          if (templateToken.kind === SyntaxKind.TemplateTail) {
+            completed.push({ kind: 'TemplateExpression', value, next });
+          } else {
+            continued.push({ value, next });
+          }
+        }
+      }
+      if (completed.length > 0) {
+        expressions = completed;
+        break;
+      }
+      partials = continued;
+    }
+  } else if (token.kind === SyntaxKind.OpenParenToken) {
+    expressions = constantStrings(tokens, start + 1, bindings, resolving)
+      .filter((nested) => tokens[nested.next]?.kind === SyntaxKind.CloseParenToken)
+      .map((nested) => ({
+        kind: 'ParenthesizedExpression',
+        value: nested.value,
+        next: nested.next + 1,
+      }));
+  } else if (token.kind === SyntaxKind.Identifier && !resolving.has(token.value)) {
+    expressions = (bindings.get(token.value) ?? []).flatMap((initializer) =>
+      constantStrings(
+        tokens,
+        initializer,
+        bindings,
+        new Set(resolving).add(token.value),
+      ).map((resolved) => ({
+        kind: 'Identifier' as const,
+        value: resolved.value,
+        next: start + 1,
+      })),
+    );
+  }
+
+  return expressions.flatMap((expression) => {
+    if (tokens[expression.next]?.kind !== SyntaxKind.PlusToken) return [expression];
+    return constantStrings(tokens, expression.next + 1, bindings, resolving).map((right) => ({
+      kind: 'BinaryExpression' as const,
+      value: expression.value + right.value,
+      next: right.next,
+    }));
+  });
+}
+
+function lowLevelYtDlpReferences(source: string): string[] {
+  const tokens = scanTypeScript(source);
+  const mutableBindings = new Map<string, number[]>();
+  for (let index = 0; index < tokens.length - 2; index += 1) {
+    if (tokens[index]?.kind === SyntaxKind.ConstKeyword
+      && tokens[index + 1]?.kind === SyntaxKind.Identifier) {
+      const name = tokens[index + 1]!.value;
+      for (let cursor = index + 2; cursor < tokens.length; cursor += 1) {
+        const kind = tokens[cursor]?.kind;
+        if (kind === SyntaxKind.EqualsToken) {
+          mutableBindings.set(name, [...(mutableBindings.get(name) ?? []), cursor + 1]);
+          break;
+        }
+        if (kind === SyntaxKind.CommaToken || kind === SyntaxKind.SemicolonToken) break;
+      }
+    }
+  }
+  const bindings: ConstantBindings = mutableBindings;
+  const references: string[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const expressions = constantStrings(tokens, index, bindings);
+    for (const expression of expressions) {
+      if (/^(?:\.\.?\/)*yt-dlp\.js$/.test(expression.value)) {
+        references.push(expression.value);
+      }
+    }
+  }
+
+  return [...new Set(references)];
+}
+
 describe('server-rendered pages', () => {
   it.each([
     ['/', '<h1 class="mb-4">总览</h1>'],
@@ -70,6 +327,7 @@ describe('server-rendered pages', () => {
     ['/channels/7', '频道详情'],
     ['/notifications', '新视频提醒'],
     ['/downloads', '<h1>下载</h1>'],
+    ['/yt-dlp-tasks', '<h1>任务状态</h1>'],
     ['/guide', '<h1>VidHarbor</h1>'],
   ] as const)('renders %s with the shared page shell', async (path, marker) => {
     const html = await getPage(path);
@@ -83,8 +341,9 @@ describe('server-rendered pages', () => {
     expect(html).toContain('href="/channels">频道</a>');
     expect(html).toContain('href="/notifications">提醒</a>');
     expect(html).toContain('href="/downloads">下载</a>');
+    expect(html).toContain('href="/yt-dlp-tasks">任务状态</a>');
     expect(html).toContain('href="/guide">说明</a>');
-    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/guide">说明<\/a>/);
+    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/yt-dlp-tasks">任务状态<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/guide">说明<\/a>/);
     expect(html).not.toContain('navbar-nav flex-row');
     expect(html).not.toContain('deployment-warning');
     expect(html).not.toContain('切勿直接暴露到公网');
@@ -546,6 +805,226 @@ describe('server-rendered pages', () => {
     expect(downloadsScript).not.toMatch(/get(?:FullYear|Month|Date|Hours|Minutes|Seconds)\(/);
   });
 
+  it('renders the task snapshot page with fixed tables, empty states, and refresh contract', async () => {
+    const html = await getPage('/yt-dlp-tasks');
+    const script = await getPublicScript('yt-dlp-tasks.js');
+
+    expect(html).toContain('<title>任务状态 · VidHarbor</title>');
+    expect(html).toContain('class="sidebar-link active" href="/yt-dlp-tasks">任务状态</a>');
+    expect(html).toContain('刷新浏览器可查看最新状态。');
+    expect(html).toContain('<h2 id="active-tasks-title">活动任务</h2>');
+    expect(html).toContain('<h2 id="terminal-tasks-title">已结束任务</h2>');
+    expect(html.match(/<table class="table yt-dlp-tasks-table align-middle mb-0">/g)).toHaveLength(2);
+    expect(html.match(/<th scope="col">任务 ID<\/th><th scope="col">任务类型<\/th><th scope="col">状态<\/th><th scope="col">创建时间<\/th><th scope="col">开始时间<\/th><th scope="col">结束时间<\/th><th scope="col">失败原因<\/th>/g)).toHaveLength(2);
+    expect(html).toContain('id="active-task-empty" class="yt-dlp-tasks-empty" role="status" hidden>当前没有排队或运行中的任务。</div>');
+    expect(html).toContain('id="terminal-task-empty" class="yt-dlp-tasks-empty" role="status" hidden>当前没有已结束的任务。</div>');
+    expect(html).toContain('<script type="module" src="/public/yt-dlp-tasks.js"></script>');
+
+    expect(script.match(/fetch\('\/api\/yt-dlp\/tasks'/g)).toHaveLength(1);
+    expect(script).toContain("fetch('/api/yt-dlp/tasks', { credentials: 'same-origin' })");
+    expect(script).toContain("if (!Array.isArray(body.tasks)) throw new Error('任务快照格式错误')");
+    expect(script).not.toMatch(/setInterval|setTimeout|WebSocket|EventSource/);
+    expect(script).not.toContain('/cancel');
+    expect(script).not.toContain('/api/downloads');
+    expect(script).not.toContain('/api/channels');
+
+    const helpers = taskPageHelpers(
+      script,
+      async () => new Response(JSON.stringify({ tasks: [] })),
+    );
+    await helpers.loaded;
+    expect(helpers.nodes.get('active-task-empty')).toMatchObject({ hidden: false });
+    expect(helpers.nodes.get('terminal-task-empty')).toMatchObject({ hidden: false });
+    expect(helpers.nodes.get('active-task-count')?.textContent).toBe('0');
+    expect(helpers.nodes.get('terminal-task-count')?.textContent).toBe('0');
+  });
+
+  it('renders all fixed task types and statuses from one redacted manager snapshot', async () => {
+    let finishRunning!: () => void;
+    let finishQueued!: () => void;
+    const runningGate = new Promise<void>((resolve) => {
+      finishRunning = resolve;
+    });
+    const queuedGate = new Promise<void>((resolve) => {
+      finishQueued = resolve;
+    });
+    const running = taskManager.submit({
+      type: 'media_download',
+      execute: () => runningGate,
+    });
+    const queued = taskManager.submit({
+      type: 'media_download',
+      execute: () => queuedGate,
+    });
+    const succeeded = taskManager.submit({
+      type: 'metadata_probe',
+      execute: async () => undefined,
+    });
+    const failed = taskManager.submit({
+      type: 'channel_initial_sync',
+      execute: async () => {
+        throw new Error(`request failed via ${credentialedProxyUrl}`);
+      },
+    });
+    void failed.result.catch(() => undefined);
+    const canceled = taskManager.submit({
+      type: 'channel_manual_check',
+      execute: async () => undefined,
+    });
+    void canceled.result.catch(() => undefined);
+    await taskManager.cancel(canceled.id);
+    const scheduled = taskManager.submit({
+      type: 'channel_scheduled_check',
+      execute: async () => undefined,
+    });
+
+    try {
+      await Promise.all([
+        succeeded.result,
+        failed.result.catch(() => undefined),
+        scheduled.result,
+      ]);
+      await schedulingTurn();
+
+      const helpers = taskPageHelpers(
+        await getPublicScript('yt-dlp-tasks.js'),
+        (input, init) => fetch(new URL(input, baseUrl), init),
+      );
+      await helpers.loaded;
+      const pageDom = [...helpers.nodes.values()].map(taskNodeText).join(' ');
+
+      for (const label of ['媒体下载', '元数据探测', '频道首次同步', '频道手动检查', '频道定时检查']) {
+        expect(pageDom).toContain(label);
+      }
+      for (const label of ['排队中', '运行中', '已成功', '已失败', '已取消']) {
+        expect(pageDom).toContain(label);
+      }
+      expect(pageDom).toContain('request failed via http://***@proxy.example:8080');
+      expect(pageDom).not.toContain(credentialedProxyUrl);
+      expect(pageDom).not.toContain('alice:secret');
+      expect(helpers.nodes.get('page-error')).toMatchObject({ hidden: true });
+      expect(helpers.nodes.get('active-task-count')?.textContent).toBe('2');
+      expect(helpers.nodes.get('terminal-task-count')?.textContent).toBe('4');
+      expect(helpers.nodes.get('active-task-empty')).toMatchObject({ hidden: true });
+      expect(helpers.nodes.get('terminal-task-empty')).toMatchObject({ hidden: true });
+    } finally {
+      finishRunning();
+      finishQueued();
+      await Promise.allSettled([running.result, queued.result]);
+    }
+  });
+
+  it.each([
+    ['type', '未知任务类型：unknown'],
+    ['status', '未知任务状态：unknown'],
+  ] as const)('shows task %s values outside the fixed page contract', async (field, message) => {
+    const task: YtDlpTaskSnapshot = {
+      id: 1,
+      type: 'media_download',
+      status: 'queued',
+      createdAt: '2026-07-19T00:00:00.000Z',
+      startedAt: null,
+      finishedAt: null,
+      failureReason: null,
+    };
+    const invalidTask = { ...task, [field]: 'unknown' };
+    const helpers = taskPageHelpers(
+      await getPublicScript('yt-dlp-tasks.js'),
+      async () => new Response(JSON.stringify({ tasks: [invalidTask] })),
+    );
+
+    await helpers.loaded;
+
+    expect(helpers.nodes.get('page-error')).toMatchObject({
+      hidden: false,
+      textContent: `前端错误：${message}`,
+    });
+    expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
+    expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);
+  });
+
+  it('shows API failures from the task page load path', async () => {
+    const helpers = taskPageHelpers(
+      await getPublicScript('yt-dlp-tasks.js'),
+      async () => new Response(
+        JSON.stringify({ error: { code: 'PERSISTENCE_ERROR', message: 'internal server error' } }),
+        { status: 500 },
+      ),
+    );
+
+    await helpers.loaded;
+    const pageDom = [...helpers.nodes.values()].map(taskNodeText).join(' ');
+
+    expect(helpers.nodes.get('page-error')?.hidden).toBe(false);
+    expect(pageDom).toContain('PERSISTENCE_ERROR: internal server error');
+    expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
+    expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);
+  });
+
+  it('shows fetch failures from the task page load path', async () => {
+    const helpers = taskPageHelpers(
+      await getPublicScript('yt-dlp-tasks.js'),
+      async () => Promise.reject(new Error('network unavailable')),
+    );
+
+    await helpers.loaded;
+
+    expect(helpers.nodes.get('page-error')).toMatchObject({
+      hidden: false,
+      textContent: '前端错误：network unavailable',
+    });
+    expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
+    expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);
+  });
+
+  it('keeps the task table reachable on narrow desktops and readable on mobile', async () => {
+    const styles = await readFile(
+      new URL('../../src/styles/main.scss', import.meta.url),
+      'utf8',
+    );
+
+    expect(styles).toMatch(/\.yt-dlp-tasks-table-shell\s*\{[^}]*overflow-x: auto;[^}]*overflow-y: hidden;/s);
+    expect(styles).toMatch(/\.yt-dlp-tasks-table\s*\{[^}]*min-width: 68rem;/s);
+    expect(styles).toMatch(/\.yt-dlp-task-failure\s*\{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/s);
+    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.yt-dlp-tasks-table thead\s*\{[^}]*display: none;/);
+    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.yt-dlp-tasks-table td\s*\{[^}]*grid-template-columns: 6\.5rem minmax\(0, 1fr\);[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/);
+    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.yt-dlp-task-failure\s*\{[^}]*min-width: 0;[^}]*max-width: none;/);
+  });
+
+  it('allows only the task manager to import the low-level yt-dlp module', async () => {
+    const sourceRoot = join(process.cwd(), 'src');
+    const legalImportPattern = /from '\.\/yt-dlp\.js'/g;
+    const violatingFiles: string[] = [];
+
+    for (const file of await typeScriptFiles(sourceRoot)) {
+      const source = await readFile(file, 'utf8');
+      const references = lowLevelYtDlpReferences(source);
+      if (references.length === 0) continue;
+
+      const projectPath = relative(process.cwd(), file);
+      const isLegalManagerImport = projectPath === 'src/yt-dlp-task-manager.ts'
+        && references.length === 1
+        && [...source.matchAll(legalImportPattern)].length === 1;
+      if (!isLegalManagerImport) violatingFiles.push(projectPath);
+    }
+
+    expect(violatingFiles.sort()).toEqual([]);
+  });
+
+  it.each([
+    ['static import', "import { run as renamed } from '../yt-dlp.js';"],
+    ['dynamic import', "const module = await import('../yt-dlp.js');"],
+    ['require', "const module = require('../yt-dlp.js');"],
+    ['renamed concatenated loader', "const load = require; load('../yt-' + 'dlp.js');"],
+    ['escaped string literal', String.raw`const module = await import('../yt\x2ddlp.js');`],
+    ['template expression', "const module = await import(`../yt-${'dlp'}.js`);"],
+    ['variable concatenation', "const suffix = 'dlp.js'; const module = await import('../yt-' + suffix);"],
+    ['typed variable concatenation', "const suffix: string = 'dlp.js'; const module = await import('../yt-' + suffix);"],
+    ['same-name scoped variable', "{ const suffix = 'safe.js'; } { const suffix = 'dlp.js'; import('../yt-' + suffix); }"],
+  ])('rejects a low-level yt-dlp bypass using %s', (_name, source) => {
+    expect(lowLevelYtDlpReferences(source)).toEqual(['../yt-dlp.js']);
+  });
+
   it('keeps download cards readable across desktop and mobile widths', async () => {
     const styles = await readFile(
       new URL('../../src/styles/main.scss', import.meta.url),
@@ -597,7 +1076,7 @@ describe('server-rendered pages', () => {
     expect(downloadsScript).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
   });
 
-  it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/downloads', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {
+  it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/downloads', '/yt-dlp-tasks', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {
     const html = await getPage(path);
 
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { access, chmod, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { Server } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -12,11 +12,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../../src/config.js';
 import { openDatabase } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { ChannelScheduler } from '../../src/scheduler.js';
 import {
   startServer,
   type LifecycleLogRecord,
   type RunningServer,
 } from '../../src/server.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const sandboxes: string[] = [];
 const runningServers: RunningServer[] = [];
@@ -454,6 +456,14 @@ describe('server lifecycle', () => {
   });
 
   it('removes temporary listen listeners when listening fails', async () => {
+    let taskManager: YtDlpTaskManager | undefined;
+    const originalManagerStop = YtDlpTaskManager.prototype.stop;
+    const managerStop = vi
+      .spyOn(YtDlpTaskManager.prototype, 'stop')
+      .mockImplementation(function (this: YtDlpTaskManager) {
+        taskManager = this;
+        return originalManagerStop.call(this);
+      });
     const blocker = createNetServer();
     await new Promise<void>((resolve, reject) => {
       blocker.once('error', reject);
@@ -474,6 +484,13 @@ describe('server lifecycle', () => {
       const httpServer = once.mock.instances[listeningCall] as Server;
       expect(listenerNames(httpServer, 'listening')).not.toContain('onListening');
       expect(listenerNames(httpServer, 'error')).not.toContain('onError');
+      expect(managerStop).toHaveBeenCalledTimes(1);
+      expect(() =>
+        taskManager?.submit({
+          type: 'metadata_probe',
+          execute: async () => undefined,
+        }),
+      ).toThrow('yt-dlp task manager is stopping');
     } finally {
       await new Promise<void>((resolve, reject) => {
         blocker.close((error) => (error === undefined ? resolve() : reject(error)));
@@ -495,13 +512,33 @@ describe('server lifecycle', () => {
   });
 
   it('stops scheduling and HTTP before waiting for worker idle and closing the database', async () => {
+    let taskManager: YtDlpTaskManager | undefined;
+    const originalManagerStop = YtDlpTaskManager.prototype.stop;
+    const managerStop = vi
+      .spyOn(YtDlpTaskManager.prototype, 'stop')
+      .mockImplementation(function (this: YtDlpTaskManager) {
+        taskManager = this;
+        return originalManagerStop.call(this);
+      });
     const config = await createConfig();
     const records: LifecycleLogRecord[] = [];
     const server = await startServer(config, (record) => records.push(record));
     runningServers.push(server);
 
-    await stop(server);
+    const firstStop = server.stop();
+    const secondStop = server.stop();
+    expect(secondStop).toBe(firstStop);
+    await firstStop;
+    runningServers.splice(runningServers.indexOf(server), 1);
 
+    expect(managerStop).toHaveBeenCalledTimes(1);
+    expect(taskManager).toBeDefined();
+    expect(() =>
+      taskManager?.submit({
+        type: 'metadata_probe',
+        execute: async () => undefined,
+      }),
+    ).toThrow('yt-dlp task manager is stopping');
     expect(records.slice(-4).map((record) => record.event)).toEqual([
       'scheduler_stopped',
       'http_stopped',
@@ -509,6 +546,28 @@ describe('server lifecycle', () => {
       'database_closed',
     ]);
     await expect(fetch(`http://127.0.0.1:${server.port}/`)).rejects.toThrow();
+  });
+
+  it('starts task cancellation before waiting for scheduler shutdown', async () => {
+    let releaseScheduler: (() => void) | undefined;
+    const schedulerReleased = new Promise<void>((resolve) => {
+      releaseScheduler = resolve;
+    });
+    const originalSchedulerStop = ChannelScheduler.prototype.stop;
+    vi.spyOn(ChannelScheduler.prototype, 'stop').mockImplementation(async function () {
+      await originalSchedulerStop.call(this);
+      await schedulerReleased;
+    });
+    const managerStop = vi.spyOn(YtDlpTaskManager.prototype, 'stop');
+    const config = await createConfig();
+    const server = await startServer(config, () => undefined);
+    runningServers.push(server);
+
+    const stopping = server.stop();
+    await vi.waitFor(() => expect(managerStop).toHaveBeenCalledTimes(1));
+    releaseScheduler?.();
+    await stopping;
+    runningServers.splice(runningServers.indexOf(server), 1);
   });
 
   it('closes active download event streams during shutdown', async () => {
@@ -533,7 +592,113 @@ describe('server lifecycle', () => {
     await expect(reader.read()).resolves.toMatchObject({ done: true });
   });
 
-  it('waits for an accepted initial synchronization before closing the database', async () => {
+  it('keeps startup download concurrency fixed, cancels running and queued downloads, and resets manager state on restart', async () => {
+    const config = await createConfig();
+    const database = openDatabase(config.databasePath);
+    migrateDatabase(database);
+    database
+      .prepare('UPDATE settings SET download_concurrency = 1 WHERE id = 1')
+      .run();
+    database.close();
+
+    const server = await startServer(config, () => undefined);
+    runningServers.push(server);
+    const changedSettings = openDatabase(config.databasePath);
+    changedSettings
+      .prepare('UPDATE settings SET download_concurrency = 2 WHERE id = 1')
+      .run();
+    changedSettings.close();
+
+    const binPath = process.env.PATH?.split(':')[0];
+    if (binPath === undefined) throw new Error('missing test bin path');
+    await writeFile(
+      join(binPath, 'yt-dlp'),
+      `#!/usr/bin/env node
+import { writeFile } from 'node:fs/promises';
+const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  process.stdout.write('2026.07.04\\n');
+  process.exit(0);
+}
+const url = args.at(-1);
+const id = url.split('/').at(-1);
+if (args.includes('--dump-json')) {
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Youtube', id, title: 'Lifecycle ' + id,
+    upload_date: '20260717',
+    webpage_url: 'https://www.youtube.com/watch?v=' + id,
+    live_status: 'not_live'
+  }) + '\\n');
+  process.exit(0);
+}
+await writeFile(${JSON.stringify(config.downloadsMountPath)} + '/' + id + '.started', '');
+setInterval(() => {}, 1000);
+`,
+      'utf8',
+    );
+    await chmod(join(binPath, 'yt-dlp'), 0o755);
+
+    const origin = `http://127.0.0.1:${server.port}`;
+    const submit = (id: string) =>
+      fetch(`${origin}/api/downloads/direct`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin },
+        body: JSON.stringify(directInput(`https://youtu.be/${id}`, null)),
+      });
+    const firstId = 'abcdefghijk';
+    const secondId = 'lmnopqrstuv';
+    expect((await submit(firstId)).status).toBe(202);
+    expect((await submit(secondId)).status).toBe(202);
+
+    let tasks: Array<{ id: number; type: string; status: string }> = [];
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const snapshot = (await fetch(`${origin}/api/yt-dlp/tasks`).then((response) =>
+        response.json()
+      )) as { tasks: typeof tasks };
+      tasks = snapshot.tasks;
+      if (
+        tasks.some((task) => task.type === 'media_download' && task.status === 'running') &&
+        tasks.some((task) => task.type === 'media_download' && task.status === 'queued')
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(
+      tasks.filter((task) => task.type === 'media_download').map((task) => task.status),
+    ).toEqual(['running', 'queued']);
+    await expect(access(join(config.downloadsMountPath, `${firstId}.started`))).resolves.toBeUndefined();
+    await expect(access(join(config.downloadsMountPath, `${secondId}.started`))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+
+    await stop(server);
+    const persisted = openDatabase(config.databasePath);
+    expect(
+      persisted.prepare('SELECT status FROM downloads ORDER BY id').pluck().all(),
+    ).toEqual(['canceled', 'canceled']);
+    persisted.close();
+
+    const restarted = await startServer(config, () => undefined);
+    runningServers.push(restarted);
+    const restartedOrigin = `http://127.0.0.1:${restarted.port}`;
+    await expect(
+      fetch(`${restartedOrigin}/api/yt-dlp/tasks`).then((response) => response.json()),
+    ).resolves.toEqual({ tasks: [] });
+    const restartedResponse = await fetch(`${restartedOrigin}/api/downloads/direct`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: restartedOrigin },
+      body: JSON.stringify(directInput('https://youtu.be/zyxwvutsrqp', null)),
+    });
+    expect(restartedResponse.status).toBe(202);
+    const restartedTasks = (await fetch(`${restartedOrigin}/api/yt-dlp/tasks`).then(
+      (response) => response.json(),
+    )) as { tasks: Array<{ id: number }> };
+    expect(restartedTasks.tasks[0]?.id).toBe(1);
+    await stop(restarted);
+  });
+
+  it('cancels an accepted initial synchronization process group and finishes its database callback before close', async () => {
     const config = await createConfig();
     const database = openDatabase(config.databasePath);
     migrateDatabase(database);
@@ -545,19 +710,20 @@ describe('server lifecycle', () => {
     runningServers.push(server);
 
     const startedPath = join(config.downloadsMountPath, 'sync.started');
-    const releasePath = join(config.downloadsMountPath, 'sync.release');
+    const childPidPath = join(config.downloadsMountPath, 'sync-child.pid');
     const binPath = process.env.PATH?.split(':')[0];
     if (binPath === undefined) throw new Error('missing test bin path');
     await writeFile(
       join(binPath, 'yt-dlp'),
       `#!/usr/bin/env node
-import { access, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+  stdio: 'ignore',
+});
+await writeFile(${JSON.stringify(childPidPath)}, String(child.pid));
 await writeFile(${JSON.stringify(startedPath)}, '');
-for (;;) {
-  try { await access(${JSON.stringify(releasePath)}); break; }
-  catch { await new Promise((resolve) => setTimeout(resolve, 5)); }
-}
-process.exit(101);
+setInterval(() => {}, 1000);
 `,
       'utf8',
     );
@@ -592,19 +758,30 @@ process.exit(101);
       }
     }
 
-    let stopped = false;
-    const stopping = stop(server).then(() => {
-      stopped = true;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(stopped).toBe(false);
-
-    await writeFile(releasePath, '');
-    await stopping;
+    const childPid = Number(await readFile(childPidPath, 'utf8'));
+    expect(Number.isSafeInteger(childPid)).toBe(true);
+    await stop(server);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        process.kill(childPid, 0);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      } catch (error) {
+        expect(error).toMatchObject({ code: 'ESRCH' });
+        break;
+      }
+    }
+    expect(() => process.kill(childPid, 0)).toThrow(
+      expect.objectContaining({ code: 'ESRCH' }),
+    );
     const persisted = openDatabase(config.databasePath);
     expect(
-      persisted.prepare('SELECT initial_sync_status FROM channels WHERE id = ?').pluck().get(saved.channel.id),
-    ).toBe('succeeded');
+      persisted
+        .prepare('SELECT initial_sync_status, initial_sync_error FROM channels WHERE id = ?')
+        .get(saved.channel.id),
+    ).toMatchObject({
+      initial_sync_status: 'failed',
+      initial_sync_error: expect.stringContaining('cancel'),
+    });
     persisted.close();
   });
 

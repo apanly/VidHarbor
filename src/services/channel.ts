@@ -21,7 +21,11 @@ import {
   parseYouTubeVideoMetadata,
   type YouTubeVideoMetadata,
 } from '../youtube.js';
-import { fetchChannelEntries, fetchVideoMetadata } from '../yt-dlp.js';
+import type {
+  YtDlpOperations,
+  YtDlpTaskManager,
+} from '../yt-dlp-task-manager.js';
+import { isYtDlpTaskCancellationError } from '../yt-dlp-task-cancellation.js';
 
 export interface Channel {
   readonly id: number;
@@ -171,7 +175,6 @@ interface InitialConfiguration {
 
 interface PreparedInitialSync {
   readonly channelId: number;
-  readonly ytDlpExecutablePath: string;
   readonly startedAt: Date;
   readonly historyMonths: number;
   readonly row: {
@@ -412,7 +415,7 @@ function loadInitialConfiguration(
   }
 }
 
-function failureReason(error: BusinessError, proxyUrl: string | undefined): string {
+function failureReason(error: Error, proxyUrl: string | undefined): string {
   return formatFailureReason(
     error.message,
     proxyUrl === undefined ? [] : [proxyUrl],
@@ -956,7 +959,7 @@ function insertSynchronizedChannel(
 
 async function completeChannelCreation(
   database: DatabaseConnection,
-  ytDlpExecutablePath: string,
+  operations: YtDlpOperations,
   channelInput: ChannelInput,
   source: ChannelSource,
   configuration: InitialConfiguration,
@@ -968,8 +971,7 @@ async function completeChannelCreation(
 ): Promise<CreateChannelResult> {
   let values: readonly unknown[];
   try {
-    values = await fetchChannelEntries({
-      executablePath: ytDlpExecutablePath,
+    values = await operations.fetchChannelEntries({
       url: source.fetchUrl,
       ...(configuration.proxyUrl === undefined
         ? {}
@@ -988,6 +990,7 @@ async function completeChannelCreation(
       businessError,
       configuration.proxyUrl,
     );
+    if (isYtDlpTaskCancellationError(error)) throw error;
     throw businessError;
   }
 
@@ -999,8 +1002,7 @@ async function completeChannelCreation(
       startedAt,
       earliestPublishedDate,
       (url) =>
-        fetchVideoMetadata({
-          executablePath: ytDlpExecutablePath,
+        operations.fetchVideoMetadata({
           url,
           ...(configuration.proxyUrl === undefined
             ? {}
@@ -1018,6 +1020,7 @@ async function completeChannelCreation(
       businessError,
       configuration.proxyUrl,
     );
+    if (isYtDlpTaskCancellationError(error)) throw error;
     throw businessError;
   }
 
@@ -1132,7 +1135,6 @@ export function saveChannel(
 
 function prepareInitialSync(
   database: DatabaseConnection,
-  ytDlpExecutablePath: string,
   channelId: number,
   input: unknown,
   startedAt = new Date(),
@@ -1191,7 +1193,6 @@ function prepareInitialSync(
 
   return {
     channelId,
-    ytDlpExecutablePath,
     startedAt,
     historyMonths,
     row,
@@ -1203,10 +1204,10 @@ function prepareInitialSync(
 async function completeInitialSync(
   database: DatabaseConnection,
   prepared: PreparedInitialSync,
+  operations: YtDlpOperations,
 ): Promise<CreateChannelResult> {
   const {
     channelId,
-    ytDlpExecutablePath,
     startedAt,
     historyMonths,
     row,
@@ -1219,7 +1220,7 @@ async function completeInitialSync(
   try {
     return await completeChannelCreation(
       database,
-      ytDlpExecutablePath,
+      operations,
       {
         url: row.source_url,
         customName: row.custom_name,
@@ -1235,8 +1236,11 @@ async function completeInitialSync(
       earliestPublishedDate,
     );
   } catch (error) {
-    const businessError = error instanceof BusinessError ? error : persistenceError();
-    const reason = failureReason(businessError, configuration.proxyUrl);
+    const failure =
+      error instanceof BusinessError || isYtDlpTaskCancellationError(error)
+        ? error
+        : persistenceError();
+    const reason = failureReason(failure, configuration.proxyUrl);
     try {
       database
         .prepare(
@@ -1248,13 +1252,13 @@ async function completeInitialSync(
     } catch {
       throw persistenceError();
     }
-    throw businessError;
+    throw failure;
   }
 }
 
 export function acceptInitialChannelSync(
   database: DatabaseConnection,
-  ytDlpExecutablePath: string,
+  taskManager: YtDlpTaskManager,
   taskQueue: InitialSyncTaskQueue,
   channelId: number,
   input: unknown,
@@ -1262,37 +1266,35 @@ export function acceptInitialChannelSync(
 ): AcceptedChannelCreation {
   const prepared = prepareInitialSync(
     database,
-    ytDlpExecutablePath,
     channelId,
     input,
     startedAt,
   );
-  taskQueue.trackInitialSync(completeInitialSync(database, prepared));
+  const task = taskManager.submit({
+    type: 'channel_initial_sync',
+    execute: (operations) => completeInitialSync(database, prepared, operations),
+  });
+  taskQueue.trackInitialSync(task.result);
   return { accepted: true };
 }
 
 export function initialSyncChannel(
   database: DatabaseConnection,
-  ytDlpExecutablePath: string,
+  taskManager: YtDlpTaskManager,
   channelId: number,
   input: unknown,
   startedAt = new Date(),
 ): Promise<CreateChannelResult> {
-  return completeInitialSync(
-    database,
-    prepareInitialSync(
-      database,
-      ytDlpExecutablePath,
-      channelId,
-      input,
-      startedAt,
-    ),
-  );
+  const prepared = prepareInitialSync(database, channelId, input, startedAt);
+  return taskManager.submit({
+    type: 'channel_initial_sync',
+    execute: (operations) => completeInitialSync(database, prepared, operations),
+  }).result;
 }
 
-export async function checkChannel(
+async function executeChannelCheck(
   database: DatabaseConnection,
-  ytDlpExecutablePath: string,
+  operations: YtDlpOperations,
   channelId: number,
   startedAt = new Date(),
 ): Promise<CheckChannelResult> {
@@ -1322,8 +1324,7 @@ export async function checkChannel(
 
   let values: readonly unknown[];
   try {
-    values = await fetchChannelEntries({
-      executablePath: ytDlpExecutablePath,
+    values = await operations.fetchChannelEntries({
       url: source.fetchUrl,
       ...(channel.proxyUrl === undefined
         ? {}
@@ -1339,6 +1340,7 @@ export async function checkChannel(
       error instanceof Error ? error.message : 'channel fetch failed',
     );
     recordScheduledFailure(database, channel, checkId, businessError);
+    if (isYtDlpTaskCancellationError(error)) throw error;
     throw businessError;
   }
 
@@ -1350,8 +1352,7 @@ export async function checkChannel(
       startedAt,
       earliestPublishedDate,
       (url) =>
-        fetchVideoMetadata({
-          executablePath: ytDlpExecutablePath,
+        operations.fetchVideoMetadata({
           url,
           ...(channel.proxyUrl === undefined
             ? {}
@@ -1365,6 +1366,7 @@ export async function checkChannel(
         ? error
         : asChannelMetadataError('channel metadata is invalid');
     recordScheduledFailure(database, channel, checkId, businessError);
+    if (isYtDlpTaskCancellationError(error)) throw error;
     throw businessError;
   }
 
@@ -1376,6 +1378,32 @@ export async function checkChannel(
     recordScheduledFailure(database, channel, checkId, businessError);
     throw businessError;
   }
+}
+
+export function checkChannel(
+  database: DatabaseConnection,
+  taskManager: YtDlpTaskManager,
+  channelId: number,
+  startedAt = new Date(),
+): Promise<CheckChannelResult> {
+  return taskManager.submit({
+    type: 'channel_manual_check',
+    execute: (operations) =>
+      executeChannelCheck(database, operations, channelId, startedAt),
+  }).result;
+}
+
+export function checkScheduledChannel(
+  database: DatabaseConnection,
+  taskManager: YtDlpTaskManager,
+  channelId: number,
+  startedAt = new Date(),
+): Promise<CheckChannelResult> {
+  return taskManager.submit({
+    type: 'channel_scheduled_check',
+    execute: (operations) =>
+      executeChannelCheck(database, operations, channelId, startedAt),
+  }).result;
 }
 
 export function listChannels(database: DatabaseConnection): Channel[] {

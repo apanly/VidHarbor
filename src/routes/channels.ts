@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { DatabaseConnection } from '../db/client.js';
 import { BusinessError } from '../errors.js';
 import { parsePage, parseQuery } from '../http/pagination.js';
+import type { RuntimeCoordinator } from '../runtime.js';
 import {
   checkChannel,
   deleteChannel,
@@ -15,8 +16,11 @@ import {
   acceptInitialChannelSync,
   saveChannel,
   updateChannel,
-  type InitialSyncTaskQueue,
 } from '../services/channel.js';
+import {
+  isYtDlpTaskCancellationError,
+  type YtDlpTaskManager,
+} from '../yt-dlp-task-manager.js';
 
 function parseChannelId(value: string): number {
   if (!/^[1-9]\d*$/.test(value)) {
@@ -32,10 +36,24 @@ function parseChannelId(value: string): number {
 
 export function createChannelsRouter(
   database: DatabaseConnection,
-  ytDlpExecutablePath: string,
-  initialSyncTaskQueue: InitialSyncTaskQueue,
+  taskManager: YtDlpTaskManager,
+  runtime: RuntimeCoordinator,
 ): Router {
   const router = Router();
+  const initialSyncTaskQueue = {
+    trackInitialSync(task: Promise<unknown>): void {
+      void task.catch((error: unknown) => {
+        // A canceled task has already converged its manager and channel state.
+        if (
+          !isYtDlpTaskCancellationError(error) &&
+          (!(error instanceof BusinessError) ||
+            error.code === 'PERSISTENCE_ERROR')
+        ) {
+          runtime.reportError(error);
+        }
+      });
+    },
+  };
 
   router.get('/', (request, response) => {
     response.json(listChannelsPage(database, parsePage(request.query.page)));
@@ -49,7 +67,7 @@ export function createChannelsRouter(
     response.status(202).json(
       acceptInitialChannelSync(
         database,
-        ytDlpExecutablePath,
+        taskManager,
         initialSyncTaskQueue,
         parseChannelId(request.params.id),
         request.body,
@@ -112,7 +130,7 @@ export function createChannelsRouter(
     response.status(202).json(
       await checkChannel(
         database,
-        ytDlpExecutablePath,
+        taskManager,
         parseChannelId(request.params.id),
       ),
     );

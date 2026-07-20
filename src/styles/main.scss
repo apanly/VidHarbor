@@ -1135,6 +1135,98 @@ body {
   text-overflow: ellipsis;
 }
 
+.yt-dlp-tasks-heading {
+  margin-bottom: 1.5rem;
+}
+
+.yt-dlp-tasks-heading h1 {
+  margin-bottom: 0.35rem;
+  color: #172033;
+  font-size: clamp(2.2rem, 5vw, 3.8rem);
+  font-weight: 900;
+  letter-spacing: -0.055em;
+}
+
+.yt-dlp-tasks-heading > p:last-child {
+  margin: 0;
+  color: #64748b;
+}
+
+.yt-dlp-tasks-kicker {
+  margin-bottom: 0.35rem;
+  color: #0f766e;
+  font-size: 0.75rem;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+}
+
+.yt-dlp-tasks-section {
+  margin-top: 1.5rem;
+}
+
+.yt-dlp-tasks-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+
+.yt-dlp-tasks-section-heading h2 {
+  margin: 0;
+  color: #273449;
+  font-size: 1.15rem;
+  font-weight: 850;
+}
+
+.yt-dlp-tasks-table-shell {
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: bootstrap.$border-width solid rgba(15, 23, 42, 0.1);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 0.8rem 2rem rgba(15, 23, 42, 0.06);
+}
+
+.yt-dlp-tasks-table {
+  min-width: 68rem;
+}
+
+.yt-dlp-tasks-table th {
+  color: #475569;
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.yt-dlp-task-id {
+  color: #172033;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 800;
+}
+
+.yt-dlp-task-time {
+  white-space: nowrap;
+}
+
+.yt-dlp-task-failure {
+  min-width: 18rem;
+  max-width: 30rem;
+  color: #b42318;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.yt-dlp-tasks-empty {
+  padding: 3rem 1rem;
+  border-top: bootstrap.$border-width dashed #cbd5e1;
+  color: #64748b;
+  text-align: center;
+}
+
+.yt-dlp-tasks-empty[hidden] {
+  display: none;
+}
+
 @media (max-width: 991.98px) {
   .app-topbar {
     display: flex;
@@ -1183,5 +1275,51 @@ body {
     overflow-y: auto;
     border-right: 0;
     border-bottom: bootstrap.$border-width solid rgba(15, 23, 42, 0.1);
+  }
+
+  .yt-dlp-tasks-table {
+    min-width: 0;
+  }
+
+  .yt-dlp-tasks-table thead {
+    display: none;
+  }
+
+  .yt-dlp-tasks-table tbody,
+  .yt-dlp-tasks-table tr,
+  .yt-dlp-tasks-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .yt-dlp-tasks-table tr {
+    padding: 0.75rem 1rem;
+    border-bottom: bootstrap.$border-width solid #e2e8f0;
+  }
+
+  .yt-dlp-tasks-table tr:last-child {
+    border-bottom: 0;
+  }
+
+  .yt-dlp-tasks-table td {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.35rem 0;
+    border: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .yt-dlp-tasks-table td::before {
+    color: #64748b;
+    content: attr(data-label);
+    font-size: 0.78rem;
+    font-weight: 750;
+  }
+
+  .yt-dlp-task-failure {
+    min-width: 0;
+    max-width: none;
   }
 }

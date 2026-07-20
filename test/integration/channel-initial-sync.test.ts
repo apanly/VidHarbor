@@ -11,6 +11,7 @@ import {
   initialSyncChannel,
   saveChannel,
 } from '../../src/services/channel.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
 const DIRECT_URL = 'https://www.youtube.com/@direct';
@@ -20,6 +21,7 @@ const PROXY_URL = 'http://alice:secret@proxy.example:8080';
 let sandbox: string;
 let executablePath: string;
 let database: DatabaseConnection;
+let taskManager: YtDlpTaskManager;
 
 function metadata(
   id: string,
@@ -158,14 +160,14 @@ async function expectBusinessError(
 
 async function createChannel(
   connection: DatabaseConnection,
-  ytDlpExecutablePath: string,
+  manager: YtDlpTaskManager,
   input: unknown,
   startedAt: Date,
 ) {
   const channel = saveChannel(connection, input, startedAt);
   return initialSyncChannel(
     connection,
-    ytDlpExecutablePath,
+    manager,
     channel.id,
     { historyMonths: 12 },
     startedAt,
@@ -177,10 +179,12 @@ beforeEach(async () => {
   await installFakeYtDlp();
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
+  taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
   setGlobalInterval();
 });
 
 afterEach(async () => {
+  await taskManager.stop();
   try {
     database.close();
   } catch {
@@ -193,7 +197,7 @@ describe('channel initial synchronization', () => {
   it('synchronizes ordinary Bilibili UP submissions and excludes collections', async () => {
     const result = await createChannel(
       database,
-      executablePath,
+      taskManager,
       {
         url: BILIBILI_CHANNEL_URL,
         customName: 'Bilibili UP',
@@ -211,6 +215,9 @@ describe('channel initial synchronization', () => {
       },
       historicalVideoCount: 2,
     });
+    expect(taskManager.getSnapshot().map((task) => task.type)).toEqual([
+      'channel_initial_sync',
+    ]);
     expect(database.prepare(
       `SELECT platform, platform_channel_id FROM channels WHERE id = ?`,
     ).get(result.channel.id)).toEqual({
@@ -230,7 +237,7 @@ describe('channel initial synchronization', () => {
   it('keeps the Bilibili UP identity when the selected history is empty', async () => {
     const result = await createChannel(
       database,
-      executablePath,
+      taskManager,
       {
         url: 'https://space.bilibili.com/999',
         customName: 'Empty Bilibili UP',
@@ -253,7 +260,7 @@ describe('channel initial synchronization', () => {
   it('commits one channel and only the inclusive one-year historical window without notifications', async () => {
     const result = await createChannel(
       database,
-      executablePath,
+      taskManager,
       {
         url: DIRECT_URL,
         customName: 'Direct channel',
@@ -312,7 +319,7 @@ describe('channel initial synchronization', () => {
     await expect(
       createChannel(
         database,
-        executablePath,
+        taskManager,
         {
           url: 'https://www.youtube.com/@proxy',
           customName: 'Proxy channel',
@@ -334,7 +341,7 @@ describe('channel initial synchronization', () => {
   it('fetches video details when a channel list entry has no publish date', async () => {
     const result = await createChannel(
       database,
-      executablePath,
+      taskManager,
       {
         url: 'https://www.youtube.com/@detail',
         customName: 'Detail channel',
@@ -365,7 +372,7 @@ describe('channel initial synchronization', () => {
     await expectBusinessError(
       createChannel(
         database,
-        executablePath,
+        taskManager,
         {
           url: DIRECT_URL,
           customName: 'Channel',
@@ -382,7 +389,7 @@ describe('channel initial synchronization', () => {
     await expectBusinessError(
       createChannel(
         database,
-        executablePath,
+        taskManager,
         {
           url: DIRECT_URL,
           customName: 'Channel',
@@ -406,7 +413,7 @@ describe('channel initial synchronization', () => {
     await expectBusinessError(
       createChannel(
         database,
-        executablePath,
+        taskManager,
         {
           url,
           customName: `Failed ${code}`,
@@ -436,7 +443,7 @@ describe('channel initial synchronization', () => {
   it('succeeds with an empty history when the selected range has no videos', async () => {
     const result = await createChannel(
       database,
-      executablePath,
+      taskManager,
       {
         url: 'https://www.youtube.com/@empty',
         customName: 'Empty channel',
@@ -453,7 +460,7 @@ describe('channel initial synchronization', () => {
   it('rejects a duplicate platform channel and a case-normalized name without partial writes', async () => {
     await createChannel(
       database,
-      executablePath,
+      taskManager,
       {
         url: DIRECT_URL,
         customName: 'My Channel',
@@ -466,7 +473,7 @@ describe('channel initial synchronization', () => {
     await expectBusinessError(
       createChannel(
         database,
-        executablePath,
+        taskManager,
         {
           url: 'https://www.youtube.com/@duplicate',
           customName: 'Another Channel',
@@ -480,7 +487,7 @@ describe('channel initial synchronization', () => {
     await expectBusinessError(
       createChannel(
         database,
-        executablePath,
+        taskManager,
         {
           url: 'https://www.youtube.com/@proxy',
           customName: 'my channel',
@@ -501,7 +508,7 @@ describe('channel initial synchronization', () => {
     await expectBusinessError(
       createChannel(
         database,
-        executablePath,
+        taskManager,
         {
           url: DIRECT_URL,
           customName: 'Channel',
@@ -522,7 +529,7 @@ describe('channel initial synchronization', () => {
     await expectBusinessError(
       createChannel(
         database,
-        executablePath,
+        taskManager,
         {
           url: DIRECT_URL,
           customName: 'Channel',

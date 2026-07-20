@@ -10,11 +10,13 @@ import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
 import type { DownloadQueue } from '../../src/services/download.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 let sandbox: string;
 let database: DatabaseConnection;
 let baseUrl: string;
 let stopServer: () => Promise<void>;
+let taskManager: YtDlpTaskManager;
 
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-database-browser-'));
@@ -23,13 +25,21 @@ beforeEach(async () => {
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
 
-  const queue: DownloadQueue = { enqueue: () => undefined };
+  taskManager = new YtDlpTaskManager(
+    join(sandbox, 'yt-dlp'),
+    1,
+    (message) => message,
+  );
+  const queue: DownloadQueue = {
+    enqueue: () => undefined,
+    cancel: async () => undefined,
+  };
   const app = createApp(
     createApiRouter(
       database,
       downloadsMountPath,
       new RuntimeCoordinator(() => undefined),
-      'unused-yt-dlp',
+      taskManager,
       queue,
     ),
   );
@@ -49,6 +59,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopServer();
+  await taskManager.stop();
   database.close();
   await rm(sandbox, { recursive: true, force: true });
 });

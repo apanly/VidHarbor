@@ -11,6 +11,7 @@ import {
   parseQuery,
 } from '../http/pagination.js';
 import type { RuntimeCoordinator } from '../runtime.js';
+import type { YtDlpTaskManager } from '../yt-dlp-task-manager.js';
 import {
   cancelDownload,
   createChannelDownloads,
@@ -331,7 +332,7 @@ function getDownloadSnapshot(database: DatabaseConnection, downloadId: number): 
 export function createDownloadsRouter(
   database: DatabaseConnection,
   downloadsMountPath: string,
-  ytDlpExecutablePath: string,
+  taskManager: YtDlpTaskManager,
   queue: DownloadQueue,
   runtime: RuntimeCoordinator,
 ): Router {
@@ -353,7 +354,7 @@ export function createDownloadsRouter(
   router.post('/direct', async (request, response) => {
     const download = await createDirectDownload(
       database,
-      ytDlpExecutablePath,
+      taskManager,
       downloadsMountPath,
       request.body,
       queue,

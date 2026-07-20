@@ -19,7 +19,14 @@ import type {
   DownloadQueue,
   QueuedDownload,
 } from './services/download.js';
-import { downloadMedia, downloadThumbnail } from './yt-dlp.js';
+import {
+  isYtDlpTaskCancellationError,
+  YtDlpTaskCancellationError,
+} from './yt-dlp-task-cancellation.js';
+import {
+  type YtDlpOperations,
+  type YtDlpTaskManager,
+} from './yt-dlp-task-manager.js';
 
 const RESTART_FAILURE_REASON = 'service restarted before task completed';
 
@@ -247,19 +254,16 @@ async function validateDownloadedFiles(
 }
 
 async function tryDownloadThumbnail(
-  executablePath: string,
+  operations: YtDlpOperations,
   taskDirectory: string,
   download: QueuedDownload,
-  signal: AbortSignal,
 ): Promise<string | undefined> {
   const thumbnailDirectory = join(taskDirectory, '.thumbnail');
   try {
     await mkdir(thumbnailDirectory);
-    await downloadThumbnail({
-      executablePath,
+    await operations.downloadThumbnail({
       url: download.sourceUrl,
       outputTemplate: join(thumbnailDirectory, '%(id)s.%(ext)s'),
-      signal,
       ...(download.proxyUrl === undefined ? {} : { proxyUrl: download.proxyUrl }),
     });
     const entries = await readdir(thumbnailDirectory, { withFileTypes: true });
@@ -270,44 +274,45 @@ async function tryDownloadThumbnail(
     const targetPath = join(taskDirectory, thumbnail.name);
     await link(sourcePath, targetPath);
     return thumbnail.name;
-  } catch {
+  } catch (error) {
+    if (
+      isYtDlpTaskCancellationError(error) ||
+      operations.signal.aborted
+    ) {
+      throw error;
+    }
     return undefined;
   } finally {
-    await rm(thumbnailDirectory, { recursive: true, force: true }).catch(() => undefined);
+    await rm(thumbnailDirectory, { recursive: true, force: true });
+  }
+}
+
+function cancellationError(): YtDlpTaskCancellationError {
+  return new YtDlpTaskCancellationError();
+}
+
+class DownloadWorkerBoundaryError extends Error {
+  constructor(error: Error) {
+    super(error.message, { cause: error });
+    this.name = 'DownloadWorkerBoundaryError';
   }
 }
 
 export class DownloadWorker implements DownloadQueue {
   readonly failure: Promise<never>;
   readonly #database: DatabaseConnection;
-  readonly #ytDlpExecutablePath: string;
-  readonly #queue: QueuedDownload[] = [];
-  readonly #maxConcurrency: number;
+  readonly #taskManager: YtDlpTaskManager;
+  readonly #taskIds = new Map<number, number>();
   readonly #idleWaiters: Array<{
     readonly resolve: () => void;
     readonly reject: (error: Error) => void;
   }> = [];
-  #activeCount = 0;
-  #stopping = false;
   #failure: Error | undefined;
   #rejectFailure!: (error: Error) => void;
-  readonly #activeDownloads = new Map<number, AbortController>();
 
-  constructor(database: DatabaseConnection, ytDlpExecutablePath: string) {
+  constructor(database: DatabaseConnection, taskManager: YtDlpTaskManager) {
     this.#database = database;
-    this.#ytDlpExecutablePath = ytDlpExecutablePath;
-    const configuredConcurrency = database
-      .prepare('SELECT download_concurrency FROM settings WHERE id = 1')
-      .pluck()
-      .get();
-    if (
-      typeof configuredConcurrency !== 'number' ||
-      !Number.isSafeInteger(configuredConcurrency) ||
-      configuredConcurrency < 1
-    ) {
-      throw new Error('download concurrency is invalid');
-    }
-    this.#maxConcurrency = configuredConcurrency;
+    this.#taskManager = taskManager;
     this.failure = new Promise<never>((_resolve, reject) => {
       this.#rejectFailure = reject;
     });
@@ -316,24 +321,55 @@ export class DownloadWorker implements DownloadQueue {
 
   enqueue(download: QueuedDownload): void {
     if (this.#failure !== undefined) throw this.#failure;
-    if (this.#stopping) throw new Error('download worker is stopped');
-    this.#queue.push(download);
-    this.#schedule();
+    const handle = this.#taskManager.submit({
+      type: 'media_download',
+      execute: (operations) => this.#run(download, operations),
+    });
+    this.#taskIds.set(download.downloadId, handle.id);
+    void handle.result.then(
+      () => this.#finishTrackedTask(download.downloadId, handle.id),
+      (error: unknown) => {
+        if (isYtDlpTaskCancellationError(error)) {
+          try {
+            this.#database
+              .prepare(
+                `UPDATE downloads
+                 SET status = 'canceled', failure_reason = ?, speed_text = NULL,
+                     eta_seconds = NULL, finished_at = ?
+                 WHERE id = ? AND status = 'pending'`,
+              )
+              .run(
+                failureMessage(error, download.proxyUrl),
+                new Date().toISOString(),
+                download.downloadId,
+              );
+          } catch (persistenceError) {
+            this.#reportFailure(
+              new DownloadWorkerBoundaryError(
+                new Error(failureMessage(persistenceError, download.proxyUrl)),
+              ),
+              handle.id,
+            );
+          }
+        } else if (error instanceof DownloadWorkerBoundaryError) {
+          this.#reportFailure(error);
+        }
+        this.#finishTrackedTask(download.downloadId, handle.id);
+      },
+    );
   }
 
-  cancel(downloadId: number): void {
-    this.#activeDownloads.get(downloadId)?.abort();
-    const index = this.#queue.findIndex((download) => download.downloadId === downloadId);
-    if (index !== -1) {
-      this.#queue.splice(index, 1);
-    }
+  async cancel(downloadId: number): Promise<void> {
+    const taskId = this.#taskIds.get(downloadId);
+    if (taskId === undefined) return;
+    await this.#taskManager.cancel(taskId);
   }
 
   waitForIdle(): Promise<void> {
     if (this.#failure !== undefined) {
       return Promise.reject(this.#failure);
     }
-    if (this.#activeCount === 0 && this.#queue.length === 0) {
+    if (this.#taskIds.size === 0) {
       return Promise.resolve();
     }
     return new Promise((resolvePromise, rejectPromise) => {
@@ -341,41 +377,23 @@ export class DownloadWorker implements DownloadQueue {
     });
   }
 
-  stop(): void {
-    this.#stopping = true;
-    this.#queue.length = 0;
-    for (const controller of this.#activeDownloads.values()) controller.abort();
-  }
-
-  #schedule(): void {
-    if (this.#failure !== undefined || this.#stopping) {
-      if (this.#activeCount === 0) this.#settleIdleWaiters();
-      return;
-    }
-    while (this.#activeCount < this.#maxConcurrency && this.#queue.length > 0) {
-      const download = this.#queue.shift();
-      if (download === undefined) continue;
-      this.#activeCount += 1;
-      void this.#runAndContinue(download);
-    }
-    if (this.#activeCount === 0 && this.#queue.length === 0) {
-      this.#settleIdleWaiters();
+  #reportFailure(
+    error: DownloadWorkerBoundaryError,
+    currentTaskId?: number,
+  ): void {
+    if (this.#failure !== undefined) return;
+    this.#failure = error;
+    this.#rejectFailure(error);
+    for (const taskId of this.#taskIds.values()) {
+      if (taskId !== currentTaskId) void this.#taskManager.cancel(taskId);
     }
   }
 
-  async #runAndContinue(download: QueuedDownload): Promise<void> {
-    try {
-      await this.#run(download);
-    } catch (error) {
-      this.#failure =
-        error instanceof Error ? error : new Error('download worker failed');
-      this.#rejectFailure(this.#failure);
-      this.#queue.length = 0;
-      for (const controller of this.#activeDownloads.values()) controller.abort();
-    } finally {
-      this.#activeCount -= 1;
-      this.#schedule();
+  #finishTrackedTask(downloadId: number, taskId: number): void {
+    if (this.#taskIds.get(downloadId) === taskId) {
+      this.#taskIds.delete(downloadId);
     }
+    if (this.#taskIds.size === 0) this.#settleIdleWaiters();
   }
 
   #settleIdleWaiters(): void {
@@ -385,14 +403,17 @@ export class DownloadWorker implements DownloadQueue {
     }
   }
 
-  async #run(download: QueuedDownload): Promise<void> {
-    const abortController = new AbortController();
-    this.#activeDownloads.set(download.downloadId, abortController);
+  async #run(
+    download: QueuedDownload,
+    operations: YtDlpOperations,
+  ): Promise<void> {
     let taskDirectory: string | undefined;
     let started = false;
     let archivedDirectory: string | undefined;
     const archivedFiles: string[] = [];
+    let preCompletionCleanupFailure: Error | undefined;
     let boundaryFailure: Error | undefined;
+    let taskFailure: unknown;
 
     try {
       const startedAt = new Date().toISOString();
@@ -435,11 +456,9 @@ export class DownloadWorker implements DownloadQueue {
             download.downloadId,
           );
       };
-      const reportedPath = await downloadMedia({
-        executablePath: this.#ytDlpExecutablePath,
+      const reportedPath = await operations.downloadMedia({
         url: download.sourceUrl,
         outputTemplate: join(taskDirectory, '%(id)s.%(ext)s'),
-        signal: abortController.signal,
         onProgress: persistProgress,
         ...(download.advancedOptions === undefined
           ? {}
@@ -448,17 +467,25 @@ export class DownloadWorker implements DownloadQueue {
           ? {}
           : { proxyUrl: download.proxyUrl }),
       });
-      const thumbnailFilename = await tryDownloadThumbnail(
-        this.#ytDlpExecutablePath,
-        taskDirectory,
-        download,
-        abortController.signal,
-      );
-      if (abortController.signal.aborted) throw new Error('yt-dlp download cancelled');
+      let thumbnailFilename: string | undefined;
+      try {
+        thumbnailFilename = await tryDownloadThumbnail(
+          operations,
+          taskDirectory,
+          download,
+        );
+      } catch (error) {
+        if (!isYtDlpTaskCancellationError(error)) {
+          boundaryFailure = new Error(failureMessage(error, download.proxyUrl));
+        }
+        throw error;
+      }
+      this.#throwIfCanceled(operations.signal);
       const downloadedFiles = await validateDownloadedFiles(
         taskDirectory,
         reportedPath,
       );
+      this.#throwIfCanceled(operations.signal);
       const targetDirectory = join(realDownloadRoot, String(download.downloadId));
       try {
         await mkdir(targetDirectory);
@@ -470,6 +497,7 @@ export class DownloadWorker implements DownloadQueue {
       }
       archivedDirectory = targetDirectory;
       for (const filename of downloadedFiles.filenames) {
+        this.#throwIfCanceled(operations.signal);
         const archivedPath = join(targetDirectory, filename);
         try {
           await link(join(taskDirectory, filename), archivedPath);
@@ -480,23 +508,34 @@ export class DownloadWorker implements DownloadQueue {
           throw error;
         }
         archivedFiles.push(archivedPath);
+        this.#throwIfCanceled(operations.signal);
       }
       const targetPath = join(targetDirectory, downloadedFiles.mainFilename);
       const thumbnailPath = thumbnailFilename === undefined
         ? null
         : join(targetDirectory, thumbnailFilename);
 
-      const completed = this.#database
-        .prepare(
-          `UPDATE downloads
-           SET status = 'completed', output_path = ?, thumbnail_path = ?,
-               output_size_bytes = ?,
-               progress_percent = 100,
-               speed_text = NULL, eta_seconds = NULL, exit_code = 0,
-               finished_at = ?
-           WHERE id = ? AND status = 'running'`,
-        )
-        .run(
+      try {
+        await rm(taskDirectory, { recursive: true, force: true });
+      } catch (cleanupError) {
+        preCompletionCleanupFailure = new Error(
+          failureMessage(cleanupError, download.proxyUrl),
+        );
+        throw cleanupError;
+      }
+      taskDirectory = undefined;
+      this.#throwIfCanceled(operations.signal);
+      const completeDownload = this.#database.prepare(
+        `UPDATE downloads
+         SET status = 'completed', output_path = ?, thumbnail_path = ?,
+             output_size_bytes = ?,
+             progress_percent = 100,
+             speed_text = NULL, eta_seconds = NULL, exit_code = 0,
+             finished_at = ?
+         WHERE id = ? AND status = 'running'`,
+      );
+      this.#throwIfCanceled(operations.signal);
+      const completed = completeDownload.run(
           targetPath,
           thumbnailPath,
           downloadedFiles.mainSizeBytes,
@@ -522,12 +561,24 @@ export class DownloadWorker implements DownloadQueue {
             rollbackError.code !== 'ENOTEMPTY'
           ) {
             failure = rollbackError;
+            boundaryFailure = new Error(
+              failureMessage(rollbackError, download.proxyUrl),
+            );
           }
         }
       }
       if (started) {
         const reason = failureMessage(failure, download.proxyUrl);
-        const failedStatus = abortController.signal.aborted ? 'canceled' : 'failed';
+        const failedStatus = isYtDlpTaskCancellationError(failure)
+          ? 'canceled'
+          : 'failed';
+        if (
+          failedStatus === 'failed' &&
+          operations.signal.aborted &&
+          boundaryFailure === undefined
+        ) {
+          boundaryFailure = new Error(reason);
+        }
         const exitCode =
           typeof failure === 'object' &&
           failure !== null &&
@@ -555,12 +606,16 @@ export class DownloadWorker implements DownloadQueue {
             failureMessage(persistenceError, download.proxyUrl),
           );
         }
+        taskFailure = failure;
       } else {
         boundaryFailure = new Error(failureMessage(failure, download.proxyUrl));
       }
     } finally {
       try {
-        if (taskDirectory !== undefined) {
+        if (
+          taskDirectory !== undefined &&
+          preCompletionCleanupFailure === undefined
+        ) {
           await rm(taskDirectory, { recursive: true, force: true });
         }
       } catch (cleanupError) {
@@ -572,7 +627,7 @@ export class DownloadWorker implements DownloadQueue {
               .prepare(
                 `UPDATE downloads
                  SET status = 'failed', failure_reason = ?, finished_at = ?
-                 WHERE id = ? AND status = 'failed'`,
+                 WHERE id = ? AND status IN ('failed', 'canceled')`,
               )
               .run(cleanupReason, new Date().toISOString(), download.downloadId);
           } catch (persistenceError) {
@@ -603,9 +658,31 @@ export class DownloadWorker implements DownloadQueue {
           );
         }
       }
-      this.#activeDownloads.delete(download.downloadId);
     }
 
-    if (boundaryFailure !== undefined) throw boundaryFailure;
+    if (preCompletionCleanupFailure !== undefined) {
+      if (boundaryFailure === undefined) {
+        boundaryFailure = preCompletionCleanupFailure;
+      } else {
+        boundaryFailure = new AggregateError(
+          [boundaryFailure, preCompletionCleanupFailure],
+          `${boundaryFailure.message}; ${preCompletionCleanupFailure.message}`,
+        );
+      }
+    }
+
+    if (boundaryFailure !== undefined) {
+      const workerFailure = new DownloadWorkerBoundaryError(boundaryFailure);
+      this.#reportFailure(
+        workerFailure,
+        this.#taskIds.get(download.downloadId),
+      );
+      throw workerFailure;
+    }
+    if (taskFailure !== undefined) throw taskFailure;
+  }
+
+  #throwIfCanceled(signal: AbortSignal): void {
+    if (signal.aborted) throw cancellationError();
   }
 }

@@ -20,7 +20,11 @@ import { redactStderr } from './redaction.js';
 import { validateDownloadRoot } from './filesystem.js';
 import { ChannelScheduler } from './scheduler.js';
 import { RuntimeCoordinator } from './runtime.js';
-import { checkChannel, recoverInterruptedChannelSyncs } from './services/channel.js';
+import {
+  checkScheduledChannel,
+  recoverInterruptedChannelSyncs,
+} from './services/channel.js';
+import { YtDlpTaskManager } from './yt-dlp-task-manager.js';
 
 export type LifecycleEvent =
   | 'database_migrated'
@@ -64,6 +68,21 @@ function loadConfiguredDownloadRoot(
     throw new Error('settings download root is invalid');
   }
   return downloadRoot ?? downloadsMountPath;
+}
+
+function loadDownloadConcurrency(database: DatabaseConnection): number {
+  const downloadConcurrency = database
+    .prepare('SELECT download_concurrency FROM settings WHERE id = 1')
+    .pluck()
+    .get();
+  if (
+    typeof downloadConcurrency !== 'number' ||
+    !Number.isSafeInteger(downloadConcurrency) ||
+    downloadConcurrency < 1
+  ) {
+    throw new Error('settings download concurrency is invalid');
+  }
+  return downloadConcurrency;
 }
 
 function listen(server: Server): Promise<void> {
@@ -161,6 +180,7 @@ export async function startServer(
   activeServer = true;
 
   let database: DatabaseConnection | undefined;
+  let taskManager: YtDlpTaskManager | undefined;
   let worker: DownloadWorker | undefined;
   let scheduler: ChannelScheduler | undefined;
   let runtime: RuntimeCoordinator | undefined;
@@ -209,12 +229,24 @@ export async function startServer(
     recoverInterruptedDownloads(database, interruptedIds, new Date().toISOString());
     log({ event: 'downloads_recovered' });
 
-    worker = new DownloadWorker(database, 'yt-dlp');
+    const downloadConcurrency = loadDownloadConcurrency(database);
+    const manager = new YtDlpTaskManager(
+      'yt-dlp',
+      downloadConcurrency,
+      (message) => redactStderr(message, proxyUrls),
+    );
+    taskManager = manager;
+    worker = new DownloadWorker(database, manager);
     void worker.failure.catch(reportRuntimeFailure);
     log({ event: 'download_worker_started' });
 
     scheduler = new ChannelScheduler(database, (channelId, startedAt) =>
-      checkChannel(database as DatabaseConnection, 'yt-dlp', channelId, startedAt),
+      checkScheduledChannel(
+        database as DatabaseConnection,
+        manager,
+        channelId,
+        startedAt,
+      ),
       undefined,
       reportRuntimeFailure,
     );
@@ -222,7 +254,13 @@ export async function startServer(
     log({ event: 'scheduler_started' });
 
     const app = createApp(
-      createApiRouter(database, config.downloadsMountPath, runtime, 'yt-dlp', worker),
+      createApiRouter(
+        database,
+        config.downloadsMountPath,
+        runtime,
+        manager,
+        worker,
+      ),
     );
     httpServer = app.listen(config.port);
     await listen(httpServer);
@@ -249,8 +287,10 @@ export async function startServer(
           const schedulerBoundary = scheduler?.stop().catch((error: unknown) => {
             shutdownErrors.push(error);
           });
+          const taskManagerBoundary = taskManager?.stop().catch((error: unknown) => {
+            shutdownErrors.push(error);
+          });
           log({ event: 'scheduler_stopped' });
-          worker?.stop();
           runtime?.closeDownloadEventStreams();
 
           try {
@@ -261,7 +301,7 @@ export async function startServer(
           }
 
           await schedulerBoundary;
-          await runtime?.waitForInitialSyncTasks();
+          await taskManagerBoundary;
           await worker?.waitForIdle().catch((error: unknown) => {
             shutdownErrors.push(error);
           });
@@ -286,6 +326,12 @@ export async function startServer(
     return runningServer;
   } catch (error) {
     const cleanupErrors: unknown[] = [];
+    const schedulerBoundary = scheduler?.stop().catch((cleanupError: unknown) => {
+      cleanupErrors.push(cleanupError);
+    });
+    const taskManagerBoundary = taskManager?.stop().catch((cleanupError: unknown) => {
+      cleanupErrors.push(cleanupError);
+    });
     if (httpServer?.listening === true) {
       try {
         await close(httpServer);
@@ -293,16 +339,10 @@ export async function startServer(
         cleanupErrors.push(cleanupError);
       }
     }
-    if (scheduler !== undefined) {
-      try {
-        await scheduler.stop();
-      } catch (cleanupError) {
-        cleanupErrors.push(cleanupError);
-      }
-    }
+    await schedulerBoundary;
+    await taskManagerBoundary;
     if (worker !== undefined) {
       try {
-        worker.stop();
         await worker.waitForIdle();
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);

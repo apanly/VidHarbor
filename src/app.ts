@@ -11,7 +11,6 @@ import {
   toErrorResponse,
 } from './errors.js';
 import type { DatabaseConnection } from './db/client.js';
-import { DownloadWorker } from './download-worker.js';
 import { requireSameOrigin } from './http/same-origin.js';
 import { createChannelsRouter } from './routes/channels.js';
 import { createDatabaseRouter } from './routes/database.js';
@@ -20,8 +19,10 @@ import { createNotificationsRouter } from './routes/notifications.js';
 import { createPagesRouter } from './routes/pages.js';
 import { createProxiesRouter } from './routes/proxies.js';
 import { createSettingsRouter } from './routes/settings.js';
+import { createYtDlpTasksRouter } from './routes/yt-dlp-tasks.js';
 import type { DownloadQueue } from './services/download.js';
 import type { RuntimeCoordinator } from './runtime.js';
+import type { YtDlpTaskManager } from './yt-dlp-task-manager.js';
 
 const requireJsonBody: RequestHandler = (request, _response, next) => {
   if (
@@ -99,25 +100,23 @@ export function createApiRouter(
   database: DatabaseConnection,
   downloadsMountPath: string,
   runtime: RuntimeCoordinator,
-  ytDlpExecutablePath = 'yt-dlp',
-  downloadQueue: DownloadQueue = new DownloadWorker(
-    database,
-    ytDlpExecutablePath,
-  ),
+  taskManager: YtDlpTaskManager,
+  downloadQueue: DownloadQueue,
 ): Router {
   const router = express.Router();
 
   router.use('/settings', createSettingsRouter(database, downloadsMountPath));
   router.use('/database', createDatabaseRouter(database));
   router.use('/proxies', createProxiesRouter(database));
-  router.use('/channels', createChannelsRouter(database, ytDlpExecutablePath, runtime));
+  router.use('/channels', createChannelsRouter(database, taskManager, runtime));
   router.use('/notifications', createNotificationsRouter(database));
+  router.use('/yt-dlp/tasks', createYtDlpTasksRouter(taskManager));
   router.use(
     '/downloads',
     createDownloadsRouter(
       database,
       downloadsMountPath,
-      ytDlpExecutablePath,
+      taskManager,
       downloadQueue,
       runtime,
     ),

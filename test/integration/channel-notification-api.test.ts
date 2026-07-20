@@ -10,6 +10,10 @@ import { createApiRouter, createApp } from '../../src/app.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { initialSyncChannel } from '../../src/services/channel.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
+import { isYtDlpTaskCancellationError } from '../../src/yt-dlp-task-cancellation.js';
+import type { DownloadQueue } from '../../src/services/download.js';
 
 const NOW = '2026-07-17T08:30:00.000Z';
 
@@ -36,10 +40,12 @@ function isoDateDaysAgo(days: number): string {
 let sandbox: string;
 let executablePath: string;
 let database: DatabaseConnection;
+let taskManager: YtDlpTaskManager;
 let baseUrl: string;
 let stopServer: (() => Promise<void>) | undefined;
 let blockingSyncStartedPath: string;
 let blockingSyncReleasePath: string;
+let runtimeErrors: unknown[];
 
 function metadata(
   id: string,
@@ -72,13 +78,27 @@ async function installFakeYtDlp(): Promise<void> {
     'https://www.youtube.com/@blocking/videos': [
       metadata('bL_12-cK345', 'UC-blocking', utcDateDaysAgo(1)),
     ],
+    'https://www.youtube.com/@blocking-metadata/videos': [{
+      extractor_key: 'Youtube',
+      id: 'mE_12-tA345',
+      channel_id: 'UC-blocking-metadata',
+      title: 'Video mE_12-tA345',
+      webpage_url: 'https://www.youtube.com/watch?v=mE_12-tA345',
+      live_status: 'not_live',
+    }],
+    'https://www.youtube.com/watch?v=mE_12-tA345': [
+      metadata('mE_12-tA345', 'UC-blocking-metadata', utcDateDaysAgo(1)),
+    ],
   };
   await writeFile(
     executablePath,
     `#!/usr/bin/env node
 const fixtures = ${JSON.stringify(fixtures)};
 const url = process.argv.at(-1);
-if (url === 'https://www.youtube.com/@blocking/videos') {
+if (
+  url === 'https://www.youtube.com/@blocking/videos' ||
+  url === 'https://www.youtube.com/watch?v=mE_12-tA345'
+) {
   const { access, writeFile } = await import('node:fs/promises');
   await writeFile(${JSON.stringify(blockingSyncStartedPath)}, '');
   for (;;) {
@@ -171,6 +191,8 @@ beforeEach(async () => {
   await mkdir(mountPath);
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
+  taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
+  runtimeErrors = [];
   database
     .prepare(
       `UPDATE settings
@@ -180,7 +202,16 @@ beforeEach(async () => {
     .run(NOW);
 
   const server = createApp(
-    createApiRouter(database, mountPath, new RuntimeCoordinator(() => undefined), executablePath),
+    createApiRouter(
+      database,
+      mountPath,
+      new RuntimeCoordinator((error) => runtimeErrors.push(error)),
+      taskManager,
+      {
+        enqueue: () => undefined,
+        cancel: async () => undefined,
+      } satisfies DownloadQueue,
+    ),
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
     server.once('listening', resolve);
@@ -199,6 +230,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopServer?.();
+  await Promise.allSettled([taskManager.stop()]);
   try {
     database.close();
   } catch {
@@ -400,6 +432,57 @@ describe('channel API', () => {
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({ accepted: true });
     await waitForInitialSync(saved.channel.id, 'succeeded');
+    expect(taskManager.getSnapshot().at(-1)?.type).toBe('channel_initial_sync');
+  });
+
+  it('preserves typed cancellation while stopping initial-sync metadata loading', async () => {
+    const savedResponse = await request('/channels', 'POST', {
+      url: 'https://www.youtube.com/@blocking-metadata',
+      customName: 'Canceled channel',
+      proxyId: null,
+      checkIntervalMinutes: null,
+    });
+    const saved = (await savedResponse.json()) as { channel: { id: number } };
+
+    const synchronization = initialSyncChannel(
+      database,
+      taskManager,
+      saved.channel.id,
+      { historyMonths: 1 },
+    ).catch((error: unknown) => error);
+    await waitForFile(blockingSyncStartedPath);
+
+    await expect(taskManager.stop()).resolves.toBeUndefined();
+    expect(await synchronization).toSatisfy(isYtDlpTaskCancellationError);
+
+    expect(taskManager.getSnapshot().at(-1)).toMatchObject({
+      type: 'channel_initial_sync',
+      status: 'canceled',
+      failureReason: null,
+    });
+    expect(
+      database
+        .prepare('SELECT initial_sync_status FROM channels WHERE id = ?')
+        .pluck()
+        .get(saved.channel.id),
+    ).toBe('failed');
+    expect(runtimeErrors).toEqual([]);
+  });
+
+  it('waits for a manual check and records its fixed task type', async () => {
+    const channel = await createChannel(
+      'https://www.youtube.com/@first',
+      'Manual check channel',
+    );
+
+    const response = await request(`/channels/${channel.id}/check`, 'POST', {});
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ newVideoCount: 0 });
+    expect(taskManager.getSnapshot().at(-1)).toMatchObject({
+      type: 'channel_manual_check',
+      status: 'succeeded',
+    });
   });
 
   it('accepts only the four initial history ranges and keeps failures retryable', async () => {
@@ -433,6 +516,39 @@ describe('channel API', () => {
     };
     expect(list.items.find((channel) => channel.id === created.channel.id)?.initialSync)
       .toMatchObject({ status: 'failed', error: expect.any(String) });
+    expect(runtimeErrors).toEqual([]);
+  });
+
+  it('reports an initial synchronization persistence failure during cancellation', async () => {
+    const createResponse = await request('/channels', 'POST', {
+      url: 'https://www.youtube.com/@blocking',
+      customName: 'Persistence failure channel',
+      proxyId: null,
+      checkIntervalMinutes: null,
+    });
+    const created = (await createResponse.json()) as { channel: { id: number } };
+    const response = await request(
+      `/channels/${created.channel.id}/initial-sync`,
+      'POST',
+      { historyMonths: 1 },
+    );
+    expect(response.status).toBe(202);
+    await waitForFile(blockingSyncStartedPath);
+
+    database.close();
+    const stopFailure = await taskManager.stop().catch((error: unknown) => error);
+    expect(stopFailure).toBeInstanceOf(AggregateError);
+    expect((stopFailure as AggregateError).errors).toEqual([
+      expect.objectContaining({ code: 'PERSISTENCE_ERROR' }),
+    ]);
+
+    await expect.poll(() => runtimeErrors).toHaveLength(1);
+    expect(runtimeErrors[0]).toMatchObject({ code: 'PERSISTENCE_ERROR' });
+    expect(taskManager.getSnapshot().at(-1)).toMatchObject({
+      type: 'channel_initial_sync',
+      status: 'failed',
+      failureReason: 'channel persistence failed',
+    });
   });
 
   it('rejects invalid channel IDs and reports missing channels', async () => {

@@ -17,6 +17,7 @@ const PAGE_ROUTES: readonly PageRoute[] = [
   { path: '/channels', view: 'channels', title: '频道' },
   { path: '/notifications', view: 'notifications', title: '提醒' },
   { path: '/downloads', view: 'downloads', title: '下载' },
+  { path: '/yt-dlp-tasks', view: 'yt-dlp-tasks', title: '任务状态' },
   { path: '/database', view: 'database', title: '数据库' },
   {
     path: '/downloads/preview',

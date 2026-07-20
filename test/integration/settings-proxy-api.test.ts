@@ -9,6 +9,8 @@ import { createApiRouter, createApp } from '../../src/app.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import type { DownloadQueue } from '../../src/services/download.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 let sandbox: string;
 let mountPath: string;
@@ -16,6 +18,7 @@ let downloadRoot: string;
 let database: DatabaseConnection;
 let baseUrl: string;
 let stopServer: (() => Promise<void>) | undefined;
+let taskManager: YtDlpTaskManager;
 
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-settings-proxy-api-'));
@@ -26,10 +29,24 @@ beforeEach(async () => {
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
 
-  const server = createApp(createApiRouter(database, mountPath, new RuntimeCoordinator(() => undefined))).listen(
-    0,
-    '127.0.0.1',
+  taskManager = new YtDlpTaskManager(
+    join(sandbox, 'yt-dlp'),
+    1,
+    (message) => message,
   );
+  const queue: DownloadQueue = {
+    enqueue: () => undefined,
+    cancel: async () => undefined,
+  };
+  const server = createApp(
+    createApiRouter(
+      database,
+      mountPath,
+      new RuntimeCoordinator(() => undefined),
+      taskManager,
+      queue,
+    ),
+  ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
     server.once('listening', resolve);
     server.once('error', reject);
@@ -47,6 +64,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopServer?.();
+  await taskManager.stop();
   try {
     database.close();
   } catch {

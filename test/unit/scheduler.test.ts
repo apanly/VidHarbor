@@ -7,6 +7,7 @@ import {
   ChannelScheduler,
   type SchedulerClock,
 } from '../../src/scheduler.js';
+import { YtDlpTaskCancellationError } from '../../src/yt-dlp-task-manager.js';
 
 class FakeClock implements SchedulerClock {
   #callback: (() => void) | undefined;
@@ -247,6 +248,20 @@ describe('ChannelScheduler', () => {
       await expect(scheduler.tick()).resolves.toBeUndefined();
     },
   );
+
+  it('does not propagate a canceled scheduled channel check', async () => {
+    setGlobalInterval(1);
+    insertChannel('2026-07-17T10:00:00.000Z');
+    const scheduler = new ChannelScheduler(
+      database,
+      async () => {
+        throw new YtDlpTaskCancellationError();
+      },
+      new FakeClock('2026-07-17T10:01:00.000Z'),
+    );
+
+    await expect(scheduler.tick()).resolves.toBeUndefined();
+  });
 
   it('propagates a scheduled channel persistence failure', async () => {
     setGlobalInterval(1);

@@ -7,8 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { BusinessError } from '../../src/errors.js';
-import { checkChannel } from '../../src/services/channel.js';
+import { checkScheduledChannel } from '../../src/services/channel.js';
 import { listNotifications } from '../../src/services/notification.js';
+import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const FIRST_STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
 const SECOND_STARTED_AT = new Date('2026-07-17T09:30:00.000Z');
@@ -17,6 +18,7 @@ const PROXY_URL = 'http://alice:secret@proxy.example:8080';
 let sandbox: string;
 let executablePath: string;
 let database: DatabaseConnection;
+let taskManager: YtDlpTaskManager;
 
 function metadata(
   id: string,
@@ -209,11 +211,13 @@ beforeEach(async () => {
   await installFakeYtDlp();
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
+  taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
 });
 
 afterEach(async () => {
   delete process.env.VIDHARBOR_TEST_MARKER;
   delete process.env.VIDHARBOR_TEST_RELEASE;
+  await taskManager.stop();
   try {
     database.close();
   } catch {
@@ -227,8 +231,11 @@ describe('scheduled channel checks', () => {
     const channelId = insertBilibiliChannel();
 
     await expect(
-      checkChannel(database, executablePath, channelId, FIRST_STARTED_AT),
+      checkScheduledChannel(database, taskManager, channelId, FIRST_STARTED_AT),
     ).resolves.toEqual({ newVideoCount: 1 });
+    expect(taskManager.getSnapshot().map((task) => task.type)).toEqual([
+      'channel_scheduled_check',
+    ]);
 
     expect(database.prepare(
       `SELECT platform, platform_video_id, title FROM videos WHERE channel_id = ?`,
@@ -252,7 +259,7 @@ describe('scheduled channel checks', () => {
     );
 
     await expect(
-      checkChannel(database, executablePath, channelId, FIRST_STARTED_AT),
+      checkScheduledChannel(database, taskManager, channelId, FIRST_STARTED_AT),
     ).resolves.toEqual({ newVideoCount: 2 });
 
     expect(
@@ -347,7 +354,7 @@ describe('scheduled channel checks', () => {
     );
 
     await expect(
-      checkChannel(database, executablePath, channelId, SECOND_STARTED_AT),
+      checkScheduledChannel(database, taskManager, channelId, SECOND_STARTED_AT),
     ).resolves.toEqual({ newVideoCount: 0 });
 
     expect(database.prepare('SELECT COUNT(*) FROM videos').pluck().get()).toBe(1);
@@ -366,7 +373,7 @@ describe('scheduled channel checks', () => {
     const channelId = insertChannel('old-only', 'UC-old-only');
 
     await expect(
-      checkChannel(database, executablePath, channelId, FIRST_STARTED_AT),
+      checkScheduledChannel(database, taskManager, channelId, FIRST_STARTED_AT),
     ).resolves.toEqual({ newVideoCount: 0 });
 
     expect(database.prepare('SELECT COUNT(*) FROM videos').pluck().get()).toBe(0);
@@ -388,7 +395,7 @@ describe('scheduled channel checks', () => {
     );
 
     await expectBusinessError(
-      checkChannel(database, executablePath, channelId, SECOND_STARTED_AT),
+      checkScheduledChannel(database, taskManager, channelId, SECOND_STARTED_AT),
       'PERSISTENCE_ERROR',
     );
 
@@ -417,7 +424,7 @@ describe('scheduled channel checks', () => {
     );
 
     await expectBusinessError(
-      checkChannel(database, executablePath, failedChannelId, SECOND_STARTED_AT),
+      checkScheduledChannel(database, taskManager, failedChannelId, SECOND_STARTED_AT),
       code,
     );
 
@@ -450,9 +457,9 @@ describe('scheduled channel checks', () => {
     process.env.VIDHARBOR_TEST_MARKER = marker;
     process.env.VIDHARBOR_TEST_RELEASE = release;
 
-    const operation = checkChannel(
+    const operation = checkScheduledChannel(
       database,
-      executablePath,
+      taskManager,
       channelId,
       SECOND_STARTED_AT,
     );
