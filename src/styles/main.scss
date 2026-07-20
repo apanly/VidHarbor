@@ -551,6 +551,194 @@ body {
   gap: 1rem;
 }
 
+.direct-download-form .modal-body {
+  display: grid;
+  gap: 1rem;
+  background: #f7f9fc;
+}
+
+.direct-form-section,
+.direct-advanced-options {
+  border: bootstrap.$border-width solid rgba(15, 23, 42, 0.12);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.04);
+}
+
+.direct-form-section {
+  padding: 1.25rem;
+}
+
+.direct-form-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.15rem;
+}
+
+.direct-form-section-heading p {
+  margin: 0 0 0.2rem;
+  color: #087f72;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.direct-form-section-heading h3,
+.direct-advanced-content h3 {
+  margin: 0;
+  color: #172033;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.direct-form-section-heading > span {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.direct-form-grid,
+.direct-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.direct-field-full {
+  grid-column: 1 / -1;
+}
+
+.direct-download-form .form-label {
+  margin-bottom: 0.45rem;
+  color: #334155;
+  font-weight: 800;
+}
+
+.direct-url-help {
+  margin-top: 0.55rem;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.direct-url-help summary {
+  width: fit-content;
+  color: #087f8c;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.direct-url-help p {
+  margin: 0.5rem 0 0;
+  line-height: 1.6;
+}
+
+.direct-advanced-options > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.direct-advanced-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.direct-advanced-options > summary::after {
+  color: #64748b;
+  content: '+';
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.direct-advanced-options[open] > summary::after {
+  content: '−';
+}
+
+.direct-advanced-options > summary > span:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.direct-advanced-options > summary strong {
+  color: #172033;
+  font-weight: 850;
+}
+
+.direct-advanced-options > summary small {
+  color: #64748b;
+}
+
+.direct-advanced-badge {
+  margin-left: auto;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  color: #087f72;
+  background: #e2fff1;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.direct-advanced-content {
+  display: grid;
+  gap: 1.35rem;
+  padding: 0 1.25rem 1.25rem;
+  border-top: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
+}
+
+.direct-advanced-content section {
+  padding-top: 1.2rem;
+}
+
+.direct-advanced-content h3 {
+  margin-bottom: 0.8rem;
+}
+
+.direct-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.9rem;
+  border: bootstrap.$border-width solid #dbe3ed;
+  border-radius: 0.8rem;
+  cursor: pointer;
+  background: #f8fafc;
+}
+
+.direct-option:only-child {
+  grid-column: 1 / -1;
+}
+
+.direct-option .form-check-input {
+  flex: 0 0 auto;
+  margin: 0.2rem 0 0;
+}
+
+.direct-option span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.direct-option strong {
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+.direct-option small,
+.direct-field-note {
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.direct-field-note {
+  margin: 0.6rem 0 0;
+}
+
 .download-page-heading {
   display: flex;
   align-items: flex-end;
@@ -1042,6 +1230,25 @@ body {
 @media (max-width: 575.98px) {
   .proxy-modal-form .proxy-field-pair {
     grid-template-columns: 1fr;
+  }
+
+  .direct-form-grid,
+  .direct-option-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .direct-form-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .direct-advanced-options > summary {
+    align-items: flex-start;
+  }
+
+  .direct-advanced-badge {
+    display: none;
   }
 
   .download-card {

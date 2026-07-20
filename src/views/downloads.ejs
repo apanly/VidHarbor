@@ -31,27 +31,67 @@
       </section>
       <div class="modal fade" id="direct-download-modal" tabindex="-1" aria-labelledby="direct-download-title" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
-          <form id="direct-download-form" class="modal-content form-stack">
+          <form id="direct-download-form" class="modal-content form-stack direct-download-form">
               <div class="modal-header">
                 <h2 class="modal-title h5" id="direct-download-title">单视频直下载</h2>
                 <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
               </div>
               <div class="modal-body">
-                <h3 class="h6">基础信息</h3>
-                <div class="mb-3"><label class="form-label" for="direct-url">视频地址</label><input class="form-control" id="direct-url" type="url" name="url" required><div class="form-text">支持 YouTube、Bilibili、Vimeo、X、Facebook 公开单视频或 Reel，以及抖音公开单视频的 HTTPS 地址；Bilibili 用 ?p=序号选择分 P，X 一帖多视频用 /video/序号选择。不展开主页、列表或合集，频道订阅支持 YouTube 和 Bilibili。</div></div>
-                <div class="mb-3"><label class="form-label" for="direct-proxy">网络路径</label><select class="form-select" id="direct-proxy" name="proxyId"><option value="">直连</option></select></div>
-                <h3 class="h6">媒体选项</h3>
-                <div class="mb-3"><label class="form-label" for="direct-media-type">媒体类型</label><select class="form-select" id="direct-media-type" name="mediaType"><option value="video">视频</option><option value="audio">音频</option></select></div>
-                <div class="mb-3"><label class="form-label" for="direct-format">格式</label><input class="form-control" id="direct-format" name="format" placeholder="留空使用默认"></div>
-                <div class="mb-3"><label class="form-label" for="direct-quality">质量</label><input class="form-control" id="direct-quality" name="quality" placeholder="例如 1080"></div>
-                <div class="mb-3"><label class="form-label" for="direct-codec">编码</label><input class="form-control" id="direct-codec" name="codec" placeholder="例如 mp4"></div>
-                <div class="mb-4"><label class="form-label" for="direct-filename-preset">文件名预设</label><input class="form-control" id="direct-filename-preset" name="filenamePreset" placeholder="留空使用视频 ID"></div>
-                <h3 class="h6">附加内容</h3>
-                <div class="mb-2 form-check"><input class="form-check-input" type="checkbox" name="writeSubtitles" id="writeSubtitles"><label class="form-check-label" for="writeSubtitles">字幕</label></div>
-                <div class="mb-4 form-check"><input class="form-check-input" type="checkbox" name="splitChapters" id="splitChapters"><label class="form-check-label" for="splitChapters">章节切分</label></div>
-                <h3 class="h6">时间裁剪</h3>
-                <div class="mb-3"><label class="form-label" for="direct-time-start">起始时间</label><input class="form-control" id="direct-time-start" name="timeRangeStart" placeholder="00:00:00"></div>
-                <div class="mb-3"><label class="form-label" for="direct-time-end">结束时间</label><input class="form-control" id="direct-time-end" name="timeRangeEnd" placeholder="00:10:00"></div>
+                <section class="direct-form-section" aria-labelledby="direct-source-title">
+                  <div class="direct-form-section-heading">
+                    <div><p>必填</p><h3 id="direct-source-title">下载来源</h3></div>
+                    <span>粘贴一个公开单视频地址</span>
+                  </div>
+                  <div class="direct-form-grid">
+                    <div class="direct-field-full">
+                      <label class="form-label" for="direct-url">视频地址</label>
+                      <input class="form-control" id="direct-url" type="url" name="url" placeholder="https://" required>
+                      <div class="form-text">支持公开单视频 HTTPS 地址，不展开频道主页、列表或合集。</div>
+                      <details class="direct-url-help">
+                        <summary>查看平台地址规则</summary>
+                        <p>YouTube、Bilibili、Vimeo、X、Facebook 公开单视频或 Reel，以及抖音公开单视频；Bilibili 用 <code>?p=序号</code> 选择分 P，X 一帖多视频用 <code>/video/序号</code> 选择。</p>
+                      </details>
+                    </div>
+                    <div>
+                      <label class="form-label" for="direct-proxy">网络路径</label>
+                      <select class="form-select" id="direct-proxy" name="proxyId"><option value="">直连</option></select>
+                    </div>
+                    <div>
+                      <label class="form-label" for="direct-media-type">媒体类型</label>
+                      <select class="form-select" id="direct-media-type" name="mediaType"><option value="video">视频</option><option value="audio">音频</option></select>
+                    </div>
+                  </div>
+                </section>
+                <details class="direct-advanced-options">
+                  <summary>
+                    <span><strong>高级选项</strong><small>质量、转码、字幕与时间裁剪</small></span>
+                    <span class="direct-advanced-badge">可选</span>
+                  </summary>
+                  <div class="direct-advanced-content">
+                    <section aria-labelledby="direct-media-options-title">
+                      <h3 id="direct-media-options-title">媒体处理</h3>
+                      <div class="direct-form-grid">
+                        <div><label class="form-label" for="direct-quality">最高分辨率</label><select class="form-select" id="direct-quality" name="quality"><option value="">不限制</option><option value="4320">4320p（8K）</option><option value="2160">2160p（4K）</option><option value="1440">1440p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option><option value="240">240p</option></select></div>
+                        <div><label class="form-label" for="direct-codec">转码格式</label><select class="form-select" id="direct-codec" name="codec"><option value="">不转码</option><optgroup label="视频"><option value="avi">AVI</option><option value="flv">FLV</option><option value="gif">GIF</option><option value="mkv">MKV</option><option value="mov">MOV</option><option value="mp4">MP4</option><option value="webm">WebM</option></optgroup><optgroup label="音频"><option value="aac">AAC</option><option value="aiff">AIFF</option><option value="alac">ALAC</option><option value="flac">FLAC</option><option value="m4a">M4A</option><option value="mka">MKA</option><option value="mp3">MP3</option><option value="ogg">OGG</option><option value="opus">Opus</option><option value="vorbis">Vorbis</option><option value="wav">WAV</option></optgroup></select></div>
+                        <div><label class="form-label" for="direct-filename-preset">文件名预设</label><input class="form-control" id="direct-filename-preset" name="filenamePreset" placeholder="留空使用视频 ID"></div>
+                      </div>
+                    </section>
+                    <section aria-labelledby="direct-extra-title">
+                      <h3 id="direct-extra-title">附加内容</h3>
+                      <div class="direct-option-grid">
+                        <label class="direct-option" for="writeSubtitles"><input class="form-check-input" type="checkbox" name="writeSubtitles" id="writeSubtitles"><span><strong>字幕</strong><small>保存视频提供的字幕文件</small></span></label>
+                      </div>
+                    </section>
+                    <section aria-labelledby="direct-time-title">
+                      <h3 id="direct-time-title">时间裁剪</h3>
+                      <div class="direct-form-grid">
+                        <div><label class="form-label" for="direct-time-start">起始时间</label><input class="form-control" id="direct-time-start" name="timeRangeStart" inputmode="numeric" placeholder="00:00:00"></div>
+                        <div><label class="form-label" for="direct-time-end">结束时间</label><input class="form-control" id="direct-time-end" name="timeRangeEnd" inputmode="numeric" placeholder="00:10:00"></div>
+                      </div>
+                      <p class="direct-field-note">起始时间和结束时间需要同时填写；全部留空则下载完整视频。</p>
+                    </section>
+                  </div>
+                </details>
                 <div class="alert alert-danger" data-form-error hidden></div>
               </div>
               <div class="modal-footer">

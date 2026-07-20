@@ -14,6 +14,9 @@ All notable user-visible changes are documented here. The project follows Semant
 - Fixed interrupted scheduled checks remaining active after restart and permanently blocking channel deletion.
 - Replaced the bare empty channel message with a guided first-channel action.
 - Removed the redundant no-channel-updates message from the dashboard.
+- Grouped optional direct-download fields behind a clearer advanced-options section.
+- Removed the raw yt-dlp format expression from the direct-download form.
+- Removed chapter splitting from the direct-download form because it adds post-processing rather than reducing download time.
 
 ## 0.2.0 - 2026-07-20
 

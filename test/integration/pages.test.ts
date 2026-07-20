@@ -504,13 +504,25 @@ describe('server-rendered pages', () => {
     expect(script).toContain('标记已读');
   });
 
-  it('renders direct download form in an official modal with single-column groups', async () => {
+  it('renders direct download form with progressive optional groups', async () => {
     const html = await getPage('/downloads');
 
     expect(html).toContain('data-bs-target="#direct-download-modal"');
     expect(html).toContain('id="direct-download-modal"');
     expect(html).toContain('class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"');
-    expect(html).toContain('<form id="direct-download-form" class="modal-content form-stack">');
+    expect(html).toContain('<form id="direct-download-form" class="modal-content form-stack direct-download-form">');
+    expect(html).toContain('class="direct-form-grid"');
+    expect(html).toContain('class="direct-advanced-options"');
+    expect(html).toContain('<strong>高级选项</strong>');
+    expect(html).toContain('起始时间和结束时间需要同时填写');
+    expect(html).toContain('>转码格式</label>');
+    expect(html).toContain('id="direct-quality" name="quality"><option value="">不限制</option>');
+    expect(html).toContain('4320p（8K）');
+    expect(html).toContain('id="direct-codec" name="codec"><option value="">不转码</option>');
+    expect(html).toContain('<optgroup label="视频">');
+    expect(html).toContain('<optgroup label="音频">');
+    expect(html).not.toContain('id="direct-quality" name="quality" placeholder=');
+    expect(html).not.toContain('id="direct-codec" name="codec" placeholder=');
     expect(html).not.toContain('下载历史');
     expect(html).not.toContain('id="direct-download-form" class="row g-3"');
     expect(html).not.toContain('col-md-8');
@@ -528,9 +540,12 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('name="targetSubdirectory"');
     expect(html).not.toContain('name="writeThumbnail"');
     expect(html).toContain('name="mediaType"');
-    expect(html).toContain('name="format"');
+    expect(html).not.toContain('name="format"');
     expect(html).toContain('name="quality"');
+    expect(html).not.toContain('name="splitChapters"');
     expect(script).toContain('advancedOptions(form)');
+    expect(script).toContain('format: null');
+    expect(script).toContain('splitChapters: false');
     expect(script).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), advancedOptions: advancedOptions(form) })");
     expect(script).toContain("let selectedTab = 'completed'");
     expect(script).toContain("facebook: 'Facebook'");
