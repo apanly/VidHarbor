@@ -265,6 +265,14 @@ async function waitForProgress(downloadId: number): Promise<void> {
   }
 }
 
+async function waitForStatus(downloadId: number, status: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (row(downloadId).status !== status) {
+    if (Date.now() >= deadline) throw new Error(`download did not reach ${status}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-download-worker-'));
   downloadRoot = join(sandbox, 'downloads');
@@ -339,7 +347,7 @@ describe('single download worker', () => {
     worker.enqueue(job(secondId, SECOND_VIDEO_ID, 'fixture://worker-second'));
 
     await waitForFile(join(sandbox, 'first.running'));
-    await waitForFile(join(downloadRoot, String(secondId), `${SECOND_VIDEO_ID}.mp4`));
+    await waitForStatus(secondId, 'completed');
     expect(row(firstId)).toMatchObject({ status: 'running' });
     expect(row(secondId)).toMatchObject({ status: 'completed' });
 
