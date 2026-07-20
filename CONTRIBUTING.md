@@ -9,7 +9,7 @@ Keep changes within the documented product boundary in `README.md`. New input fo
 - Node.js 24.x
 - npm from the pinned lockfile workflow
 - Docker and Docker Compose for container validation
-- Linux ARM64 for Docker image validation
+- Linux AMD64 or ARM64 for local Docker image validation; CI validates both
 
 Install dependencies and run the required checks:
 

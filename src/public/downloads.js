@@ -27,13 +27,14 @@ function nullableNumber(value) { return value === '' ? null : Number(value); }
 function nullableText(value) { return value === '' ? null : value; }
 function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: nullableText(form.elements.format.value), quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, splitChapters: form.elements.splitChapters.checked, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value), filenamePreset: nullableText(form.elements.filenamePreset.value) }; }
 function showError(region, error) { region.textContent = `${error.code}: ${error.message}`; region.hidden = false; }
-async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const result = await response.json(); if (!response.ok) throw result.error; return result; }
+async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const text = await response.text(); if (response.status === 202 && text === '') return null; const result = JSON.parse(text); if (!response.ok) throw result.error; return result; }
 function displayValue(value) { return value ?? '—'; }
 function textElement(tag, className, value) { const node = document.createElement(tag); node.className = className; node.textContent = displayValue(value); return node; }
 function fieldElement(tag, className, fieldName) { const node = textElement(tag, className, null); node.dataset.downloadField = fieldName; return node; }
 function detail(label, fieldName, className = '') { const node = document.createElement('div'); node.className = `download-detail ${className}`.trim(); node.append(textElement('span', 'download-detail-label', label), fieldElement('span', 'download-detail-value', fieldName)); return node; }
 function formatTimestamp(value) { return value === null ? '—' : formatChinaTimestamp(value); }
 function formatDuration(value) { if (value === null) return '—'; const hours = Math.floor(value / 3600); const minutes = Math.floor((value % 3600) / 60); const seconds = value % 60; return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':'); }
+function downloadElapsedSeconds(startedAt, finishedAt) { if (startedAt === null || finishedAt === null) return null; return Math.floor((Date.parse(finishedAt) - Date.parse(startedAt)) / 1000); }
 function formatBytes(value) { if (value === null) return '—'; const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']; let size = value; let unit = 0; while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; } return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(size)} ${units[unit]}`; }
 function emptyStateFor(tab, query, total) {
   if (total === 0) return { title: '还没有下载任务', description: '粘贴一个受支持的 HTTPS 地址，第一条任务会出现在这里。', action: 'create', actionLabel: '新建直下载' };
@@ -121,7 +122,7 @@ function createDownloadCard(download) {
 
   const metrics = document.createElement('section'); metrics.className = 'download-card-metrics';
   if (download.status === 'completed') {
-    metrics.append(detail('总时长', 'durationSeconds'), detail('文件大小', 'outputSizeBytes'), detail('完成时间', 'finishedAt'));
+    metrics.append(detail('总时长', 'durationSeconds'), detail('文件大小', 'outputSizeBytes'), detail('总下载耗时', 'downloadElapsedSeconds'), detail('完成时间', 'finishedAt'));
     article.append(header, metrics, detail('存储路径', 'outputPath', 'download-card-storage'));
     return article;
   } else if (download.status === 'pending' || download.status === 'running' || download.status === 'downloading') {
@@ -153,6 +154,7 @@ function updateDownloadCard(article, previous, download) {
   setField(article, 'etaSeconds', download.etaSeconds === null ? null : `${download.etaSeconds}s`);
   setField(article, 'durationSeconds', formatDuration(download.durationSeconds));
   setField(article, 'outputSizeBytes', formatBytes(download.outputSizeBytes));
+  setField(article, 'downloadElapsedSeconds', formatDuration(downloadElapsedSeconds(download.startedAt, download.finishedAt)));
   setField(article, 'networkMode', download.networkMode === 'direct' ? '直连' : download.proxyName);
   setField(article, 'outputPath', download.outputPath);
   setField(article, 'failureReason', download.failureReason);

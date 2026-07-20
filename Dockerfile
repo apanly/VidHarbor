@@ -1,33 +1,42 @@
 FROM node:24.18.0-bookworm-slim@sha256:af01d58b748ec92b1d6e8e11429aad424fd1e68c848185399dca0596a1ab8f5c AS yt-dlp
 
-ARG TARGETARCH=arm64
 ARG YT_DLP_VERSION=2026.07.04
-ARG YT_DLP_SHA256=b6ce97646773070d7a7ffd6bbbdcaecb47c48483909c54c915bf08a7a9b5e0b1
+ARG YT_DLP_SHA256_AMD64=6bbb3d314cde4febe36e5fa1d55462e29c974f63444e707871834f6d8cc210ae
+ARG YT_DLP_SHA256_ARM64=b6ce97646773070d7a7ffd6bbbdcaecb47c48483909c54c915bf08a7a9b5e0b1
 
-RUN test "$TARGETARCH" = "arm64" \
-    && apt-get update \
+RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates=20230311+deb12u1 \
         curl=7.88.1-10+deb12u15 \
         file=1:5.44-3 \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN architecture="$(dpkg --print-architecture)" \
+    && case "$architecture" in \
+        amd64) yt_dlp_asset='yt-dlp_linux'; yt_dlp_sha256="$YT_DLP_SHA256_AMD64"; file_pattern='x86-64' ;; \
+        arm64) yt_dlp_asset='yt-dlp_linux_aarch64'; yt_dlp_sha256="$YT_DLP_SHA256_ARM64"; file_pattern='ARM aarch64' ;; \
+        *) echo "unsupported architecture: $architecture" >&2; exit 1 ;; \
+    esac \
     && curl --fail --location --silent --show-error \
-        "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/yt-dlp_linux_aarch64" \
+        --retry 3 --retry-all-errors --connect-timeout 30 --max-time 300 \
+        "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/${yt_dlp_asset}" \
         --output /usr/local/bin/yt-dlp \
-    && echo "${YT_DLP_SHA256}  /usr/local/bin/yt-dlp" | sha256sum --check --strict \
+    && echo "${yt_dlp_sha256}  /usr/local/bin/yt-dlp" | sha256sum --check --strict \
     && chmod 0755 /usr/local/bin/yt-dlp \
-    && file /usr/local/bin/yt-dlp | grep -q 'ARM aarch64' \
+    && file /usr/local/bin/yt-dlp | grep -q "$file_pattern" \
     && test "$(yt-dlp --version)" = "$YT_DLP_VERSION"
 
 FROM node:24.18.0-bookworm-slim@sha256:af01d58b748ec92b1d6e8e11429aad424fd1e68c848185399dca0596a1ab8f5c AS build
 
-ARG TARGETARCH=arm64
-
 WORKDIR /app
 
-RUN test "$TARGETARCH" = "arm64" \
-    && test "$(node --print 'process.arch')" = "arm64" \
-    && test "$(dpkg --print-architecture)" = "arm64" \
+RUN architecture="$(dpkg --print-architecture)" \
+    && case "$architecture" in \
+        amd64) node_architecture='x64' ;; \
+        arm64) node_architecture='arm64' ;; \
+        *) echo "unsupported architecture: $architecture" >&2; exit 1 ;; \
+    esac \
+    && test "$(node --print 'process.arch')" = "$node_architecture" \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         file=1:5.44-3 \
@@ -48,23 +57,31 @@ COPY src ./src
 RUN npm run build \
     && native_module="$(find node_modules/better-sqlite3 -name better_sqlite3.node -print -quit)" \
     && test -n "$native_module" \
-    && file "$native_module" | grep -q 'ARM aarch64' \
+    && architecture="$(dpkg --print-architecture)" \
+    && case "$architecture" in \
+        amd64) file_pattern='x86-64' ;; \
+        arm64) file_pattern='ARM aarch64' ;; \
+        *) echo "unsupported architecture: $architecture" >&2; exit 1 ;; \
+    esac \
+    && file "$native_module" | grep -q "$file_pattern" \
     && npm prune --omit=dev
 
 FROM node:24.18.0-bookworm-slim@sha256:af01d58b748ec92b1d6e8e11429aad424fd1e68c848185399dca0596a1ab8f5c AS runtime
 
-ARG TARGETARCH=arm64
-
-RUN test "$TARGETARCH" = "arm64" \
-    && test "$(node --print 'process.arch')" = "arm64" \
-    && test "$(dpkg --print-architecture)" = "arm64" \
+RUN architecture="$(dpkg --print-architecture)" \
+    && case "$architecture" in \
+        amd64) node_architecture='x64'; file_pattern='x86-64' ;; \
+        arm64) node_architecture='arm64'; file_pattern='ARM aarch64' ;; \
+        *) echo "unsupported architecture: $architecture" >&2; exit 1 ;; \
+    esac \
+    && test "$(node --print 'process.arch')" = "$node_architecture" \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates=20230311+deb12u1 \
         ffmpeg=7:5.1.9-0+deb12u1 \
         file=1:5.44-3 \
     && rm -rf /var/lib/apt/lists/* \
-    && file /usr/bin/ffmpeg | grep -q 'ARM aarch64' \
+    && file /usr/bin/ffmpeg | grep -q "$file_pattern" \
     && ffmpeg -version | grep -q '^ffmpeg version 5\.1\.9'
 
 COPY --from=yt-dlp /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
@@ -77,10 +94,16 @@ COPY --from=build --chown=node:node /app/README.md ./README.md
 COPY --from=build --chown=node:node /app/LICENSE ./LICENSE
 
 RUN test "$(yt-dlp --version)" = "2026.07.04" \
-    && file /usr/local/bin/yt-dlp | grep -q 'ARM aarch64' \
     && native_module="$(find node_modules/better-sqlite3 -name better_sqlite3.node -print -quit)" \
     && test -n "$native_module" \
-    && file "$native_module" | grep -q 'ARM aarch64' \
+    && architecture="$(dpkg --print-architecture)" \
+    && case "$architecture" in \
+        amd64) file_pattern='x86-64' ;; \
+        arm64) file_pattern='ARM aarch64' ;; \
+        *) echo "unsupported architecture: $architecture" >&2; exit 1 ;; \
+    esac \
+    && file /usr/local/bin/yt-dlp | grep -q "$file_pattern" \
+    && file "$native_module" | grep -q "$file_pattern" \
     && mkdir -p /data /downloads \
     && chown node:node /data /downloads
 

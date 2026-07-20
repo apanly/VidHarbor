@@ -746,6 +746,28 @@ describe('download API', () => {
     expect(database.prepare('SELECT id FROM downloads WHERE id = ?').pluck().get(id)).toBe(id);
   });
 
+  it('retries a failed download with the fixed empty 202 response', async () => {
+    const result = database
+      .prepare(
+        `INSERT INTO downloads (
+          source_type, source_url, platform, platform_video_id, title,
+          network_mode, status, failure_reason, created_at, finished_at
+        ) VALUES ('direct', 'https://vimeo.com/246813579', 'vimeo',
+                  '246813579', 'Retry', 'direct', 'failed', 'network error', ?, ?)`,
+      )
+      .run('2026-07-17T09:00:00.000Z', '2026-07-17T09:01:00.000Z');
+    const id = Number(result.lastInsertRowid);
+
+    const response = await request(`/downloads/${id}/retry`, 'POST', {});
+
+    expect(response.status).toBe(202);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    await expect(response.text()).resolves.toBe('');
+    expect(queued).toHaveLength(1);
+    expect(database.prepare('SELECT status FROM downloads WHERE id = ?').pluck().get(id))
+      .toBe('pending');
+  });
+
   it('rejects active deletion and deletes a failed record without a file', async () => {
     const result = database
       .prepare(

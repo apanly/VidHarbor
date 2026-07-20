@@ -376,6 +376,9 @@ describe('server-rendered pages', () => {
     expect(guideTemplate).not.toContain('主媒体文件成功并通过校验');
     expect(dockerfile).toContain('COPY README.md ./');
     expect(dockerfile).toContain('/app/README.md ./README.md');
+    expect(dockerfile).toContain("amd64) yt_dlp_asset='yt-dlp_linux'");
+    expect(dockerfile).toContain("arm64) yt_dlp_asset='yt-dlp_linux_aarch64'");
+    expect(dockerfile).not.toContain('ARG TARGETARCH=arm64');
   });
 
   it('renders add and edit forms in dialogs with single-column fields', async () => {
@@ -601,6 +604,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain('download.outputSizeBytes');
     expect(script).toContain("detail('总时长', 'durationSeconds')");
     expect(script).toContain("detail('文件大小', 'outputSizeBytes')");
+    expect(script).toContain("detail('总下载耗时', 'downloadElapsedSeconds')");
     expect(script).toContain("detail('完成时间', 'finishedAt')");
     expect(script).toContain("detail('存储路径', 'outputPath', 'download-card-storage')");
     expect(script).not.toContain("detail('创建时间'");
@@ -628,6 +632,21 @@ describe('server-rendered pages', () => {
     expect(script).toContain("original.target = '_blank'");
     expect(script).toContain("original.rel = 'noopener noreferrer'");
     expect(html).not.toMatch(/自动下载|播放/);
+
+    const requestSource = script.slice(
+      script.indexOf('async function request'),
+      script.indexOf('function displayValue'),
+    );
+    const requestWith = (fetchDownload: typeof fetch) => new Function(
+      'fetch',
+      `${requestSource}; return request;`,
+    )(fetchDownload) as (path: string, method?: string, body?: unknown) => Promise<unknown>;
+    await expect(requestWith(async () => new Response(null, { status: 202 }))('/retry', 'POST', {}))
+      .resolves.toBeNull();
+    await expect(requestWith(async () => new Response(JSON.stringify({ accepted: true }), {
+      status: 202,
+      headers: { 'Content-Type': 'application/json' },
+    }))('/direct', 'POST', {})).resolves.toEqual({ accepted: true });
   });
 
   it('filters downloads by title and exposes distinct tab and empty-state contracts', async () => {
@@ -765,10 +784,12 @@ describe('server-rendered pages', () => {
     const helpers = new Function(
       'document',
       'formatChinaTimestamp',
-      `${functionSource}; return { displayValue, formatTimestamp, formatBytes };`,
+      `${functionSource}; return { displayValue, formatTimestamp, formatDuration, downloadElapsedSeconds, formatBytes };`,
     )(fakeDocument, timeHelpers.formatChinaTimestamp) as {
       displayValue(value: string | null): string;
       formatTimestamp(value: string | null): string;
+      formatDuration(value: number | null): string;
+      downloadElapsedSeconds(startedAt: string | null, finishedAt: string | null): number | null;
       formatBytes(value: number | null): string;
     };
     const value = '2026-07-18T09:43:33.709Z';
@@ -778,11 +799,19 @@ describe('server-rendered pages', () => {
     expect(helpers.formatTimestamp(value)).toBe('2026-07-18 17:43:33');
     expect(helpers.formatTimestamp(null)).toBe('—');
     expect(helpers.formatTimestamp('invalid')).toBe('invalid');
+    expect(helpers.downloadElapsedSeconds(
+      '2026-07-18T08:42:32.000Z',
+      '2026-07-18T09:43:33.000Z',
+    )).toBe(3661);
+    expect(helpers.downloadElapsedSeconds(null, value)).toBeNull();
+    expect(helpers.formatDuration(3661)).toBe('01:01:01');
+    expect(helpers.formatDuration(null)).toBe('—');
     expect(helpers.formatBytes(2048)).toBe('2 KiB');
     expect(helpers.formatBytes(null)).toBe('—');
     expect(script).toContain('formatTimestamp(download.startedAt)');
     expect(script).toContain('formatTimestamp(download.finishedAt)');
     expect(script).toContain("setField(article, 'outputSizeBytes', formatBytes(download.outputSizeBytes))");
+    expect(script).toContain("setField(article, 'downloadElapsedSeconds', formatDuration(downloadElapsedSeconds(download.startedAt, download.finishedAt)))");
     expect(script).toContain("setField(article, 'outputPath', download.outputPath)");
   });
 

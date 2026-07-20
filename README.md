@@ -4,7 +4,7 @@ VidHarbor 是部署在可信内网中的单用户视频管理工具，用来关�
 
 项目的关键特征是：单用户、无登录、本地存储、由用户决定下载内容。
 
-当前版本为 `0.2.0`，仅支持 Linux ARM64。项目采用 GNU AGPL v3.0 许可证，正文见 `LICENSE`。
+项目采用 GNU AGPL v3.0 许可证，正文见 `LICENSE`。
 
 ## 当前功能
 
@@ -87,7 +87,7 @@ VidHarbor 不会自动决定下载内容。频道检查只负责建立视频记�
 
 ## 启动与首次配置
 
-项目要求 Docker 与 Docker Compose，并固定 Node.js、yt-dlp、FFmpeg 和系统包版本。当前 Dockerfile 只支持 `linux/arm64`，适用于 ARM64 Linux 和使用 ARM64 容器的 Apple Silicon；`linux/amd64`、Intel Mac 和 x86_64 服务器尚未支持。
+项目要求 Docker 与 Docker Compose，并固定 Node.js、yt-dlp、FFmpeg 和系统包版本。Dockerfile 支持 `linux/amd64` 和 `linux/arm64`：Intel/AMD Linux、x86_64 服务器和 Intel Mac 使用 AMD64 镜像，ARM64 Linux、ARM 服务器和 Apple Silicon 使用 ARM64 镜像。构建时会按容器架构选择并校验对应的 yt-dlp 二进制；其他架构会明确失败。
 
 ```sh
 docker compose up --build -d

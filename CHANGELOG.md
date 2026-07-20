@@ -16,6 +16,7 @@ All notable user-visible changes are documented here. The project follows Semant
 - Changed the dashboard to show every channel whose latest check found updates, without pagination.
 - Moved task cancellation and shutdown cleanup behind the unified manager.
 - Bound the default Compose port to localhost.
+- Added Docker image support and CI validation for both Linux AMD64 and ARM64.
 
 ### Security
 

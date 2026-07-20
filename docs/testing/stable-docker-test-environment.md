@@ -10,7 +10,7 @@ The goal is not to prove every real network condition. The goal is to prove that
 
 Use this baseline unless a change explicitly updates this document:
 
-- Host Docker server: Linux `arm64`
+- Host Docker server: Linux `amd64` or `arm64`
 - Docker Engine: `29.4.0`
 - Docker Compose: `v5.1.2`
 - Application image tag: `vidharbor:v0.2`
@@ -18,7 +18,7 @@ Use this baseline unless a change explicitly updates this document:
 - Container downloads mount: `/downloads`
 - Application port inside container: `3000`
 
-Do not treat `amd64`, multi-node Docker, Kubernetes, or public internet deployment as covered by this environment. Those need separate validation.
+Do not treat architectures other than `amd64` and `arm64`, multi-node Docker, Kubernetes, or public internet deployment as covered by this environment. Those need separate validation.
 
 ## Stable Test Scope
 
@@ -39,7 +39,7 @@ This environment does not validate:
 - Real proxy connectivity.
 - Long-running production stability.
 - Host backups, monitoring, log rotation, or disk pressure.
-- Non-`arm64` image support.
+- Architectures other than `amd64` and `arm64`.
 
 ## Preflight Commands
 
@@ -63,7 +63,7 @@ Build the stable candidate image:
 docker compose build
 ```
 
-Verify the image exists and is `linux/arm64`:
+Verify the image exists and matches the host's supported Linux architecture:
 
 ```sh
 docker image inspect vidharbor:v0.2 \
@@ -74,7 +74,7 @@ docker run --rm --entrypoint sh vidharbor:v0.2 \
 
 Expected contract:
 
-- `Architecture=arm64`
+- `Architecture=amd64` or `Architecture=arm64`
 - `Os=linux`
 - image tag `vidharbor:v0.2` exists
 - `/app/LICENSE` contains the AGPL license text
@@ -242,7 +242,7 @@ A Docker test run passes this baseline when all of the following are true:
 - `npm test -- --run --maxWorkers=1` passes.
 - `npm run build` passes.
 - `docker compose config` passes.
-- `docker compose build` produces `vidharbor:v0.2` for `linux/arm64`.
+- `docker compose build` produces `vidharbor:v0.2` for the host's `linux/amd64` or `linux/arm64` architecture.
 - A fresh container starts and serves `/`, `/database`, and `/api/settings`.
 - Startup logs contain the required lifecycle events.
 - Settings persisted in `/data/vidharbor.db` survive container restart.
