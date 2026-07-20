@@ -1,5 +1,6 @@
-FROM node:24.18.0-bookworm-slim@sha256:af01d58b748ec92b1d6e8e11429aad424fd1e68c848185399dca0596a1ab8f5c AS yt-dlp
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS yt-dlp
 
+ARG TARGETARCH
 ARG YT_DLP_VERSION=2026.07.04
 ARG YT_DLP_SHA256_AMD64=6bbb3d314cde4febe36e5fa1d55462e29c974f63444e707871834f6d8cc210ae
 ARG YT_DLP_SHA256_ARM64=b6ce97646773070d7a7ffd6bbbdcaecb47c48483909c54c915bf08a7a9b5e0b1
@@ -12,6 +13,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN architecture="$(dpkg --print-architecture)" \
+    && { test -z "$TARGETARCH" || test "$architecture" = "$TARGETARCH"; } \
     && case "$architecture" in \
         amd64) yt_dlp_asset='yt-dlp_linux'; yt_dlp_sha256="$YT_DLP_SHA256_AMD64"; file_pattern='x86-64' ;; \
         arm64) yt_dlp_asset='yt-dlp_linux_aarch64'; yt_dlp_sha256="$YT_DLP_SHA256_ARM64"; file_pattern='ARM aarch64' ;; \
@@ -26,11 +28,13 @@ RUN architecture="$(dpkg --print-architecture)" \
     && file /usr/local/bin/yt-dlp | grep -q "$file_pattern" \
     && test "$(yt-dlp --version)" = "$YT_DLP_VERSION"
 
-FROM node:24.18.0-bookworm-slim@sha256:af01d58b748ec92b1d6e8e11429aad424fd1e68c848185399dca0596a1ab8f5c AS build
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS build
 
+ARG TARGETARCH
 WORKDIR /app
 
 RUN architecture="$(dpkg --print-architecture)" \
+    && { test -z "$TARGETARCH" || test "$architecture" = "$TARGETARCH"; } \
     && case "$architecture" in \
         amd64) node_architecture='x64' ;; \
         arm64) node_architecture='arm64' ;; \
@@ -66,9 +70,11 @@ RUN npm run build \
     && file "$native_module" | grep -q "$file_pattern" \
     && npm prune --omit=dev
 
-FROM node:24.18.0-bookworm-slim@sha256:af01d58b748ec92b1d6e8e11429aad424fd1e68c848185399dca0596a1ab8f5c AS runtime
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS runtime
 
+ARG TARGETARCH
 RUN architecture="$(dpkg --print-architecture)" \
+    && { test -z "$TARGETARCH" || test "$architecture" = "$TARGETARCH"; } \
     && case "$architecture" in \
         amd64) node_architecture='x64'; file_pattern='x86-64' ;; \
         arm64) node_architecture='arm64'; file_pattern='ARM aarch64' ;; \

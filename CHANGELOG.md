@@ -8,6 +8,10 @@ All notable user-visible changes are documented here. The project follows Semant
 
 - Added a public GHCR deployment path alongside local source builds.
 
+### Fixed
+
+- Fixed the published AMD64 image containing ARM64 binaries because the Node base image was pinned to a single-platform digest.
+
 ## 0.2.0 - 2026-07-20
 
 ### Added
