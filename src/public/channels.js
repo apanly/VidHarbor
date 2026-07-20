@@ -20,7 +20,6 @@ function clearError(form) { const region = form.querySelector('[data-form-error]
 async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const result = await response.json(); if (!response.ok) throw result.error; return result; }
 function setProxyOptions(select, proxies, selectedId) { select.replaceChildren(new Option('直连', '')); for (const proxy of proxies) { const option = new Option(proxy.name, String(proxy.id)); option.selected = proxy.id === selectedId; select.append(option); } }
 function channelDetail(label, value) { const item = document.createElement('p'); item.className = 'mb-2 small'; const name = document.createElement('span'); name.className = 'text-body-secondary'; name.textContent = `${label}：`; item.append(name, value); return item; }
-function renderEmptyState(list) { const empty = document.createElement('p'); empty.className = 'col-12 text-center text-body-secondary py-5'; empty.textContent = '尚未添加频道。'; list.append(empty); }
 function openChannelCreateModal() {
   channelMode = { kind: 'create' };
   channelModalTitle.textContent = '新增频道';
@@ -50,13 +49,16 @@ async function load() {
   proxyItems = proxies.items;
   setProxyOptions(channelForm.elements.proxyId, proxyItems, null);
   document.querySelector('[data-channel-create]').addEventListener('click', () => openChannelCreateModal());
+  document.querySelector('[data-channel-empty-create]').addEventListener('click', () => { openChannelCreateModal(); channelModal.show(); });
   const list = document.querySelector('#channel-list');
+  const emptyState = document.querySelector('#channel-empty-state');
   list.replaceChildren();
   if (channels.items.length === 0) {
     if (requestedPage > 1 && channels.pagination.totalPages < requestedPage) { location.search = `?page=${Math.max(1, channels.pagination.totalPages)}`; return; }
-    renderEmptyState(list);
+    emptyState.hidden = false;
     return;
   }
+  emptyState.hidden = true;
   for (const channel of channels.items) {
     const column = document.createElement('div'); column.className = 'col'; const card = document.createElement('article'); card.className = 'card h-100 channel-card'; card.tabIndex = 0; card.setAttribute('role', 'link'); card.setAttribute('aria-label', `打开频道 ${channel.customName}`); const openDetail = () => window.open(`/channels/${channel.id}`, '_blank', 'noopener'); card.addEventListener('click', (event) => { if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, label') !== null) return; openDetail(); }); card.addEventListener('keydown', (event) => { if (event.target === card && event.key === 'Enter') openDetail(); }); const body = document.createElement('div'); body.className = 'card-body d-flex flex-column';
     const link = document.createElement('a'); link.className = 'h5 mb-1 text-decoration-none'; link.href = `/channels/${channel.id}`; link.target = '_blank'; link.rel = 'noopener'; link.textContent = channel.customName; const platform = document.createElement('span'); platform.className = 'badge text-bg-light border align-self-start mb-2'; platform.textContent = platformLabels[channel.platform]; const source = document.createElement('a'); source.className = 'small text-body-secondary text-break'; source.href = channel.url; source.target = '_blank'; source.rel = 'noreferrer'; source.textContent = channel.url; body.append(link, platform, source);

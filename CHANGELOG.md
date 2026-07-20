@@ -11,6 +11,9 @@ All notable user-visible changes are documented here. The project follows Semant
 ### Fixed
 
 - Fixed the published AMD64 image containing ARM64 binaries because the Node base image was pinned to a single-platform digest.
+- Fixed interrupted scheduled checks remaining active after restart and permanently blocking channel deletion.
+- Replaced the bare empty channel message with a guided first-channel action.
+- Removed the redundant no-channel-updates message from the dashboard.
 
 ## 0.2.0 - 2026-07-20
 

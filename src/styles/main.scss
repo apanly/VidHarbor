@@ -755,6 +755,80 @@ body {
   display: none;
 }
 
+.channel-empty-state {
+  position: relative;
+  display: grid;
+  min-height: 26rem;
+  overflow: hidden;
+  padding: 3.5rem 1.5rem;
+  place-items: center;
+  align-content: center;
+  border: bootstrap.$border-width dashed rgba(15, 23, 42, 0.16);
+  border-radius: 1.5rem;
+  text-align: center;
+  background:
+    linear-gradient(rgba(23, 32, 51, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 32, 51, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 50% 5%, rgba(114, 230, 255, 0.24), transparent 18rem),
+    rgba(255, 255, 255, 0.68);
+  background-size: 2rem 2rem, 2rem 2rem, auto, auto;
+}
+
+.channel-empty-state[hidden] {
+  display: none;
+}
+
+.channel-empty-mark {
+  position: relative;
+  display: grid;
+  width: 5rem;
+  height: 5rem;
+  margin-bottom: 1.4rem;
+  place-items: center;
+  border-radius: 50%;
+  color: #0f2d3a;
+  background: linear-gradient(135deg, #8affc1, #72e6ff);
+  box-shadow: 0 1.25rem 2.5rem rgba(31, 184, 201, 0.24);
+}
+
+.channel-empty-mark::before {
+  position: absolute;
+  width: 7rem;
+  height: 7rem;
+  border: 1px dashed rgba(23, 32, 51, 0.2);
+  border-radius: 50%;
+  content: '';
+}
+
+.channel-empty-mark span {
+  font-size: 2.5rem;
+  font-weight: 500;
+  line-height: 1;
+  transform: translateY(-0.1rem);
+}
+
+.channel-empty-kicker {
+  margin: 0 0 0.35rem;
+  color: #087f72;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.channel-empty-state h2 {
+  margin: 0;
+  color: #172033;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 900;
+}
+
+.channel-empty-description {
+  max-width: 34rem;
+  margin: 0.8rem auto 1.5rem;
+  color: #64748b;
+  line-height: 1.75;
+}
+
 .pagination-pages {
   display: flex;
   align-items: center;
@@ -1000,6 +1074,11 @@ body {
   .download-empty-state {
     min-height: 18rem;
     padding: 2.25rem 1rem;
+  }
+
+  .channel-empty-state {
+    min-height: 22rem;
+    padding: 3rem 1rem;
   }
 
   .pagination-summary {

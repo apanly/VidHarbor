@@ -400,6 +400,11 @@ describe('server-rendered pages', () => {
     expect(channelsScript).toContain('openChannelCreateModal()');
     expect(channelsScript).toContain('openChannelEditModal(channel)');
     expect(channelsHtml).toContain('>新增频道</button>');
+    expect(channelsHtml).toContain('id="channel-empty-state" class="channel-empty-state"');
+    expect(channelsHtml).toContain('从一个频道开始');
+    expect(channelsHtml).toContain('data-channel-empty-create>添加第一个频道</button>');
+    expect(channelsScript).toContain("document.querySelector('[data-channel-empty-create]')");
+    expect(channelsScript).toContain('emptyState.hidden = false');
     expect(channelsHtml).not.toContain('已添加频道');
     expect(channelsHtml).toContain('id="channel-list" class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4"');
     expect(channelsScript).toContain("card.className = 'card h-100 channel-card'");
@@ -849,7 +854,8 @@ describe('server-rendered pages', () => {
     expect(dashboardScript).toContain("fetch('/api/channels/updates'");
     expect(dashboardScript).not.toContain('renderPagination');
     expect(dashboardScript).not.toContain('requestedPage');
-    expect(dashboardScript).toContain('当前没有发现更新的频道。');
+    expect(dashboardScript).not.toContain('当前没有发现更新的频道。');
+    expect(dashboardScript).toContain('if (body.items.length === 0) return;');
     expect(html).toContain('<h2 id="active-tasks-title">活动任务</h2>');
     expect(html).toContain('<h2 id="terminal-tasks-title">最近已结束任务</h2>');
     expect(html.match(/<table class="table yt-dlp-tasks-table align-middle mb-0">/g)).toHaveLength(2);

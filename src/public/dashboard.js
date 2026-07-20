@@ -20,10 +20,7 @@ async function load() {
   const runningCount = downloads.statusCounts.pending + downloads.statusCounts.running + downloads.statusCounts.downloading;
   const failedCount = downloads.statusCounts.failed + downloads.statusCounts.interrupted;
   const totals = document.createElement('div'); totals.className = 'col-12'; totals.innerHTML = `<div class="alert alert-info">未读提醒：${unreadCount}；进行中下载：${runningCount}；失败/中断下载：${failedCount}</div>`; summary.append(totals);
-  if (body.items.length === 0) {
-    summary.append('当前没有发现更新的频道。');
-    return;
-  }
+  if (body.items.length === 0) return;
   for (const channel of body.items) {
     const column = document.createElement('div');
     column.className = 'col-md-6 col-xl-4';
