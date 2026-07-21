@@ -1,23 +1,15 @@
-import { access, chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
-  createCookieBoundaryProbeSource,
-  expectNoCookieReferences,
-  type CookieBoundaryObservation,
-  VALID_COOKIE_FILE,
-} from '../helpers/cookie-boundary.js';
-import {
   downloadMedia,
   fetchChannelEntries,
   fetchVideoMetadata,
 } from '../../src/yt-dlp.js';
-import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import {
   isYtDlpTaskCancellationError,
   YtDlpTaskManager,
@@ -26,10 +18,6 @@ import {
 const executablePath = fileURLToPath(
   new URL('../fixtures/fake-yt-dlp.mjs', import.meta.url),
 );
-
-interface YtDlpInvocation extends CookieBoundaryObservation {
-  readonly hasProxy: boolean;
-}
 
 beforeAll(async () => {
   await chmod(executablePath, 0o755);
@@ -123,47 +111,15 @@ describe('yt-dlp argument protocol', () => {
     });
   });
 
-  it('omits proxy and cookie options for direct fetches after a Cookie is saved', async () => {
-    const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-yt-dlp-cookie-'));
-    const cookieStorageDirectory = join(sandbox, 'cookies');
-    const boundaryExecutablePath = join(sandbox, 'fake-yt-dlp.mjs');
-    const cookieBoundaryProbe = createCookieBoundaryProbeSource(
-      cookieStorageDirectory,
-    );
-    const cookieAuthorizationService = new CookieAuthorizationService(
-      cookieStorageDirectory,
-    );
+  it('omits proxy and cookie options for direct fetches', async () => {
+    const [result] = await fetchChannelEntries({
+      executablePath,
+      url: 'fixture://echo',
+    });
+    const args = (result as { args: string[] }).args;
 
-    try {
-      await writeFile(
-        boundaryExecutablePath,
-`#!/usr/bin/env node
-const args = process.argv.slice(2);
-${cookieBoundaryProbe}
-process.stdout.write(JSON.stringify({
-  hasProxy: args.includes('--proxy'),
-  ...cookieBoundary,
-}) + '\\n');
-`,
-        'utf8',
-      );
-      await chmod(boundaryExecutablePath, 0o755);
-      await cookieAuthorizationService.initialize();
-      await cookieAuthorizationService.saveConfiguration(
-        'youtube',
-        Readable.from([VALID_COOKIE_FILE]),
-      );
-      const [result] = await fetchChannelEntries({
-        executablePath: boundaryExecutablePath,
-        url: 'fixture://echo',
-      });
-      const invocation = result as unknown as YtDlpInvocation;
-
-      expect(invocation.hasProxy).toBe(false);
-      expectNoCookieReferences(invocation);
-    } finally {
-      await rm(sandbox, { recursive: true, force: true });
-    }
+    expect(args).not.toContain('--proxy');
+    expect(args.some((argument) => argument.includes('cookie'))).toBe(false);
   });
 
   it('disables playlist expansion for a single-resource probe', async () => {

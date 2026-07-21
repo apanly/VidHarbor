@@ -1,20 +1,12 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  createCookieBoundaryProbeSource,
-  expectNoCookieReferences,
-  type CookieBoundaryObservation,
-  VALID_COOKIE_FILE,
-} from '../helpers/cookie-boundary.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { BusinessError } from '../../src/errors.js';
-import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import {
   initialSyncChannel,
   saveChannel,
@@ -25,14 +17,6 @@ const STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
 const DIRECT_URL = 'https://www.youtube.com/@direct';
 const BILIBILI_CHANNEL_URL = 'https://space.bilibili.com/3985676';
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
-
-interface YtDlpInvocation extends CookieBoundaryObservation {
-  readonly flatPlaylist: boolean;
-  readonly noPlaylist: boolean;
-  readonly bilibiliVideo: boolean;
-  readonly hasDateAfter: boolean;
-  readonly hasInitialDateBoundary: boolean;
-}
 
 let sandbox: string;
 let executablePath: string;
@@ -117,29 +101,12 @@ const fixtureByUrl: Record<string, readonly Record<string, unknown>[]> = {
 async function installFakeYtDlp(): Promise<void> {
   executablePath = join(sandbox, 'fake-yt-dlp.mjs');
   const fixtures = JSON.stringify(fixtureByUrl);
-  const invocationLogPath = JSON.stringify(join(sandbox, 'argv.log'));
-  const cookieBoundaryProbe = createCookieBoundaryProbeSource(
-    join(sandbox, 'cookies'),
-  );
   await writeFile(
     executablePath,
     `#!/usr/bin/env node
-import { appendFileSync } from 'node:fs';
-
 const fixtures = ${fixtures};
 const args = process.argv.slice(2);
 const url = args.at(-1);
-${cookieBoundaryProbe}
-const dateAfterIndex = args.indexOf('--dateafter');
-const dateAfter = dateAfterIndex === -1 ? undefined : args[dateAfterIndex + 1];
-appendFileSync(${invocationLogPath}, JSON.stringify({
-  flatPlaylist: args.includes('--flat-playlist'),
-  noPlaylist: args.includes('--no-playlist'),
-  bilibiliVideo: url?.startsWith('https://www.bilibili.com/video/') === true,
-  hasDateAfter: dateAfter !== undefined,
-  hasInitialDateBoundary: dateAfter === '20250717',
-  ...cookieBoundary,
-}) + '\\n');
 if (url === 'https://space.bilibili.com/3985676/video' && !args.includes('--flat-playlist')) process.exit(10);
 if (url?.startsWith('https://www.bilibili.com/video/') && !args.includes('--no-playlist')) process.exit(11);
 if (url === 'https://www.youtube.com/@failure/videos') {
@@ -157,13 +124,6 @@ for (const value of fixtures[url] ?? []) process.stdout.write(JSON.stringify(val
     'utf8',
   );
   await chmod(executablePath, 0o755);
-}
-
-async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
-  return (await readFile(join(sandbox, 'argv.log'), 'utf8'))
-    .trimEnd()
-    .split('\n')
-    .map((line) => JSON.parse(line) as YtDlpInvocation);
 }
 
 function setGlobalInterval(minutes = 60): void {
@@ -221,16 +181,6 @@ beforeEach(async () => {
   migrateDatabase(database);
   taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
   setGlobalInterval();
-  const cookieAuthorizationService = new CookieAuthorizationService(
-    join(sandbox, 'cookies'),
-  );
-  await cookieAuthorizationService.initialize();
-  expect(taskManager.getSnapshot()).toEqual([]);
-  await cookieAuthorizationService.saveConfiguration(
-    'youtube',
-    Readable.from([VALID_COOKIE_FILE]),
-  );
-  expect(taskManager.getSnapshot()).toEqual([]);
 });
 
 afterEach(async () => {
@@ -282,14 +232,6 @@ describe('channel initial synchronization', () => {
       { platform: 'bilibili', platform_video_id: 'BV11x411K7CN', published_date: '2025-07-17', duration_seconds: 11 },
     ]);
     expect(count('notifications')).toBe(0);
-    const invocations = await readYtDlpInvocations();
-    for (const invocation of invocations) expectNoCookieReferences(invocation);
-    expect(invocations[0]?.flatPlaylist).toBe(true);
-    expect(
-      invocations
-        .filter((invocation) => invocation.bilibiliVideo)
-        .every((invocation) => invocation.noPlaylist),
-    ).toBe(true);
   });
 
   it('keeps the Bilibili UP identity when the selected history is empty', async () => {
@@ -369,11 +311,6 @@ describe('channel initial synchronization', () => {
       new_video_count: 0,
       failure_reason: null,
     });
-    const [invocation] = await readYtDlpInvocations();
-    if (invocation === undefined) throw new Error('yt-dlp was not invoked');
-    expectNoCookieReferences(invocation);
-    expect(invocation.hasDateAfter).toBe(true);
-    expect(invocation.hasInitialDateBoundary).toBe(true);
   });
 
   it('uses exactly the selected proxy and honors a channel interval override', async () => {

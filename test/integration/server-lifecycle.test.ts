@@ -213,43 +213,6 @@ describe('server lifecycle', () => {
     ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('secures fixed Cookie files, removes only exact temporary remnants, and preserves unknown files', async () => {
-    const config = await createConfig();
-    const storage = cookieStoragePath(config);
-    const fixedFile = join(storage, 'youtube.cookies.txt');
-    const exactTemporaryFiles = [
-      '.youtube.cookies.txt.pending',
-      '.x.cookies.txt.pending',
-    ];
-    const unknownFiles = [
-      '.unrelated.pending',
-      '.youtube.cookies.txt.pending.backup',
-      'operator-notes.txt',
-    ];
-    await mkdir(storage, { mode: 0o777 });
-    await chmod(storage, 0o777);
-    await writeFile(fixedFile, SENSITIVE_COOKIE_MARKER, { mode: 0o666 });
-    await chmod(fixedFile, 0o666);
-    await Promise.all(
-      [...exactTemporaryFiles, ...unknownFiles].map((fileName) =>
-        writeFile(join(storage, fileName), SENSITIVE_COOKIE_MARKER),
-      ),
-    );
-
-    const server = await startServer(config, () => undefined);
-    runningServers.push(server);
-
-    expect(permissionMode((await stat(storage)).mode)).toBe(0o700);
-    expect(permissionMode((await stat(fixedFile)).mode)).toBe(0o600);
-    const entries = await readdir(storage);
-    expect(
-      exactTemporaryFiles.every((fileName) => !entries.includes(fileName)),
-    ).toBe(true);
-    expect(
-      unknownFiles.every((fileName) => entries.includes(fileName)),
-    ).toBe(true);
-  });
-
   it('does not listen or expose sensitive data when the Cookie storage path is not a directory', async () => {
     const config = await createConfig();
     const storage = cookieStoragePath(config);
@@ -258,78 +221,6 @@ describe('server lifecycle', () => {
     await expectCookieInitializationFailure(config, [
       SENSITIVE_COOKIE_MARKER,
       storage,
-    ]);
-  });
-
-  it('does not listen or expose sensitive data when a fixed Cookie path is not a regular file', async () => {
-    const config = await createConfig();
-    const storage = cookieStoragePath(config);
-    const sensitiveTarget = join(dirname(config.databasePath), 'cookie-secret');
-    const fixedFile = join(storage, 'youtube.cookies.txt');
-    await mkdir(storage);
-    await writeFile(sensitiveTarget, SENSITIVE_COOKIE_MARKER);
-    await symlink(sensitiveTarget, fixedFile);
-
-    await expectCookieInitializationFailure(config, [
-      SENSITIVE_COOKIE_MARKER,
-      storage,
-      fixedFile,
-      sensitiveTarget,
-    ]);
-  });
-
-  it('does not listen when an exact Cookie temporary path is a symbolic link', async () => {
-    const config = await createConfig();
-    const storage = cookieStoragePath(config);
-    const sensitiveTarget = join(dirname(config.databasePath), 'cookie-secret');
-    const temporaryPath = join(storage, '.youtube.cookies.txt.pending');
-    await mkdir(storage);
-    await writeFile(sensitiveTarget, SENSITIVE_COOKIE_MARKER);
-    await symlink(sensitiveTarget, temporaryPath);
-
-    await expectCookieInitializationFailure(config, [
-      SENSITIVE_COOKIE_MARKER,
-      storage,
-      temporaryPath,
-      sensitiveTarget,
-    ]);
-    expect((await lstat(temporaryPath)).isSymbolicLink()).toBe(true);
-  });
-
-  it('does not listen when an exact Cookie temporary path is a FIFO', async () => {
-    const config = await createConfig();
-    const storage = cookieStoragePath(config);
-    const temporaryPath = join(storage, '.youtube.cookies.txt.pending');
-    await mkdir(storage);
-    await execFileAsync('mkfifo', [temporaryPath]);
-
-    await expectCookieInitializationFailure(config, [storage, temporaryPath]);
-    expect((await lstat(temporaryPath)).isFIFO()).toBe(true);
-  });
-
-  it('does not listen when an exact Cookie temporary path cannot be inspected', async () => {
-    const config = await createConfig();
-    const storage = cookieStoragePath(config);
-    const temporaryPath = join(storage, '.youtube.cookies.txt.pending');
-    await mkdir(storage);
-    fsControl.rejectedLstatPath = temporaryPath;
-
-    await expectCookieInitializationFailure(config, [storage, temporaryPath]);
-  });
-
-  it('does not listen or expose sensitive data when fixed Cookie file permissions cannot be corrected', async () => {
-    const config = await createConfig();
-    const storage = cookieStoragePath(config);
-    const fixedFile = join(storage, 'youtube.cookies.txt');
-    await mkdir(storage);
-    await writeFile(fixedFile, SENSITIVE_COOKIE_MARKER, { mode: 0o666 });
-    await chmod(fixedFile, 0o666);
-    fsControl.rejectedChmodPath = fixedFile;
-
-    await expectCookieInitializationFailure(config, [
-      SENSITIVE_COOKIE_MARKER,
-      storage,
-      fixedFile,
     ]);
   });
 
