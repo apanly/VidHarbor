@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { execFile } from 'node:child_process';
 import { access, constants, stat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -24,6 +25,7 @@ import {
   checkScheduledChannel,
   recoverInterruptedChannelSyncs,
 } from './services/channel.js';
+import { CookieAuthorizationService } from './services/cookie-authorization.js';
 import { YtDlpTaskManager } from './yt-dlp-task-manager.js';
 
 export type LifecycleEvent =
@@ -188,6 +190,10 @@ export async function startServer(
 
   try {
     await assertStartupDependencies(config);
+    const cookieAuthorizationService = new CookieAuthorizationService(
+      join(dirname(config.databasePath), 'cookies'),
+    );
+    await cookieAuthorizationService.initialize();
     database = openDatabase(config.databasePath);
     migrateDatabase(database);
     log({ event: 'database_migrated' });
@@ -260,6 +266,7 @@ export async function startServer(
         runtime,
         manager,
         worker,
+        cookieAuthorizationService,
       ),
     );
     httpServer = app.listen(config.port);

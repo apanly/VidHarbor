@@ -1,13 +1,53 @@
 import { execFile } from 'node:child_process';
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { Server } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const fsControl = vi.hoisted(() => ({
+  rejectedChmodPath: undefined as string | undefined,
+  rejectedLstatPath: undefined as string | undefined,
+}));
+
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>(
+    'node:fs/promises',
+  );
+  const controlledChmod: typeof actual.chmod = async (path, mode) => {
+    if (String(path) === fsControl.rejectedChmodPath) {
+      throw Object.assign(new Error(`EACCES: cannot chmod ${String(path)}`), {
+        code: 'EACCES',
+      });
+    }
+    await actual.chmod(path, mode);
+  };
+  const controlledLstat: typeof actual.lstat = async (path, options) => {
+    if (String(path) === fsControl.rejectedLstatPath) {
+      throw Object.assign(new Error(`EACCES: cannot lstat ${String(path)}`), {
+        code: 'EACCES',
+      });
+    }
+    return await actual.lstat(path, options as never);
+  };
+  return { ...actual, chmod: controlledChmod, lstat: controlledLstat };
+});
 
 import type { AppConfig } from '../../src/config.js';
 import { openDatabase } from '../../src/db/client.js';
@@ -25,6 +65,15 @@ const runningServers: RunningServer[] = [];
 const execFileAsync = promisify(execFile);
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const originalPath = process.env.PATH;
+const SENSITIVE_COOKIE_MARKER = 'server-lifecycle-cookie-secret';
+
+function cookieStoragePath(config: AppConfig): string {
+  return join(dirname(config.databasePath), 'cookies');
+}
+
+function permissionMode(value: number): number {
+  return value & 0o777;
+}
 
 async function expectStartupFailure(
   config: AppConfig,
@@ -67,6 +116,34 @@ async function createConfig(): Promise<AppConfig> {
   };
 }
 
+async function expectCookieInitializationFailure(
+  config: AppConfig,
+  sensitiveValues: readonly string[],
+): Promise<void> {
+  const listen = vi.spyOn(Server.prototype, 'listen');
+  const records: LifecycleLogRecord[] = [];
+  const failure = await startServer(config, (record) => records.push(record)).catch(
+    (error: unknown) => error,
+  );
+
+  if (!(failure instanceof Error)) {
+    runningServers.push(failure);
+  }
+  expect(
+    failure instanceof Error && failure.message === 'cookie persistence failed',
+  ).toBe(true);
+  expect(listen).not.toHaveBeenCalled();
+  expect(records.length === 0).toBe(true);
+
+  const exposed = JSON.stringify({
+    message: (failure as Error).message,
+    records,
+  });
+  for (const sensitiveValue of sensitiveValues) {
+    expect(exposed.includes(sensitiveValue)).toBe(false);
+  }
+}
+
 async function stop(server: RunningServer): Promise<void> {
   const index = runningServers.indexOf(server);
   if (index !== -1) runningServers.splice(index, 1);
@@ -81,6 +158,8 @@ function listenerNames(server: Server, event: string): string[] {
 }
 
 afterEach(async () => {
+  fsControl.rejectedChmodPath = undefined;
+  fsControl.rejectedLstatPath = undefined;
   vi.restoreAllMocks();
   process.env.PATH = originalPath;
   await Promise.allSettled(runningServers.splice(0).map((server) => server.stop()));
@@ -112,6 +191,39 @@ function directInput(url: string, proxyId: number | null) {
 }
 
 describe('server lifecycle', () => {
+  it('creates the Cookie storage beside the database with restricted permissions without changing lifecycle events', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    const records: LifecycleLogRecord[] = [];
+    await expect(access(storage)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const server = await startServer(config, (record) => records.push(record));
+    runningServers.push(server);
+
+    expect(permissionMode((await stat(storage)).mode)).toBe(0o700);
+    expect(records.map((record) => record.event)).toEqual([
+      'database_migrated',
+      'downloads_recovered',
+      'download_worker_started',
+      'scheduler_started',
+      'http_started',
+    ]);
+    await expect(
+      access(join(config.downloadsMountPath, 'cookies')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not listen or expose sensitive data when the Cookie storage path is not a directory', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    await writeFile(storage, SENSITIVE_COOKIE_MARKER);
+
+    await expectCookieInitializationFailure(config, [
+      SENSITIVE_COOKIE_MARKER,
+      storage,
+    ]);
+  });
+
   it('fails startup when yt-dlp is not executable', async () => {
     const config = await createConfig();
     const originalPath = process.env.PATH;

@@ -16,6 +16,7 @@ import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { formatFailureReason } from '../../src/redaction.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import type { DownloadQueue } from '../../src/services/download.js';
 import {
   YtDlpTaskManager,
@@ -46,6 +47,10 @@ beforeEach(async () => {
     enqueue: () => undefined,
     cancel: async () => undefined,
   };
+  const cookieAuthorizationService = new CookieAuthorizationService(
+    join(sandbox, 'cookies'),
+  );
+  await cookieAuthorizationService.initialize();
   const app = createApp(
     createApiRouter(
       database,
@@ -53,6 +58,7 @@ beforeEach(async () => {
       new RuntimeCoordinator(() => undefined),
       taskManager,
       queue,
+      cookieAuthorizationService,
     ),
   );
   app.set('views', new URL('../../src/views', import.meta.url).pathname);
@@ -326,6 +332,7 @@ describe('server-rendered pages', () => {
     ['/channels', '<h1>频道</h1>'],
     ['/channels/7', '频道详情'],
     ['/notifications', '新视频提醒'],
+    ['/authorizations', '<h1>授权管理</h1>'],
     ['/downloads', '<h1>下载</h1>'],
     ['/guide', '<h1>VidHarbor</h1>'],
   ] as const)('renders %s with the shared page shell', async (path, marker) => {
@@ -339,10 +346,11 @@ describe('server-rendered pages', () => {
     expect(html).toContain('href="/settings">配置</a>');
     expect(html).toContain('href="/channels">频道</a>');
     expect(html).toContain('href="/notifications">提醒</a>');
+    expect(html).toContain('href="/authorizations">授权管理</a>');
     expect(html).toContain('href="/downloads">下载</a>');
     expect(html).not.toContain('href="/yt-dlp-tasks">任务状态</a>');
     expect(html).toContain('href="/guide">说明</a>');
-    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/database">数据库<\/a>[\s\S]*href="\/guide">说明<\/a>/);
+    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/authorizations">授权管理<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/database">数据库<\/a>[\s\S]*href="\/guide">说明<\/a>/);
     expect(html).not.toContain('navbar-nav flex-row');
     expect(html).not.toContain('deployment-warning');
     expect(html).not.toContain('切勿直接暴露到公网');
@@ -360,7 +368,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('只能部署在可信内网');
     expect(html).toContain('最近 1、3、6 或 12 个月');
     expect(html).toContain('固定为检查开始时间之前最近 1 个自然月');
-    expect(html).toContain('YouTube、Bilibili、Vimeo、X');
+    expect(html).toContain('YouTube、Bilibili、X');
+    expect(html).not.toContain('Vimeo');
     expect(html).toContain('Facebook 公开单视频或 Reel');
     expect(html).toContain('抖音公开单视频地址可提交');
     expect(html).toContain('space.bilibili.com/&lt;数字UID&gt;');
@@ -382,6 +391,53 @@ describe('server-rendered pages', () => {
     expect(dockerfile).toContain('ARG TARGETARCH');
     expect(dockerfile).toContain('{ test -z "$TARGETARCH" || test "$architecture" = "$TARGETARCH"; }');
     expect(dockerfile).not.toContain('ARG TARGETARCH=arm64');
+  });
+
+  it('renders the fixed authorization page without exposing saved Cookie material', async () => {
+    const sensitiveMarker = 'pages-cookie-sensitive-marker';
+    const upload = await fetch(`${baseUrl}/api/authorizations/cookies/youtube`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        origin: baseUrl,
+      },
+      body: `.example.test\tTRUE\t/\tFALSE\t0\tsession\t${sensitiveMarker}\n`,
+    });
+    expect(upload.status).toBe(200);
+
+    const html = await getPage('/authorizations');
+    const platformIds = [...html.matchAll(/data-authorization-platform="([^"]+)"/g)]
+      .map((match) => match[1]);
+
+    expect(html).toContain('<title>授权管理 · VidHarbor</title>');
+    expect(html).toContain('class="sidebar-link active" href="/authorizations">授权管理</a>');
+    expect(platformIds).toEqual([
+      'youtube',
+      'bilibili',
+      'x',
+      'facebook',
+      'douyin',
+    ]);
+    expect(html).toMatch(/<h3>YouTube<\/h3>[\s\S]*<h3>Bilibili<\/h3>[\s\S]*<h3>X<\/h3>[\s\S]*<h3>Facebook<\/h3>[\s\S]*<h3>抖音<\/h3>/);
+    expect(html.match(/data-authorization-upload/g)).toHaveLength(5);
+    expect(html.match(/data-authorization-status/g)).toHaveLength(5);
+    expect(html.match(/data-authorization-status hidden/g)).toHaveLength(5);
+    expect(html).not.toContain('正在加载');
+    expect(html.match(/data-authorization-updated hidden/g)).toHaveLength(5);
+    expect(html).toContain('每个平台仅保存一份文件；再次上传会完整替换已有配置。');
+    expect(html).toContain('尚未接入业务流程');
+    expect(html).toContain('不会用于频道同步、元数据探测或媒体下载');
+    expect(html).toContain('安全获取与导出说明');
+    expect(html).toContain('Cookie 等同账号登录凭据');
+    expect(html).toContain('不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性');
+    expect(html).toContain('不代表登录态当前有效');
+    expect(html).toContain('<script type="module" src="/public/authorizations.js"></script>');
+    expect(html).not.toContain('Vimeo');
+    expect(html.includes(sensitiveMarker)).toBe(false);
+    expect(html).not.toMatch(/data-authorization-(?:domain|cookie-name|cookie-value|file-name|path|preview|download)/);
+    expect(html).not.toContain('预览 Cookie');
+    expect(html).not.toContain('下载 Cookie');
+    expect(html).not.toMatch(/<a[^>]+\bdownload(?:\s|=|>)/);
   });
 
   it('renders add and edit forms in dialogs with single-column fields', async () => {
@@ -535,6 +591,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('name="url"');
     expect(html).toContain('Facebook 公开单视频或 Reel');
     expect(html).toContain('抖音公开单视频');
+    expect(html).not.toContain('Vimeo');
     expect(html).toContain('name="proxyId"');
     expect(script).toContain("request('/api/proxies')");
     expect(html).not.toContain('name="targetSubdirectory"');
@@ -670,6 +727,61 @@ describe('server-rendered pages', () => {
       status: 202,
       headers: { 'Content-Type': 'application/json' },
     }))('/direct', 'POST', {})).resolves.toEqual({ accepted: true });
+  });
+
+  it('renders historical Vimeo and unknown download platform values', async () => {
+    const script = await getPublicScript('downloads.js');
+    const platformField = { textContent: '' };
+    const thumbnail = { hidden: false, src: '' };
+    const article = {
+      querySelector(selector: string) {
+        if (selector === '[data-download-field="platform"]') return platformField;
+        if (selector === '.download-card-thumbnail') return thumbnail;
+        return null;
+      },
+    };
+    const functionSource = script.slice(
+      script.indexOf('const platformLabels'),
+      script.indexOf('function renderDownloads'),
+    );
+    const { updateDownloadCard } = new Function(
+      'document',
+      'formatChinaTimestamp',
+      `${functionSource}; return { updateDownloadCard };`,
+    )({}, (value: string) => value) as {
+      updateDownloadCard(
+        articleNode: typeof article,
+        previous: Record<string, unknown>,
+        download: Record<string, unknown>,
+      ): void;
+    };
+    const download = {
+      title: 'Historical download',
+      thumbnailUrl: null,
+      sourceType: 'direct',
+      progressPercent: null,
+      speedText: null,
+      etaSeconds: null,
+      durationSeconds: null,
+      outputSizeBytes: null,
+      startedAt: null,
+      finishedAt: null,
+      networkMode: 'direct',
+      proxyName: null,
+      outputPath: null,
+      failureReason: null,
+      status: 'pending',
+    };
+
+    updateDownloadCard(article, { status: 'pending' }, { ...download, platform: 'vimeo' });
+    expect(platformField.textContent).toBe('Vimeo');
+
+    updateDownloadCard(
+      article,
+      { status: 'pending' },
+      { ...download, platform: 'unknown-platform' },
+    );
+    expect(platformField.textContent).toBe('unknown-platform');
   });
 
   it('filters downloads by title and exposes distinct tab and empty-state contracts', async () => {
@@ -1147,9 +1259,22 @@ describe('server-rendered pages', () => {
     expect(styles).toMatch(/\.channel-check-table td:last-child\s*\{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/s);
   });
 
+  it('keeps authorization cards and actions usable on mobile widths', async () => {
+    const styles = await readFile(
+      new URL('../../src/styles/main.scss', import.meta.url),
+      'utf8',
+    );
+
+    expect(styles).toMatch(/\.authorization-platform-grid\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/s);
+    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.authorization-platform-grid\s*\{[^}]*grid-template-columns: 1fr;/);
+    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.authorization-actions\s*\{[^}]*flex-direction: column;/);
+    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.authorization-actions \.btn\s*\{[^}]*width: 100%;/);
+  });
+
   it('requires confirmation before page delete actions', async () => {
     const settingsScript = await getPublicScript('settings.js');
     const downloadsScript = await getPublicScript('downloads.js');
+    const authorizationsScript = await getPublicScript('authorizations.js');
 
     expect(settingsScript).toContain("confirm(`确认删除代理「${proxy.name}」？`)");
     expect(settingsScript).toContain('if (!confirmed) return;');
@@ -1158,9 +1283,14 @@ describe('server-rendered pages', () => {
     expect(downloadsScript).toContain("confirm(`确认永久删除下载「${download.title}」及其文件？`)");
     expect(downloadsScript).toContain('if (!confirmed) return;');
     expect(downloadsScript).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
+
+    expect(authorizationsScript).toContain('confirm(`确认删除 ${label} 的 Cookie 配置？`)');
+    expect(authorizationsScript).toContain('if (!confirmed) return;');
+    expect(authorizationsScript).toContain("`/api/authorizations/cookies/${configuration.platform}`");
+    expect(authorizationsScript).toContain("'DELETE'");
   });
 
-  it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/downloads', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {
+  it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/authorizations', '/downloads', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {
     const html = await getPage(path);
 
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);

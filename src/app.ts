@@ -13,6 +13,7 @@ import {
 import type { DatabaseConnection } from './db/client.js';
 import { requireSameOrigin } from './http/same-origin.js';
 import { createChannelsRouter } from './routes/channels.js';
+import { createAuthorizationsRouter } from './routes/authorizations.js';
 import { createDatabaseRouter } from './routes/database.js';
 import { createDownloadsRouter } from './routes/downloads.js';
 import { createNotificationsRouter } from './routes/notifications.js';
@@ -21,15 +22,30 @@ import { createProxiesRouter } from './routes/proxies.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { createYtDlpTasksRouter } from './routes/yt-dlp-tasks.js';
 import type { DownloadQueue } from './services/download.js';
+import type { CookieAuthorizationService } from './services/cookie-authorization.js';
 import type { RuntimeCoordinator } from './runtime.js';
 import type { YtDlpTaskManager } from './yt-dlp-task-manager.js';
 
 const requireJsonBody: RequestHandler = (request, _response, next) => {
-  if (
-    ['POST', 'PUT', 'PATCH'].includes(request.method) &&
-    request.is('application/json') !== 'application/json'
-  ) {
-    next(new BusinessError('VALIDATION_ERROR', 'application/json required'));
+  if (!['POST', 'PUT', 'PATCH'].includes(request.method)) {
+    next();
+    return;
+  }
+
+  const isCookieUpload =
+    request.method === 'PUT' &&
+    /^\/authorizations\/cookies\/[^/]+$/.test(request.path);
+  const requiredMediaType = isCookieUpload
+    ? 'application/octet-stream'
+    : 'application/json';
+
+  if (request.is(requiredMediaType) !== requiredMediaType) {
+    next(
+      new BusinessError(
+        'VALIDATION_ERROR',
+        `${requiredMediaType} required`,
+      ),
+    );
     return;
   }
 
@@ -102,9 +118,14 @@ export function createApiRouter(
   runtime: RuntimeCoordinator,
   taskManager: YtDlpTaskManager,
   downloadQueue: DownloadQueue,
+  cookieAuthorizationService: CookieAuthorizationService,
 ): Router {
   const router = express.Router();
 
+  router.use(
+    '/authorizations',
+    createAuthorizationsRouter(cookieAuthorizationService),
+  );
   router.use('/settings', createSettingsRouter(database, downloadsMountPath));
   router.use('/database', createDatabaseRouter(database));
   router.use('/proxies', createProxiesRouter(database));

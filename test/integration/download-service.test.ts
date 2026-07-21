@@ -22,8 +22,8 @@ const NOW = new Date('2026-07-17T11:20:00.000Z');
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
 const FIRST_VIDEO_ID = 'aB_12-cD345';
 const SECOND_VIDEO_ID = 'eF_67-gH890';
-const VIMEO_VIDEO_ID = '123456789';
-const VIMEO_VIDEO_URL = `https://vimeo.com/${VIMEO_VIDEO_ID}`;
+const GENERIC_VIDEO_ID = 'generic-123456789';
+const GENERIC_VIDEO_URL = `https://media.example/videos/${GENERIC_VIDEO_ID}`;
 
 const DEFAULT_ADVANCED_OPTIONS = {
   mediaType: 'video',
@@ -82,11 +82,11 @@ if (url === 'https://www.youtube.com/watch?v=${SECOND_VIDEO_ID}' || url === 'htt
   }) + '\\n');
   process.exit(0);
 }
-if (url === '${VIMEO_VIDEO_URL}') {
+if (url === '${GENERIC_VIDEO_URL}') {
   process.stdout.write(JSON.stringify({
-    extractor_key: 'Vimeo',
-    id: '${VIMEO_VIDEO_ID}',
-    title: 'Vimeo title',
+    extractor_key: 'Generic',
+    id: '${GENERIC_VIDEO_ID}',
+    title: 'Generic title',
     duration: 125.2
   }) + '\\n');
   process.exit(0);
@@ -412,14 +412,14 @@ describe('download creation service', () => {
       database,
       taskManager,
       downloadRoot,
-      directInput(VIMEO_VIDEO_URL, proxyId),
+      directInput(GENERIC_VIDEO_URL, proxyId),
       queue,
       NOW,
     );
 
     expect(result).toMatchObject({
       sourceType: 'direct',
-      title: 'Vimeo title',
+      title: 'Generic title',
       status: 'pending',
       networkMode: 'proxy',
       proxyName: 'office',
@@ -430,10 +430,10 @@ describe('download creation service', () => {
         source_type: 'direct',
         channel_id: null,
         video_id: null,
-        source_url: VIMEO_VIDEO_URL,
-        platform: 'vimeo',
-        platform_video_id: VIMEO_VIDEO_ID,
-        title: 'Vimeo title',
+        source_url: GENERIC_VIDEO_URL,
+        platform: 'generic',
+        platform_video_id: GENERIC_VIDEO_ID,
+        title: 'Generic title',
         published_date: null,
         duration_seconds: 126,
         proxy_name: 'office',
@@ -443,8 +443,8 @@ describe('download creation service', () => {
     expect(queued).toEqual([
       expect.objectContaining({
         downloadId: result.id,
-        sourceUrl: VIMEO_VIDEO_URL,
-        platformVideoId: VIMEO_VIDEO_ID,
+        sourceUrl: GENERIC_VIDEO_URL,
+        platformVideoId: GENERIC_VIDEO_ID,
         proxyUrl: PROXY_URL,
         downloadRoot: realDownloadRoot,
       }),
@@ -473,7 +473,7 @@ describe('download creation service', () => {
 
     await retryDownload(database, downloadRoot, result.id, queue, NOW);
 
-    expect(queued[0]?.sourceUrl).toBe(VIMEO_VIDEO_URL);
+    expect(queued[0]?.sourceUrl).toBe(GENERIC_VIDEO_URL);
     expect(database
       .prepare(
         `SELECT status, progress_percent, speed_text, eta_seconds, exit_code
@@ -648,7 +648,7 @@ describe('download creation service', () => {
         database,
         taskManager,
         downloadRoot,
-        directInput('http://vimeo.com/123456789', null),
+        directInput('http://media.example/videos/generic-123456789', null),
         queue,
         NOW,
       ),

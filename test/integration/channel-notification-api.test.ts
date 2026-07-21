@@ -11,6 +11,7 @@ import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { initialSyncChannel } from '../../src/services/channel.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 import { isYtDlpTaskCancellationError } from '../../src/yt-dlp-task-cancellation.js';
 import type { DownloadQueue } from '../../src/services/download.js';
@@ -193,6 +194,10 @@ beforeEach(async () => {
   migrateDatabase(database);
   taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
   runtimeErrors = [];
+  const cookieAuthorizationService = new CookieAuthorizationService(
+    join(sandbox, 'cookies'),
+  );
+  await cookieAuthorizationService.initialize();
   database
     .prepare(
       `UPDATE settings
@@ -211,6 +216,7 @@ beforeEach(async () => {
         enqueue: () => undefined,
         cancel: async () => undefined,
       } satisfies DownloadQueue,
+      cookieAuthorizationService,
     ),
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
