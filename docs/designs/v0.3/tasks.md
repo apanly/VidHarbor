@@ -256,7 +256,7 @@
   2. `rg -n "lstat|temporaryPath|pending" src/services/cookie-authorization.ts test/unit/cookie-authorization.test.ts test/integration/server-lifecycle.test.ts` → 固定 pending 路径校验入口可定位
 
 ## task-12 · 补齐已配置 Cookie 失败替换的原子性测试
-- 状态: pending
+- 状态: done
 - 依赖: task-01
 - 文件范围:
   - test/unit/cookie-authorization.test.ts

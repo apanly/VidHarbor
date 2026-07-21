@@ -23,6 +23,45 @@ import {
   CookieAuthorizationService,
 } from '../../src/services/cookie-authorization.js';
 
+const replacementFailure = vi.hoisted(() => ({
+  stage: null as null | 'sync' | 'utimes' | 'rename',
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+
+  return {
+    ...actual,
+    open: async (
+      path: Parameters<typeof actual.open>[0],
+      flags: string,
+      mode?: number,
+    ) => {
+      const handle = await actual.open(path, flags, mode);
+      if (replacementFailure.stage === 'sync') {
+        vi.spyOn(handle, 'sync').mockRejectedValueOnce(
+          new Error('injected persistence failure'),
+        );
+      }
+      if (replacementFailure.stage === 'utimes') {
+        vi.spyOn(handle, 'utimes').mockRejectedValueOnce(
+          new Error('injected persistence failure'),
+        );
+      }
+      return handle;
+    },
+    rename: async (
+      oldPath: Parameters<typeof actual.rename>[0],
+      newPath: Parameters<typeof actual.rename>[1],
+    ) => {
+      if (replacementFailure.stage === 'rename') {
+        throw new Error('injected persistence failure');
+      }
+      await actual.rename(oldPath, newPath);
+    },
+  };
+});
+
 const sandboxes: string[] = [];
 const VALID_COOKIE_A =
   '.example.test\tTRUE\t/\tFALSE\t0\tsession_a\tsecret-a\n';
@@ -56,6 +95,25 @@ function digest(value: Uint8Array | string): string {
 
 async function fileDigest(path: string): Promise<string> {
   return digest(await readFile(path));
+}
+
+async function replacementSnapshot(
+  service: CookieAuthorizationService,
+  storage: string,
+): Promise<{
+  readonly fileDigest: string;
+  readonly configured: boolean;
+  readonly updatedAt: string | null;
+  readonly mtime: string;
+}> {
+  const configuration = (await service.listConfigurations())[0]!;
+  const path = join(storage, 'youtube.cookies.txt');
+  return {
+    fileDigest: await fileDigest(path),
+    configured: configuration.configured,
+    updatedAt: configuration.updatedAt,
+    mtime: (await stat(path)).mtime.toISOString(),
+  };
 }
 
 async function nextTurn(): Promise<void> {
@@ -99,6 +157,7 @@ async function expectBusinessError(
 }
 
 afterEach(async () => {
+  replacementFailure.stage = null;
   vi.useRealTimers();
   await Promise.all(
     sandboxes.splice(0).map((directory) =>
@@ -348,27 +407,39 @@ describe('CookieAuthorizationService', () => {
     ).toBe(0o600);
   });
 
-  it('keeps the prior file and mtime unchanged when replacement persistence fails', async () => {
-    const { storage, service } = await createService();
-    await service.saveConfiguration('youtube', source(VALID_COOKIE_A));
-    const before = (await service.listConfigurations())[0];
-    const beforeDigest = await fileDigest(
-      join(storage, 'youtube.cookies.txt'),
-    );
-    await mkdir(join(storage, '.youtube.cookies.txt.pending'));
+  it.each([
+    ['invalid format', null, 'VALIDATION_ERROR', 'invalid Netscape cookie file'],
+    ['sync', 'sync', 'PERSISTENCE_ERROR', 'cookie persistence failed'],
+    ['utimes', 'utimes', 'PERSISTENCE_ERROR', 'cookie persistence failed'],
+    ['rename', 'rename', 'PERSISTENCE_ERROR', 'cookie persistence failed'],
+  ] as const)(
+    'keeps the prior file and mtime unchanged when replacement fails at %s',
+    async (failureCase, stage, code, message) => {
+      const { storage, service } = await createService();
+      await service.saveConfiguration('youtube', source(VALID_COOKIE_A));
+      const before = await replacementSnapshot(service, storage);
+      expect(before.configured).toBe(true);
+      replacementFailure.stage = stage;
 
-    await expectBusinessError(
-      service.saveConfiguration('youtube', source(VALID_COOKIE_B)),
-      'PERSISTENCE_ERROR',
-      'cookie persistence failed',
-    );
-    const after = (await service.listConfigurations())[0];
-    expect(after?.configured).toBe(true);
-    expect(after?.updatedAt).toBe(before?.updatedAt);
-    expect(await fileDigest(join(storage, 'youtube.cookies.txt'))).toBe(
-      beforeDigest,
-    );
-  });
+      const replacement =
+        failureCase === 'invalid format'
+          ? '.example.test\tTRUE\t/\tFALSE\tbad\tname\tvalue\n'
+          : VALID_COOKIE_B;
+      let expectedFailure = false;
+      try {
+        await service.saveConfiguration('youtube', source(replacement));
+      } catch (error) {
+        expectedFailure =
+          error instanceof BusinessError &&
+          error.code === code &&
+          error.message === message;
+      }
+      expect(expectedFailure).toBe(true);
+
+      const after = await replacementSnapshot(service, storage);
+      expect(after).toEqual(before);
+    },
+  );
 
   it('preserves configured state when deletion fails', async () => {
     const { storage, service } = await createService();
