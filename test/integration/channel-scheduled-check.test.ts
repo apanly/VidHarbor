@@ -1,19 +1,33 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { BusinessError } from '../../src/errors.js';
-import { checkScheduledChannel } from '../../src/services/channel.js';
+import {
+  checkChannel,
+  checkScheduledChannel,
+} from '../../src/services/channel.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import { listNotifications } from '../../src/services/notification.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const FIRST_STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
 const SECOND_STARTED_AT = new Date('2026-07-17T09:30:00.000Z');
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
+const COOKIE_VALUE_MARKER = 'task-09-cookie-value';
+const VALID_COOKIE_FILE = Buffer.from(
+  `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
+);
+
+interface YtDlpInvocation {
+  readonly args: string[];
+  readonly cookieEnvironmentReference: boolean;
+}
 
 let sandbox: string;
 let executablePath: string;
@@ -71,14 +85,21 @@ const fixtures: Record<string, readonly Record<string, unknown>[]> = {
 
 async function installFakeYtDlp(): Promise<void> {
   executablePath = join(sandbox, 'fake-yt-dlp.mjs');
+  const invocationLogPath = JSON.stringify(join(sandbox, 'argv.log'));
+  const cookieStorageDirectory = JSON.stringify(join(sandbox, 'cookies'));
   await writeFile(
     executablePath,
     `#!/usr/bin/env node
-import { existsSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 
 const fixtures = ${JSON.stringify(fixtures)};
 const args = process.argv.slice(2);
 const url = args.at(-1);
+const cookieEnvironmentReference = Object.values(process.env).some((value) =>
+  value?.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
+  value?.includes(${cookieStorageDirectory})
+);
+appendFileSync(${invocationLogPath}, JSON.stringify({ args, cookieEnvironmentReference }) + '\\n');
 const dateAfterIndex = args.indexOf('--dateafter');
 const dateAfter = dateAfterIndex === -1 ? undefined : args[dateAfterIndex + 1];
 if (url === 'https://www.youtube.com/@failure/videos') {
@@ -102,6 +123,30 @@ for (const value of values) {
     'utf8',
   );
   await chmod(executablePath, 0o755);
+}
+
+async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
+  return (await readFile(join(sandbox, 'argv.log'), 'utf8'))
+    .trimEnd()
+    .split('\n')
+    .map((line) => JSON.parse(line) as YtDlpInvocation);
+}
+
+function expectNoCookieReferences(invocation: YtDlpInvocation): void {
+  expect(invocation.args.includes('--cookies')).toBe(false);
+  expect(invocation.args.includes('--cookies-from-browser')).toBe(false);
+  expect(
+    invocation.args.some((argument) => /^cookie:/iu.test(argument)),
+  ).toBe(false);
+  expect(
+    invocation.args.some((argument) => argument.includes(COOKIE_VALUE_MARKER)),
+  ).toBe(false);
+  expect(
+    invocation.args.some((argument) =>
+      argument.includes(join(sandbox, 'cookies')),
+    ),
+  ).toBe(false);
+  expect(invocation.cookieEnvironmentReference).toBe(false);
 }
 
 function insertChannel(
@@ -212,6 +257,16 @@ beforeEach(async () => {
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
   taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
+  const cookieAuthorizationService = new CookieAuthorizationService(
+    join(sandbox, 'cookies'),
+  );
+  await cookieAuthorizationService.initialize();
+  expect(taskManager.getSnapshot()).toEqual([]);
+  await cookieAuthorizationService.saveConfiguration(
+    'youtube',
+    Readable.from([VALID_COOKIE_FILE]),
+  );
+  expect(taskManager.getSnapshot()).toEqual([]);
 });
 
 afterEach(async () => {
@@ -227,6 +282,28 @@ afterEach(async () => {
 });
 
 describe('scheduled channel checks', () => {
+  it('keeps a saved Cookie out of manual and scheduled check invocations', async () => {
+    const channelId = insertChannel('stable', 'UC-stable');
+
+    await expect(
+      checkChannel(database, taskManager, channelId, FIRST_STARTED_AT),
+    ).resolves.toEqual({ newVideoCount: 1 });
+    await expect(
+      checkScheduledChannel(database, taskManager, channelId, SECOND_STARTED_AT),
+    ).resolves.toEqual({ newVideoCount: 0 });
+
+    expect(taskManager.getSnapshot().map((task) => task.type)).toEqual([
+      'channel_manual_check',
+      'channel_scheduled_check',
+    ]);
+    const invocations = await readYtDlpInvocations();
+    expect(invocations).toHaveLength(2);
+    for (const invocation of invocations) {
+      expectNoCookieReferences(invocation);
+      expect(invocation.args).toContain('--dateafter');
+    }
+  });
+
   it('discovers recent Bilibili submissions and stops at the one-month boundary', async () => {
     const channelId = insertBilibiliChannel();
 

@@ -1,6 +1,7 @@
 import { access, chmod, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -10,6 +11,7 @@ import {
   fetchChannelEntries,
   fetchVideoMetadata,
 } from '../../src/yt-dlp.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import {
   isYtDlpTaskCancellationError,
   YtDlpTaskManager,
@@ -18,6 +20,25 @@ import {
 const executablePath = fileURLToPath(
   new URL('../fixtures/fake-yt-dlp.mjs', import.meta.url),
 );
+const COOKIE_VALUE_MARKER = 'task-09-cookie-value';
+const VALID_COOKIE_FILE = Buffer.from(
+  `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
+);
+
+function expectNoCookieArguments(
+  args: readonly string[],
+  cookieStorageDirectory: string,
+): void {
+  expect(args.includes('--cookies')).toBe(false);
+  expect(args.includes('--cookies-from-browser')).toBe(false);
+  expect(args.some((argument) => /^cookie:/iu.test(argument))).toBe(false);
+  expect(
+    args.some((argument) => argument.includes(COOKIE_VALUE_MARKER)),
+  ).toBe(false);
+  expect(
+    args.some((argument) => argument.includes(cookieStorageDirectory)),
+  ).toBe(false);
+}
 
 beforeAll(async () => {
   await chmod(executablePath, 0o755);
@@ -111,15 +132,30 @@ describe('yt-dlp argument protocol', () => {
     });
   });
 
-  it('omits proxy and cookie options for direct fetches', async () => {
-    const [result] = await fetchChannelEntries({
-      executablePath,
-      url: 'fixture://echo',
-    });
-    const args = (result as { args: string[] }).args;
+  it('omits proxy and cookie options for direct fetches after a Cookie is saved', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-yt-dlp-cookie-'));
+    const cookieStorageDirectory = join(sandbox, 'cookies');
+    const cookieAuthorizationService = new CookieAuthorizationService(
+      cookieStorageDirectory,
+    );
 
-    expect(args).not.toContain('--proxy');
-    expect(args.some((argument) => argument.includes('cookie'))).toBe(false);
+    try {
+      await cookieAuthorizationService.initialize();
+      await cookieAuthorizationService.saveConfiguration(
+        'youtube',
+        Readable.from([VALID_COOKIE_FILE]),
+      );
+      const [result] = await fetchChannelEntries({
+        executablePath,
+        url: 'fixture://echo',
+      });
+      const args = (result as { args: string[] }).args;
+
+      expect(args).not.toContain('--proxy');
+      expectNoCookieArguments(args, cookieStorageDirectory);
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
   });
 
   it('disables playlist expansion for a single-resource probe', async () => {

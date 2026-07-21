@@ -1,7 +1,17 @@
-import { access, chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApiRouter, createApp } from '../../src/app.js';
@@ -32,6 +42,15 @@ const FACEBOOK_REEL_URL = `https://www.facebook.com/reel/${FACEBOOK_REEL_ID}`;
 const DOUYIN_VIDEO_ID = '6961737553342991651';
 const DOUYIN_VIDEO_URL = `https://www.douyin.com/video/${DOUYIN_VIDEO_ID}`;
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
+const COOKIE_VALUE_MARKER = 'task-09-cookie-value';
+const VALID_COOKIE_FILE = Buffer.from(
+  `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
+);
+
+interface YtDlpInvocation {
+  readonly args: string[];
+  readonly cookieEnvironmentReference: boolean;
+}
 
 const DEFAULT_ADVANCED_OPTIONS = {
   mediaType: 'video',
@@ -66,10 +85,20 @@ let taskManager: YtDlpTaskManager;
 
 async function installFakeYtDlp(): Promise<void> {
   executablePath = join(sandbox, 'fake-yt-dlp.mjs');
+  const invocationLogPath = JSON.stringify(join(sandbox, 'argv.log'));
+  const cookieStorageDirectory = JSON.stringify(join(sandbox, 'cookies'));
   await writeFile(
     executablePath,
     `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+
+const args = process.argv.slice(2);
 const url = process.argv.at(-1);
+const cookieEnvironmentReference = Object.values(process.env).some((value) =>
+  value?.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
+  value?.includes(${cookieStorageDirectory})
+);
+appendFileSync(${invocationLogPath}, JSON.stringify({ args, cookieEnvironmentReference }) + '\\n');
 if (url === 'https://www.youtube.com/watch?v=${SECOND_PLATFORM_VIDEO_ID}' || url === 'https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Youtube',
@@ -141,6 +170,44 @@ process.exit(3);
     'utf8',
   );
   await chmod(executablePath, 0o755);
+}
+
+async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
+  return (await readFile(join(sandbox, 'argv.log'), 'utf8'))
+    .trimEnd()
+    .split('\n')
+    .map((line) => JSON.parse(line) as YtDlpInvocation);
+}
+
+function expectNoCookieReferences(invocation: YtDlpInvocation): void {
+  expect(invocation.args.includes('--cookies')).toBe(false);
+  expect(invocation.args.includes('--cookies-from-browser')).toBe(false);
+  expect(
+    invocation.args.some((argument) => /^cookie:/iu.test(argument)),
+  ).toBe(false);
+  expect(
+    invocation.args.some((argument) => argument.includes(COOKIE_VALUE_MARKER)),
+  ).toBe(false);
+  expect(
+    invocation.args.some((argument) =>
+      argument.includes(join(sandbox, 'cookies')),
+    ),
+  ).toBe(false);
+  expect(invocation.cookieEnvironmentReference).toBe(false);
+}
+
+function expectNoCookieQueueFields(download: QueuedDownload): void {
+  expect(
+    Object.keys(download).some((key) => key.toLowerCase().includes('cookie')),
+  ).toBe(false);
+  expect(
+    Object.values(download).some(
+      (value) =>
+        typeof value === 'string' &&
+        (value.includes(COOKIE_VALUE_MARKER) ||
+          value.includes(join(sandbox, 'cookies'))),
+    ),
+  ).toBe(false);
 }
 
 function insertChannelVideo(): number {
@@ -238,6 +305,12 @@ beforeEach(async () => {
     join(sandbox, 'cookies'),
   );
   await cookieAuthorizationService.initialize();
+  expect(taskManager.getSnapshot()).toEqual([]);
+  await cookieAuthorizationService.saveConfiguration(
+    'youtube',
+    Readable.from([VALID_COOKIE_FILE]),
+  );
+  expect(taskManager.getSnapshot()).toEqual([]);
 
   const server = createApp(
     createApiRouter(
@@ -404,7 +477,8 @@ describe('download API', () => {
     const response = await request('/downloads/direct', 'POST', directInput(GENERIC_VIDEO_URL, null));
 
     expect(response.status).toBe(202);
-    await expect(response.json()).resolves.toEqual({
+    const body = await response.json();
+    expect(body).toEqual({
       download: {
         id: expect.any(Number),
         sourceType: 'direct',
@@ -425,9 +499,24 @@ describe('download API', () => {
       },
     });
     expect(queued).toHaveLength(1);
+    expect(Object.keys(queued[0] ?? {})).toEqual([
+      'downloadId',
+      'sourceUrl',
+      'platformVideoId',
+      'downloadRoot',
+      'downloadsMountPath',
+      'advancedOptions',
+    ]);
+    const [queuedDownload] = queued;
+    if (queuedDownload === undefined) throw new Error('download was not queued');
+    expectNoCookieQueueFields(queuedDownload);
     expect(taskManager.getSnapshot()).toMatchObject([
       { type: 'metadata_probe', status: 'succeeded' },
     ]);
+    const [invocation] = await readYtDlpInvocations();
+    if (invocation === undefined) throw new Error('yt-dlp was not invoked');
+    expectNoCookieReferences(invocation);
+    expect(invocation.args).toContain('--no-playlist');
     expect(database.prepare('SELECT platform, duration_seconds FROM downloads').get())
       .toEqual({ platform: 'generic', duration_seconds: 126 });
   });

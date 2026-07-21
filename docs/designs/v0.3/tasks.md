@@ -185,7 +185,7 @@
   2. `rg -n "vimeo|Vimeo|unknown|未知" test/integration/database.test.ts test/integration/pages.test.ts` → 两类历史兼容断言可定位
 
 ## task-09 · 证明已保存 Cookie 不进入任何 yt-dlp 业务参数
-- 状态: pending
+- 状态: done
 - 依赖: task-03, task-07
 - 文件范围:
   - test/integration/yt-dlp.test.ts

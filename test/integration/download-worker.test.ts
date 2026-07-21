@@ -12,6 +12,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -86,15 +87,25 @@ import {
 } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { formatFailureReason } from '../../src/redaction.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import type { QueuedDownload } from '../../src/services/download.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const FIRST_VIDEO_ID = 'aB_12-cD345';
 const SECOND_VIDEO_ID = 'eF_67-gH890';
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
+const COOKIE_VALUE_MARKER = 'task-09-cookie-value';
+const VALID_COOKIE_FILE = Buffer.from(
+  `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
+);
 const PROCESS_FIXTURE_PATH = fileURLToPath(
   new URL('../fixtures/fake-yt-dlp.mjs', import.meta.url),
 );
+
+interface YtDlpInvocation {
+  readonly args: string[];
+  readonly cookieEnvironmentReference: boolean;
+}
 
 let sandbox: string;
 let downloadRoot: string;
@@ -115,6 +126,73 @@ function createWorker(
     (message) => formatFailureReason(message, [PROXY_URL]),
   );
   return new DownloadWorker(connection, taskManager);
+}
+
+async function installCookieBoundaryYtDlp(): Promise<void> {
+  const wrapperPath = join(sandbox, 'cookie-boundary-yt-dlp.mjs');
+  const invocationLogPath = JSON.stringify(
+    join(sandbox, 'cookie-boundary-argv.log'),
+  );
+  const cookieStorageDirectory = JSON.stringify(join(sandbox, 'cookies'));
+  await writeFile(
+    wrapperPath,
+    `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+
+const args = process.argv.slice(2);
+const cookieEnvironmentReference = Object.values(process.env).some((value) =>
+  value?.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
+  value?.includes(${cookieStorageDirectory})
+);
+appendFileSync(${invocationLogPath}, JSON.stringify({ args, cookieEnvironmentReference }) + '\\n');
+const result = spawnSync(process.execPath, [${JSON.stringify(PROCESS_FIXTURE_PATH)}, ...args], {
+  env: process.env,
+  stdio: 'inherit',
+});
+if (result.error !== undefined) throw result.error;
+if (result.signal !== null) process.kill(process.pid, result.signal);
+process.exit(result.status ?? 1);
+`,
+    'utf8',
+  );
+  await chmod(wrapperPath, 0o755);
+  executablePath = wrapperPath;
+}
+
+async function saveYoutubeCookie(): Promise<void> {
+  const cookieAuthorizationService = new CookieAuthorizationService(
+    join(sandbox, 'cookies'),
+  );
+  await cookieAuthorizationService.initialize();
+  await cookieAuthorizationService.saveConfiguration(
+    'youtube',
+    Readable.from([VALID_COOKIE_FILE]),
+  );
+}
+
+async function readCookieBoundaryInvocations(): Promise<YtDlpInvocation[]> {
+  return (await readFile(join(sandbox, 'cookie-boundary-argv.log'), 'utf8'))
+    .trimEnd()
+    .split('\n')
+    .map((line) => JSON.parse(line) as YtDlpInvocation);
+}
+
+function expectNoCookieReferences(invocation: YtDlpInvocation): void {
+  expect(invocation.args.includes('--cookies')).toBe(false);
+  expect(invocation.args.includes('--cookies-from-browser')).toBe(false);
+  expect(
+    invocation.args.some((argument) => /^cookie:/iu.test(argument)),
+  ).toBe(false);
+  expect(
+    invocation.args.some((argument) => argument.includes(COOKIE_VALUE_MARKER)),
+  ).toBe(false);
+  expect(
+    invocation.args.some((argument) =>
+      argument.includes(join(sandbox, 'cookies')),
+    ),
+  ).toBe(false);
+  expect(invocation.cookieEnvironmentReference).toBe(false);
 }
 
 function insertPending(platformVideoId: string): number {
@@ -747,7 +825,11 @@ if (args.includes('--skip-download')) {
   it('passes exactly one configured proxy argument and no proxy argument for direct', async () => {
     const proxyId = insertPending(FIRST_VIDEO_ID);
     const directId = insertPending(SECOND_VIDEO_ID);
+    await installCookieBoundaryYtDlp();
     const worker = createWorker();
+    expect(taskManager?.getSnapshot()).toEqual([]);
+    await saveYoutubeCookie();
+    expect(taskManager?.getSnapshot()).toEqual([]);
 
     worker.enqueue(
       job(
@@ -770,6 +852,33 @@ if (args.includes('--skip-download')) {
     );
     expect(proxyArguments).toEqual([PROXY_URL]);
     expect(invocations[1]).not.toContain('--proxy');
+
+    const boundaryInvocations = await readCookieBoundaryInvocations();
+    expect(boundaryInvocations).toHaveLength(4);
+    for (const invocation of boundaryInvocations) {
+      expectNoCookieReferences(invocation);
+      expect(invocation.args).toContain('--no-playlist');
+    }
+    const thumbnailInvocations = boundaryInvocations.filter((invocation) =>
+      invocation.args.includes('--skip-download'),
+    );
+    expect(thumbnailInvocations).toHaveLength(2);
+    expect(
+      thumbnailInvocations.every((invocation) =>
+        invocation.args.includes('--write-thumbnail'),
+      ),
+    ).toBe(true);
+    const mediaInvocations = boundaryInvocations.filter(
+      (invocation) => !invocation.args.includes('--skip-download'),
+    );
+    expect(mediaInvocations).toHaveLength(2);
+    expect(
+      mediaInvocations.every(
+        (invocation) =>
+          invocation.args.includes('--format') &&
+          invocation.args.includes('--print'),
+      ),
+    ).toBe(true);
   });
 
   it('persists a redacted process failure and continues with the next FIFO item', async () => {
