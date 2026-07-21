@@ -214,18 +214,23 @@ function expectNoCookieReferences(invocation: YtDlpInvocation): void {
   expect(invocation.cookieEnvironmentReference).toBe(false);
 }
 
+function hasCookieQueueReference(value: unknown): boolean {
+  if (typeof value === 'string') {
+    return (
+      value.includes(COOKIE_VALUE_MARKER) ||
+      value.includes(join(sandbox, 'cookies'))
+    );
+  }
+  if (typeof value !== 'object' || value === null) return false;
+  return Object.entries(value).some(
+    ([key, nestedValue]) =>
+      key.toLowerCase().includes('cookie') ||
+      hasCookieQueueReference(nestedValue),
+  );
+}
+
 function expectNoCookieQueueFields(download: QueuedDownload): void {
-  expect(
-    Object.keys(download).some((key) => key.toLowerCase().includes('cookie')),
-  ).toBe(false);
-  expect(
-    Object.values(download).some(
-      (value) =>
-        typeof value === 'string' &&
-        (value.includes(COOKIE_VALUE_MARKER) ||
-          value.includes(join(sandbox, 'cookies'))),
-    ),
-  ).toBe(false);
+  expect(hasCookieQueueReference(download)).toBe(false);
 }
 
 function insertChannelVideo(): number {
@@ -367,6 +372,44 @@ afterEach(async () => {
 });
 
 describe('download API', () => {
+  it('recursively detects cookie references in queued downloads', () => {
+    const cleanQueue = {
+      downloadId: 1,
+      sourceUrl: GENERIC_VIDEO_URL,
+      platformVideoId: GENERIC_VIDEO_ID,
+      downloadRoot,
+      downloadsMountPath: mountPath,
+      advancedOptions: DEFAULT_ADVANCED_OPTIONS,
+    };
+
+    expect(hasCookieQueueReference(cleanQueue)).toBe(false);
+    expect(hasCookieQueueReference({ ...cleanQueue, cookie: null })).toBe(true);
+    expect(
+      hasCookieQueueReference({
+        ...cleanQueue,
+        advancedOptions: { ...DEFAULT_ADVANCED_OPTIONS, cookie: null },
+      }),
+    ).toBe(true);
+    expect(
+      hasCookieQueueReference({
+        ...cleanQueue,
+        advancedOptions: {
+          ...DEFAULT_ADVANCED_OPTIONS,
+          format: COOKIE_VALUE_MARKER,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      hasCookieQueueReference({
+        ...cleanQueue,
+        advancedOptions: {
+          ...DEFAULT_ADVANCED_OPTIONS,
+          filenamePreset: join(sandbox, 'cookies', 'youtube.txt'),
+        },
+      }),
+    ).toBe(true);
+  });
+
   it('streams download snapshots as server-sent events', async () => {
     insertChannelVideo();
     const response = await request('/downloads/events');

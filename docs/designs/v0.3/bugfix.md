@@ -25,3 +25,7 @@
 ## bugfix-07 · 防止安全测试失败输出敏感原值
 - 关联 task: task-16
 - 描述: `test/integration/pages.test.ts:682` 与 `test/integration/server-lifecycle.test.ts:122` 将可能含敏感文件名、路径、底层异常或日志内容的原始对象交给 matcher，回归时 Vitest diff 会泄露原值。先转换为布尔值或非敏感摘要再断言，并保留仅对标记存在性的布尔检查。
+
+## bugfix-08 · 接管并完成递归队列隔离测试
+- 关联 task: task-17
+- 描述: `task-14` worker 已修改 `test/integration/download-api.test.ts`，并通过 `git diff --check`、25 项定向测试及定位检索，但在最终写入 `result.json` 前因 `Selected model is at capacity. Please try a different model.` 异常退出。保留现有改动，复核递归字段名与字符串值检查仅向 matcher 暴露布尔结果，重跑原验收并完成任务。

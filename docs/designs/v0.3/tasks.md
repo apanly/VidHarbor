@@ -364,3 +364,25 @@
 - 验收标准:
   1. `npm test -- --run test/integration/pages.test.ts test/integration/server-lifecycle.test.ts --maxWorkers=1` → 页面与启动安全断言通过
   2. `rg -n "includes\(sensitive|some\(.*sensitive|toBe\(false\)" test/integration/pages.test.ts test/integration/server-lifecycle.test.ts` → 非敏感布尔 matcher 可定位
+
+## task-17 · 接管并完成递归队列隔离测试
+- 状态: done
+- 依赖: task-09
+- 文件范围:
+  - test/integration/download-api.test.ts
+- 关键约束:
+  - 必须保留 `task-14` worker 已完成的现有改动，复核完整排队对象的所有嵌套字段名与字符串值均被确定性检查，并覆盖 `advancedOptions` 等嵌套对象。
+  - 递归检查和 matcher 只能暴露是否存在 Cookie 引用的布尔结果，不能输出完整队列对象、Cookie 原文、路径、状态对象或敏感字符串。
+  - 不能发明队列字段别名、放宽固定队列契约、重写已验证的修复，或改动与本 bug 无关的模块。
+- 任务目的: 修复 bugfix-08 描述的问题
+- 实现入口: test/integration/download-api.test.ts:199 `hasCookieQueueReference` 与 `expectNoCookieQueueFields`
+- 原始 bugfix 描述: `task-14` worker 已修改 `test/integration/download-api.test.ts`，并通过 `git diff --check`、25 项定向测试及定位检索，但在最终写入 `result.json` 前因 `Selected model is at capacity. Please try a different model.` 异常退出。保留现有改动，复核递归字段名与字符串值检查仅向 matcher 暴露布尔结果，重跑原验收并完成任务。
+- 期望行为: 现有递归队列隔离改动被完整保留并通过复核；下载 API 排队对象任意嵌套层级中的字段名或字符串值一旦引用 Cookie 即被测试捕获，正常固定队列结构继续通过，且 matcher 失败信息只暴露布尔结果。
+- 范围边界:
+  - 必须: 复核顶层与嵌套对象的字段名、敏感标记和 Cookie 存储路径检查，重跑原定向测试与定位检索，并完成任务结果交付。
+  - 不能: 不能改动与本 bug 无关的模块，不能在失败 diff 中打印完整排队对象、Cookie 原文、路径、状态对象或敏感字符串。
+  - 不做: 不修改下载队列生产结构、下载 API 响应、yt-dlp 参数生成或其他测试文件。
+- 验收标准:
+  1. `npm test -- --run test/integration/download-api.test.ts --maxWorkers=1` → 完整队列对象的递归 Cookie 边界测试通过
+  2. `rg -n "expectNoCookieQueueFields|hasCookieQueueReference|advancedOptions|cookie" test/integration/download-api.test.ts` → 嵌套队列检查入口可定位
+  3. `git diff --check` → 现有修复与任务文档无空白错误
