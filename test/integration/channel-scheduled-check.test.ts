@@ -26,6 +26,10 @@ const VALID_COOKIE_FILE = Buffer.from(
 
 interface YtDlpInvocation {
   readonly args: string[];
+  readonly cookieArgumentReference: boolean;
+  readonly cookieValueArgumentReference: boolean;
+  readonly cookieStorageArgumentReference: boolean;
+  readonly cookieEnvironmentNameReference: boolean;
   readonly cookieEnvironmentReference: boolean;
 }
 
@@ -95,11 +99,34 @@ import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 const fixtures = ${JSON.stringify(fixtures)};
 const args = process.argv.slice(2);
 const url = args.at(-1);
+const cookieArgumentReference = args.some((argument) =>
+  argument === '--cookies' || argument.startsWith('--cookies=') ||
+  argument === '--cookies-from-browser' || argument.startsWith('--cookies-from-browser=') ||
+  /^cookie:/iu.test(argument)
+);
+const cookieValueArgumentReference = args.some((argument) =>
+  argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)})
+);
+const cookieStorageArgumentReference = args.some((argument) =>
+  argument.includes(${cookieStorageDirectory})
+);
+const sanitizedArgs = args.filter((argument, index) => {
+  const previous = args[index - 1];
+  return argument !== '--cookies' && !argument.startsWith('--cookies=') &&
+    argument !== '--cookies-from-browser' && !argument.startsWith('--cookies-from-browser=') &&
+    previous !== '--cookies' && previous !== '--cookies-from-browser' &&
+    !/^cookie:/iu.test(argument) &&
+    !argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) &&
+    !argument.includes(${cookieStorageDirectory});
+});
+const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
+  /cookie/iu.test(name)
+);
 const cookieEnvironmentReference = Object.values(process.env).some((value) =>
   value?.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
   value?.includes(${cookieStorageDirectory})
 );
-appendFileSync(${invocationLogPath}, JSON.stringify({ args, cookieEnvironmentReference }) + '\\n');
+appendFileSync(${invocationLogPath}, JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference }) + '\\n');
 const dateAfterIndex = args.indexOf('--dateafter');
 const dateAfter = dateAfterIndex === -1 ? undefined : args[dateAfterIndex + 1];
 if (url === 'https://www.youtube.com/@failure/videos') {
@@ -133,19 +160,10 @@ async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
 }
 
 function expectNoCookieReferences(invocation: YtDlpInvocation): void {
-  expect(invocation.args.includes('--cookies')).toBe(false);
-  expect(invocation.args.includes('--cookies-from-browser')).toBe(false);
-  expect(
-    invocation.args.some((argument) => /^cookie:/iu.test(argument)),
-  ).toBe(false);
-  expect(
-    invocation.args.some((argument) => argument.includes(COOKIE_VALUE_MARKER)),
-  ).toBe(false);
-  expect(
-    invocation.args.some((argument) =>
-      argument.includes(join(sandbox, 'cookies')),
-    ),
-  ).toBe(false);
+  expect(invocation.cookieArgumentReference).toBe(false);
+  expect(invocation.cookieValueArgumentReference).toBe(false);
+  expect(invocation.cookieStorageArgumentReference).toBe(false);
+  expect(invocation.cookieEnvironmentNameReference).toBe(false);
   expect(invocation.cookieEnvironmentReference).toBe(false);
 }
 

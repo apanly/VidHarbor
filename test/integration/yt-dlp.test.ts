@@ -1,4 +1,4 @@
-import { access, chmod, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -25,19 +25,21 @@ const VALID_COOKIE_FILE = Buffer.from(
   `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
 );
 
-function expectNoCookieArguments(
-  args: readonly string[],
-  cookieStorageDirectory: string,
-): void {
-  expect(args.includes('--cookies')).toBe(false);
-  expect(args.includes('--cookies-from-browser')).toBe(false);
-  expect(args.some((argument) => /^cookie:/iu.test(argument))).toBe(false);
-  expect(
-    args.some((argument) => argument.includes(COOKIE_VALUE_MARKER)),
-  ).toBe(false);
-  expect(
-    args.some((argument) => argument.includes(cookieStorageDirectory)),
-  ).toBe(false);
+interface YtDlpInvocation {
+  readonly args: string[];
+  readonly cookieArgumentReference: boolean;
+  readonly cookieValueArgumentReference: boolean;
+  readonly cookieStorageArgumentReference: boolean;
+  readonly cookieEnvironmentNameReference: boolean;
+  readonly cookieEnvironmentReference: boolean;
+}
+
+function expectNoCookieArguments(invocation: YtDlpInvocation): void {
+  expect(invocation.cookieArgumentReference).toBe(false);
+  expect(invocation.cookieValueArgumentReference).toBe(false);
+  expect(invocation.cookieStorageArgumentReference).toBe(false);
+  expect(invocation.cookieEnvironmentNameReference).toBe(false);
+  expect(invocation.cookieEnvironmentReference).toBe(false);
 }
 
 beforeAll(async () => {
@@ -135,24 +137,64 @@ describe('yt-dlp argument protocol', () => {
   it('omits proxy and cookie options for direct fetches after a Cookie is saved', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-yt-dlp-cookie-'));
     const cookieStorageDirectory = join(sandbox, 'cookies');
+    const boundaryExecutablePath = join(sandbox, 'fake-yt-dlp.mjs');
     const cookieAuthorizationService = new CookieAuthorizationService(
       cookieStorageDirectory,
     );
 
     try {
+      await writeFile(
+        boundaryExecutablePath,
+        `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const cookieArgumentReference = args.some((argument) =>
+  argument === '--cookies' ||
+  argument.startsWith('--cookies=') ||
+  argument === '--cookies-from-browser' ||
+  argument.startsWith('--cookies-from-browser=') ||
+  /^cookie:/iu.test(argument)
+);
+const cookieValueArgumentReference = args.some((argument) =>
+  argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)})
+);
+const cookieStorageArgumentReference = args.some((argument) =>
+  argument.includes(${JSON.stringify(cookieStorageDirectory)})
+);
+const sanitizedArgs = args.filter((argument, index) => {
+  const previous = args[index - 1];
+  return argument !== '--cookies' &&
+    !argument.startsWith('--cookies=') &&
+    argument !== '--cookies-from-browser' &&
+    !argument.startsWith('--cookies-from-browser=') &&
+    previous !== '--cookies' &&
+    previous !== '--cookies-from-browser' &&
+    !/^cookie:/iu.test(argument) &&
+    !argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) &&
+    !argument.includes(${JSON.stringify(cookieStorageDirectory)});
+});
+const cookieEnvironmentNameReference = Object.keys(process.env).some((name) => /cookie/iu.test(name));
+const cookieEnvironmentReference = Object.values(process.env).some((value) =>
+  value?.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
+  value?.includes(${JSON.stringify(cookieStorageDirectory)})
+);
+process.stdout.write(JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference }) + '\\n');
+`,
+        'utf8',
+      );
+      await chmod(boundaryExecutablePath, 0o755);
       await cookieAuthorizationService.initialize();
       await cookieAuthorizationService.saveConfiguration(
         'youtube',
         Readable.from([VALID_COOKIE_FILE]),
       );
       const [result] = await fetchChannelEntries({
-        executablePath,
+        executablePath: boundaryExecutablePath,
         url: 'fixture://echo',
       });
-      const args = (result as { args: string[] }).args;
+      const invocation = result as unknown as YtDlpInvocation;
 
-      expect(args).not.toContain('--proxy');
-      expectNoCookieArguments(args, cookieStorageDirectory);
+      expect(invocation.args).not.toContain('--proxy');
+      expectNoCookieArguments(invocation);
     } finally {
       await rm(sandbox, { recursive: true, force: true });
     }

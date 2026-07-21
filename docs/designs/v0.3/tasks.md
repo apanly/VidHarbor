@@ -277,7 +277,7 @@
   2. `rg -n "sync|utimes|rename|mtime|fileDigest" test/unit/cookie-authorization.test.ts` → 原子性失败阶段及非敏感快照断言可定位
 
 ## task-13 · 完整断言 yt-dlp 子进程无 Cookie 参数与环境变量
-- 状态: pending
+- 状态: done
 - 依赖: task-09
 - 文件范围:
   - test/integration/yt-dlp.test.ts
