@@ -16,6 +16,40 @@ VidHarbor 是部署在可信内网中的单用户视频管理工具，用来关�
 - 在“授权管理”中为 YouTube、Bilibili、X、Facebook 和抖音各保存一份 Netscape Cookie 文件，并上传、完整替换或删除配置。
 - 通过只读 SQL 浏览当前 SQLite 数据，辅助本地排查和核对。
 
+<!-- APP_GUIDE_EXCLUDE_START -->
+
+## 界面预览
+
+### 总览
+
+![VidHarbor 总览](docs/screenshots/overview.webp)
+
+### 下载管理
+
+![VidHarbor 下载管理](docs/screenshots/downloads.webp)
+
+### 频道管理
+
+![VidHarbor 频道管理](docs/screenshots/channels.webp)
+
+### 频道详情
+
+![VidHarbor 频道详情](docs/screenshots/channel-detail.webp)
+
+### 提醒列表
+
+![VidHarbor 提醒列表](docs/screenshots/notifications.webp)
+
+### 授权管理
+
+![VidHarbor 授权管理](docs/screenshots/authorizations.webp)
+
+### 配置管理
+
+![VidHarbor 配置管理](docs/screenshots/settings.webp)
+
+<!-- APP_GUIDE_EXCLUDE_END -->
+
 ## 项目边界
 
 VidHarbor 不会自动决定下载内容。频道检查只负责建立视频记录和提醒，必须由用户在频道或提醒页面找到视频后明确发起下载。也可以绕过频道，直接提交一个受支持的单视频地址。
@@ -87,7 +121,7 @@ VidHarbor 不会自动决定下载内容。频道检查只负责建立视频记�
 | 授权管理 | 为 YouTube、Bilibili、X、Facebook 和抖音上传、完整替换或删除 Netscape Cookie 文件，查看配置状态和更新时间 |
 | 配置 | 设置下载根目录、全局检查间隔、下载并发数，以及管理 HTTP、HTTPS 或 SOCKS5 代理 |
 | 数据库 | 查看数据表并执行只读 SQL；用于本地排查，不支持写入 |
-| 系统说明 | 展示本 README；侧边栏最底部的“系统说明”入口指向 `/guide` |
+| 系统说明 | 展示本 README 中除界面预览外的说明内容；侧边栏最底部的“系统说明”入口指向 `/guide` |
 
 下载、频道、频道视频、频道检查记录和提醒列表均由服务端分页，每页固定 20 条。搜索和状态筛选先在服务端应用，再对结果分页。“全部标记已读”作用于全部提醒，不受当前页限制。
 

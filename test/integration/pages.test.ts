@@ -381,6 +381,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('<script src="/public/guide.js"></script>');
     expect(script).toContain("document.querySelectorAll('#guide-content h2')");
     expect(html).toContain('<strong>成功条件：</strong>');
+    expect(html).not.toContain('<h2>界面预览</h2>');
+    expect(html).not.toContain('docs/screenshots/');
     expect(guideTemplate).toContain('<%- guideHtml %>');
     expect(guideTemplate).not.toContain('主媒体文件成功并通过校验');
     expect(dockerfile).toContain('COPY README.md ./');

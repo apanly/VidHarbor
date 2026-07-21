@@ -29,8 +29,26 @@ const PAGE_ROUTES: readonly PageRoute[] = [
 
 export function createPagesRouter(): Router {
   const router = Router();
+  const readme = readFileSync(
+    fileURLToPath(new URL('../../README.md', import.meta.url)),
+    'utf8',
+  );
+  const excludedStart = '<!-- APP_GUIDE_EXCLUDE_START -->';
+  const excludedEnd = '<!-- APP_GUIDE_EXCLUDE_END -->';
+  const excludedStartIndex = readme.indexOf(excludedStart);
+  const excludedEndIndex = readme.indexOf(excludedEnd);
+  if (
+    excludedStartIndex === -1 ||
+    excludedEndIndex === -1 ||
+    excludedEndIndex < excludedStartIndex
+  ) {
+    throw new Error('README guide exclusion markers are invalid');
+  }
+  const guideMarkdown =
+    readme.slice(0, excludedStartIndex) +
+    readme.slice(excludedEndIndex + excludedEnd.length);
   const guideHtml = marked.parse(
-    readFileSync(fileURLToPath(new URL('../../README.md', import.meta.url)), 'utf8'),
+    guideMarkdown,
     { async: false },
   );
 
