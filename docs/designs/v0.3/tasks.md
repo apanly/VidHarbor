@@ -323,7 +323,7 @@
   2. `rg -n "expectNoCookieQueueFields|advancedOptions|recursive|cookie" test/integration/download-api.test.ts` → 嵌套队列检查入口可定位
 
 ## task-15 · 使用真正未知平台验证数据库开放契约
-- 状态: pending
+- 状态: done
 - 依赖: task-08
 - 文件范围:
   - test/integration/database.test.ts

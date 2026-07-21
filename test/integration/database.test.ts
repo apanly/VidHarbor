@@ -272,8 +272,8 @@ describe('SQLite database', () => {
             `INSERT INTO downloads (
               source_type, source_url, platform, platform_video_id, title,
               network_mode, status, created_at
-            ) VALUES ('direct', 'https://media.example/videos/generic', 'generic',
-                      'generic', 'Generic', 'direct', 'pending', ?)`,
+            ) VALUES ('direct', 'https://media.example/videos/unknown-platform', 'unknown-platform',
+                      'unknown-platform', 'Unknown Platform', 'direct', 'pending', ?)`,
           )
           .run(timestamp),
       ).not.toThrow();
@@ -290,9 +290,9 @@ describe('SQLite database', () => {
       ).not.toThrow();
       expect(database.prepare(
         `SELECT platform, title FROM downloads
-         WHERE platform IN ('vimeo', 'generic') ORDER BY id`,
+         WHERE platform IN ('vimeo', 'unknown-platform') ORDER BY id`,
       ).all()).toEqual([
-        { platform: 'generic', title: 'Generic' },
+        { platform: 'unknown-platform', title: 'Unknown Platform' },
         { platform: 'vimeo', title: 'Historical Vimeo' },
       ]);
       expect(database.pragma('foreign_key_check')).toEqual([]);
