@@ -124,12 +124,20 @@ export function createApiRouter(
 
   router.use(
     '/authorizations',
-    createAuthorizationsRouter(cookieAuthorizationService),
+    createAuthorizationsRouter(database, cookieAuthorizationService),
   );
   router.use('/settings', createSettingsRouter(database, downloadsMountPath));
   router.use('/database', createDatabaseRouter(database));
   router.use('/proxies', createProxiesRouter(database));
-  router.use('/channels', createChannelsRouter(database, taskManager, runtime));
+  router.use(
+    '/channels',
+    createChannelsRouter(
+      database,
+      taskManager,
+      runtime,
+      cookieAuthorizationService,
+    ),
+  );
   router.use('/notifications', createNotificationsRouter(database));
   router.use('/yt-dlp/tasks', createYtDlpTasksRouter(taskManager));
   router.use(

@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe('SQLite database', () => {
-  it('configures each file connection and migrates an empty database to schema 6', async () => {
+  it('configures each file connection and migrates an empty database to schema 7', async () => {
     const database = openDatabase(await temporaryDatabasePath());
 
     try {
@@ -52,7 +52,7 @@ describe('SQLite database', () => {
 
       expect(
         database.prepare('SELECT version FROM schema_migrations ORDER BY version').pluck().all(),
-      ).toEqual([1, 2, 3, 4, 5, 6]);
+      ).toEqual([1, 2, 3, 4, 5, 6, 7]);
       expect(
         database
           .prepare(
@@ -118,7 +118,7 @@ describe('SQLite database', () => {
     }
   });
 
-  it('does not change an already migrated schema 6 database', async () => {
+  it('does not change an already migrated schema 7 database', async () => {
     const database = openDatabase(await temporaryDatabasePath());
 
     try {
@@ -136,7 +136,7 @@ describe('SQLite database', () => {
 
       expect(
         database.prepare('SELECT COUNT(*) FROM schema_migrations').pluck().get(),
-      ).toBe(6);
+      ).toBe(7);
       expect(database.prepare('SELECT COUNT(*) FROM settings').pluck().get()).toBe(1);
       expect(
         database
@@ -255,7 +255,7 @@ describe('SQLite database', () => {
       migrateDatabase(database);
 
       expect(database.prepare('SELECT version FROM schema_migrations ORDER BY version').pluck().all())
-        .toEqual([1, 2, 3, 4, 5, 6]);
+        .toEqual([1, 2, 3, 4, 5, 6, 7]);
       expect(database.prepare('SELECT platform_video_id FROM downloads').pluck().all())
         .toEqual(['aB_12-cD345']);
       expect(database.prepare(
@@ -359,9 +359,9 @@ describe('SQLite database', () => {
 
     try {
       migrateDatabase(database);
-      database.prepare('UPDATE schema_migrations SET version = 7 WHERE version = 6').run();
+      database.prepare('UPDATE schema_migrations SET version = 8 WHERE version = 7').run();
 
-      expect(() => migrateDatabase(database)).toThrow('Unknown schema migration version: 1, 2, 3, 4, 5, 7');
+      expect(() => migrateDatabase(database)).toThrow('Unknown schema migration version: 1, 2, 3, 4, 5, 6, 8');
     } finally {
       database.close();
     }

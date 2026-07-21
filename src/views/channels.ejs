@@ -26,6 +26,7 @@
                 <div class="mb-3"><label class="form-label" for="channel-url">频道地址</label><input class="form-control" id="channel-url" name="url" required><div class="form-text">支持 YouTube 频道和 Bilibili UP 主空间，例如 https://space.bilibili.com/3985676</div></div>
                 <div class="mb-3"><label class="form-label" for="channel-custom-name">自定义名称</label><input class="form-control" id="channel-custom-name" name="customName" required></div>
                 <div class="mb-3"><label class="form-label" for="channel-proxy">网络路径</label><select class="form-select" id="channel-proxy" name="proxyId"><option value="">直连</option></select></div>
+                <div class="mb-3"><label class="form-label" for="channel-authorization">授权配置</label><select class="form-select" id="channel-authorization" name="authorizationPlatform"><option value="">不使用授权</option></select><div class="form-text">仅可选择与频道相同平台的授权。</div></div>
                 <div class="mb-3"><label class="form-label" for="channel-check-interval">频道覆盖间隔（分钟）</label><input class="form-control" id="channel-check-interval" type="number" min="1" step="1" name="checkIntervalMinutes" placeholder="留空使用全局值"></div>
                 <div class="alert alert-danger" data-form-error hidden></div>
               </div>

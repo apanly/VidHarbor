@@ -1,6 +1,7 @@
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -11,6 +12,7 @@ import {
   initialSyncChannel,
   saveChannel,
 } from '../../src/services/channel.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
@@ -163,6 +165,7 @@ async function createChannel(
   manager: YtDlpTaskManager,
   input: unknown,
   startedAt: Date,
+  cookieAuthorizationService?: CookieAuthorizationService,
 ) {
   const channel = saveChannel(connection, input, startedAt);
   return initialSyncChannel(
@@ -171,6 +174,7 @@ async function createChannel(
     channel.id,
     { historyMonths: 12 },
     startedAt,
+    cookieAuthorizationService,
   );
 }
 
@@ -195,6 +199,14 @@ afterEach(async () => {
 
 describe('channel initial synchronization', () => {
   it('synchronizes ordinary Bilibili UP submissions and excludes collections', async () => {
+    const cookieAuthorizationService = new CookieAuthorizationService(
+      join(sandbox, 'cookies'),
+    );
+    await cookieAuthorizationService.initialize();
+    await cookieAuthorizationService.createConfiguration(
+      'bilibili',
+      Readable.from(['.bilibili.com\tTRUE\t/\tTRUE\t0\tSESSDATA\ttest\n']),
+    );
     const result = await createChannel(
       database,
       taskManager,
@@ -202,9 +214,11 @@ describe('channel initial synchronization', () => {
         url: BILIBILI_CHANNEL_URL,
         customName: 'Bilibili UP',
         proxyId: null,
+        authorizationPlatform: 'bilibili',
         checkIntervalMinutes: null,
       },
       STARTED_AT,
+      cookieAuthorizationService,
     );
 
     expect(result).toMatchObject({
@@ -212,6 +226,7 @@ describe('channel initial synchronization', () => {
         platform: 'bilibili',
         extractor: 'BilibiliSpaceVideo',
         url: BILIBILI_CHANNEL_URL,
+        authorizationPlatform: 'bilibili',
       },
       historicalVideoCount: 2,
     });
@@ -219,10 +234,12 @@ describe('channel initial synchronization', () => {
       'channel_initial_sync',
     ]);
     expect(database.prepare(
-      `SELECT platform, platform_channel_id FROM channels WHERE id = ?`,
+      `SELECT platform, platform_channel_id, authorization_platform
+       FROM channels WHERE id = ?`,
     ).get(result.channel.id)).toEqual({
       platform: 'bilibili',
       platform_channel_id: '3985676',
+      authorization_platform: 'bilibili',
     });
     expect(database.prepare(
       `SELECT platform, platform_video_id, published_date, duration_seconds
@@ -265,6 +282,7 @@ describe('channel initial synchronization', () => {
         url: DIRECT_URL,
         customName: 'Direct channel',
         proxyId: null,
+        authorizationPlatform: null,
         checkIntervalMinutes: null,
       },
       STARTED_AT,
@@ -278,6 +296,7 @@ describe('channel initial synchronization', () => {
         url: DIRECT_URL,
         customName: 'Direct channel',
         proxyId: null,
+        authorizationPlatform: null,
         checkIntervalMinutes: null,
         effectiveCheckIntervalMinutes: 60,
         pausedAt: null,

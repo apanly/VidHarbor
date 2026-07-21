@@ -252,6 +252,7 @@ export async function startServer(
         manager,
         channelId,
         startedAt,
+        cookieAuthorizationService,
       ),
       undefined,
       reportRuntimeFailure,

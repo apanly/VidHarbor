@@ -28,14 +28,14 @@ function errorMessage(error) {
     : `${error.code}: ${error.message}`;
 }
 
-async function request(path, method = 'GET', body) {
+async function request(path, method = 'GET', body, contentType = 'application/octet-stream') {
   const response = await fetch(path, {
     method,
     credentials: 'same-origin',
     ...(body === undefined
       ? {}
       : {
-          headers: { 'Content-Type': 'application/octet-stream' },
+          headers: { 'Content-Type': contentType },
           body,
         }),
   });
@@ -120,6 +120,28 @@ async function deleteConfiguration(configuration, button) {
   }
 }
 
+async function validateBilibiliConfiguration(button, resultRegion) {
+  button.disabled = true;
+  clearListError();
+  resultRegion.textContent = '';
+  try {
+    const result = await request(
+      '/api/authorizations/cookies/bilibili/validate',
+      'POST',
+      '{}',
+      'application/json',
+    );
+    resultRegion.className = result.valid
+      ? 'authorization-validation text-success'
+      : 'authorization-validation text-danger';
+    resultRegion.textContent = result.valid ? '登录态有效' : '登录态已失效';
+  } catch (error) {
+    showListError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderList() {
   list.replaceChildren();
   if (configurations.size === 0) {
@@ -164,7 +186,20 @@ function renderList() {
     remove.className = 'btn btn-sm btn-outline-danger';
     remove.textContent = '删除';
     remove.addEventListener('click', () => deleteConfiguration(configuration, remove));
-    actions.append(edit, remove);
+    actions.append(edit);
+    if (configuration.platform === 'bilibili') {
+      const validate = document.createElement('button');
+      validate.type = 'button';
+      validate.className = 'btn btn-sm btn-outline-secondary';
+      validate.textContent = '验证';
+      const validationResult = document.createElement('span');
+      validationResult.className = 'authorization-validation';
+      validate.addEventListener('click', () =>
+        validateBilibiliConfiguration(validate, validationResult),
+      );
+      actions.append(validate, validationResult);
+    }
+    actions.append(remove);
     actionsCell.append(actions);
     row.append(platform, status, updated, actionsCell);
     list.append(row);

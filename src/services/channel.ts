@@ -26,6 +26,7 @@ import type {
   YtDlpTaskManager,
 } from '../yt-dlp-task-manager.js';
 import { isYtDlpTaskCancellationError } from '../yt-dlp-task-cancellation.js';
+import type { CookieAuthorizationService } from './cookie-authorization.js';
 
 export interface Channel {
   readonly id: number;
@@ -34,6 +35,7 @@ export interface Channel {
   readonly url: string;
   readonly customName: string;
   readonly proxyId: number | null;
+  readonly authorizationPlatform: ChannelPlatform | null;
   readonly checkIntervalMinutes: number | null;
   readonly effectiveCheckIntervalMinutes: number;
   readonly pausedAt: string | null;
@@ -103,12 +105,14 @@ interface ChannelInput {
   readonly url: string;
   readonly customName: string;
   readonly proxyId: number | null;
+  readonly authorizationPlatform: ChannelPlatform | null;
   readonly checkIntervalMinutes: number | null;
 }
 
 interface UpdateChannelInput {
   readonly customName: string;
   readonly proxyId: number | null;
+  readonly authorizationPlatform: ChannelPlatform | null;
   readonly checkIntervalMinutes: number | null;
 }
 
@@ -119,6 +123,7 @@ interface ChannelRow {
   readonly source_url: string;
   readonly custom_name: string;
   readonly proxy_id: number | null;
+  readonly authorization_platform: ChannelPlatform | null;
   readonly check_interval_minutes: number | null;
   readonly effective_check_interval_minutes: number | null;
   readonly paused_at: string | null;
@@ -181,6 +186,7 @@ interface PreparedInitialSync {
     readonly source_url: string;
     readonly custom_name: string;
     readonly proxy_id: number | null;
+    readonly authorization_platform: ChannelPlatform | null;
     readonly check_interval_minutes: number | null;
   };
   readonly configuration: InitialConfiguration;
@@ -193,6 +199,7 @@ interface ScheduledChannel {
   readonly platformChannelId: string | undefined;
   readonly url: string;
   readonly proxyUrl: string | undefined;
+  readonly authorizationPlatform: ChannelPlatform | null;
 }
 
 interface ScheduledChannelRow {
@@ -202,6 +209,7 @@ interface ScheduledChannelRow {
   readonly source_url: string;
   readonly proxy_id: number | null;
   readonly proxy_url: string | null;
+  readonly authorization_platform: ChannelPlatform | null;
   readonly initial_sync_status: 'pending' | 'syncing' | 'succeeded' | 'failed';
 }
 
@@ -252,11 +260,12 @@ function parseInput(input: unknown): ChannelInput {
 
   const keys = Object.keys(input);
   if (
-    keys.length !== 4 ||
+    (keys.length !== 4 && keys.length !== 5) ||
     !keys.includes('url') ||
     !keys.includes('customName') ||
     !keys.includes('proxyId') ||
-    !keys.includes('checkIntervalMinutes')
+    !keys.includes('checkIntervalMinutes') ||
+    (keys.length === 5 && !keys.includes('authorizationPlatform'))
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel input');
   }
@@ -269,17 +278,26 @@ function parseInput(input: unknown): ChannelInput {
       (!Number.isSafeInteger(value.proxyId) || (value.proxyId as number) < 1)) ||
     (value.checkIntervalMinutes !== null &&
       (!Number.isSafeInteger(value.checkIntervalMinutes) ||
-        (value.checkIntervalMinutes as number) < 1))
+        (value.checkIntervalMinutes as number) < 1)) ||
+    (value.authorizationPlatform !== undefined &&
+      value.authorizationPlatform !== null &&
+      value.authorizationPlatform !== 'youtube' &&
+      value.authorizationPlatform !== 'bilibili')
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel input');
   }
 
   validateChannelName(value.customName);
-  parseChannelSource(value.url);
+  const source = parseChannelSource(value.url);
+  const authorizationPlatform = value.authorizationPlatform ?? null;
+  if (authorizationPlatform !== null && authorizationPlatform !== source.platform) {
+    throw new BusinessError('VALIDATION_ERROR', 'channel authorization platform mismatch');
+  }
   return {
     url: value.url,
     customName: value.customName,
     proxyId: value.proxyId as number | null,
+    authorizationPlatform,
     checkIntervalMinutes: value.checkIntervalMinutes as number | null,
   };
 }
@@ -291,10 +309,11 @@ function parseUpdateInput(input: unknown): UpdateChannelInput {
 
   const keys = Object.keys(input);
   if (
-    keys.length !== 3 ||
+    (keys.length !== 3 && keys.length !== 4) ||
     !keys.includes('customName') ||
     !keys.includes('proxyId') ||
-    !keys.includes('checkIntervalMinutes')
+    !keys.includes('checkIntervalMinutes') ||
+    (keys.length === 4 && !keys.includes('authorizationPlatform'))
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel input');
   }
@@ -306,7 +325,11 @@ function parseUpdateInput(input: unknown): UpdateChannelInput {
       (!Number.isSafeInteger(value.proxyId) || (value.proxyId as number) < 1)) ||
     (value.checkIntervalMinutes !== null &&
       (!Number.isSafeInteger(value.checkIntervalMinutes) ||
-        (value.checkIntervalMinutes as number) < 1))
+        (value.checkIntervalMinutes as number) < 1)) ||
+    (value.authorizationPlatform !== undefined &&
+      value.authorizationPlatform !== null &&
+      value.authorizationPlatform !== 'youtube' &&
+      value.authorizationPlatform !== 'bilibili')
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel input');
   }
@@ -315,6 +338,7 @@ function parseUpdateInput(input: unknown): UpdateChannelInput {
   return {
     customName: value.customName,
     proxyId: value.proxyId as number | null,
+    authorizationPlatform: (value.authorizationPlatform ?? null) as ChannelPlatform | null,
     checkIntervalMinutes: value.checkIntervalMinutes as number | null,
   };
 }
@@ -336,6 +360,7 @@ function toChannel(row: ChannelRow): Channel {
     url: row.source_url,
     customName: row.custom_name,
     proxyId: row.proxy_id,
+    authorizationPlatform: row.authorization_platform,
     checkIntervalMinutes: row.check_interval_minutes,
     effectiveCheckIntervalMinutes,
     pausedAt: row.paused_at,
@@ -359,7 +384,7 @@ function toChannel(row: ChannelRow): Channel {
 
 const CHANNEL_SELECT = `
   SELECT c.id, c.platform, c.extractor, c.source_url, c.custom_name,
-         c.proxy_id, c.check_interval_minutes, c.paused_at,
+         c.proxy_id, c.authorization_platform, c.check_interval_minutes, c.paused_at,
          c.initial_sync_status, c.initial_sync_error,
          COALESCE(c.check_interval_minutes, s.global_check_interval_minutes)
            AS effective_check_interval_minutes,
@@ -623,7 +648,7 @@ function loadScheduledChannel(
     const row = database
       .prepare(
         `SELECT c.id, c.platform, c.platform_channel_id, c.source_url, c.proxy_id,
-                p.proxy_url, c.initial_sync_status
+                c.authorization_platform, p.proxy_url, c.initial_sync_status
          FROM channels c
          LEFT JOIN proxies p ON p.id = c.proxy_id
          WHERE c.id = ?`,
@@ -644,6 +669,7 @@ function loadScheduledChannel(
       platformChannelId: row.platform_channel_id ?? undefined,
       url: row.source_url,
       proxyUrl: row.proxy_url ?? undefined,
+      authorizationPlatform: row.authorization_platform,
     };
   } catch (error) {
     if (error instanceof BusinessError) {
@@ -937,6 +963,7 @@ function insertSynchronizedChannel(
         url: input.url,
         customName: input.customName,
         proxyId: input.proxyId,
+        authorizationPlatform: input.authorizationPlatform,
         checkIntervalMinutes: input.checkIntervalMinutes,
         effectiveCheckIntervalMinutes: effectiveIntervalMinutes,
         pausedAt: null,
@@ -968,11 +995,25 @@ async function completeChannelCreation(
   channelId: number,
   dateAfter: string,
   earliestPublishedDate: string,
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<CreateChannelResult> {
   let values: readonly unknown[];
+  let cookieFilePath: string | undefined;
   try {
+    cookieFilePath = channelInput.authorizationPlatform === null
+      ? undefined
+      : await cookieAuthorizationService?.getConfiguredFilePath(
+          channelInput.authorizationPlatform,
+        );
+    if (
+      channelInput.authorizationPlatform !== null &&
+      cookieFilePath === undefined
+    ) {
+      throw new Error('channel authorization service is unavailable');
+    }
     values = await operations.fetchChannelEntries({
       url: source.fetchUrl,
+      ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
       ...(configuration.proxyUrl === undefined
         ? {}
         : { proxyUrl: configuration.proxyUrl }),
@@ -1004,6 +1045,7 @@ async function completeChannelCreation(
       (url) =>
         operations.fetchVideoMetadata({
           url,
+          ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
           ...(configuration.proxyUrl === undefined
             ? {}
             : { proxyUrl: configuration.proxyUrl }),
@@ -1103,10 +1145,11 @@ export function saveChannel(
       .prepare(
         `INSERT INTO channels (
           platform, extractor, platform_channel_id, source_url, custom_name,
-          custom_name_key, proxy_id, check_interval_minutes, paused_at,
+          custom_name_key, proxy_id, authorization_platform,
+          check_interval_minutes, paused_at,
           initial_sync_status, initial_sync_error, initial_synced_at,
           created_at, updated_at
-        ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL,
+        ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL,
                   'pending', NULL, NULL, ?, ?)`,
       )
       .run(
@@ -1116,6 +1159,7 @@ export function saveChannel(
         channelInput.customName,
         channelInput.customName.toLowerCase(),
         channelInput.proxyId,
+        channelInput.authorizationPlatform,
         channelInput.checkIntervalMinutes,
         createdAt,
         createdAt,
@@ -1147,7 +1191,8 @@ function prepareInitialSync(
 
   const row = database
     .prepare(
-      `SELECT source_url, custom_name, proxy_id, check_interval_minutes,
+      `SELECT source_url, custom_name, proxy_id, authorization_platform,
+              check_interval_minutes,
               initial_sync_status
        FROM channels WHERE id = ?`,
     )
@@ -1155,6 +1200,7 @@ function prepareInitialSync(
       source_url: string;
       custom_name: string;
       proxy_id: number | null;
+      authorization_platform: ChannelPlatform | null;
       check_interval_minutes: number | null;
       initial_sync_status: 'pending' | 'syncing' | 'succeeded' | 'failed';
     } | undefined;
@@ -1205,6 +1251,7 @@ async function completeInitialSync(
   database: DatabaseConnection,
   prepared: PreparedInitialSync,
   operations: YtDlpOperations,
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<CreateChannelResult> {
   const {
     channelId,
@@ -1225,6 +1272,7 @@ async function completeInitialSync(
         url: row.source_url,
         customName: row.custom_name,
         proxyId: row.proxy_id,
+        authorizationPlatform: row.authorization_platform,
         checkIntervalMinutes: row.check_interval_minutes,
       },
       source,
@@ -1234,6 +1282,7 @@ async function completeInitialSync(
       channelId,
       earliestPublishedDate.replaceAll('-', ''),
       earliestPublishedDate,
+      cookieAuthorizationService,
     );
   } catch (error) {
     const failure =
@@ -1263,6 +1312,7 @@ export function acceptInitialChannelSync(
   channelId: number,
   input: unknown,
   startedAt = new Date(),
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): AcceptedChannelCreation {
   const prepared = prepareInitialSync(
     database,
@@ -1272,7 +1322,12 @@ export function acceptInitialChannelSync(
   );
   const task = taskManager.submit({
     type: 'channel_initial_sync',
-    execute: (operations) => completeInitialSync(database, prepared, operations),
+    execute: (operations) => completeInitialSync(
+      database,
+      prepared,
+      operations,
+      cookieAuthorizationService,
+    ),
   });
   taskQueue.trackInitialSync(task.result);
   return { accepted: true };
@@ -1284,11 +1339,17 @@ export function initialSyncChannel(
   channelId: number,
   input: unknown,
   startedAt = new Date(),
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<CreateChannelResult> {
   const prepared = prepareInitialSync(database, channelId, input, startedAt);
   return taskManager.submit({
     type: 'channel_initial_sync',
-    execute: (operations) => completeInitialSync(database, prepared, operations),
+    execute: (operations) => completeInitialSync(
+      database,
+      prepared,
+      operations,
+      cookieAuthorizationService,
+    ),
   }).result;
 }
 
@@ -1297,6 +1358,7 @@ async function executeChannelCheck(
   operations: YtDlpOperations,
   channelId: number,
   startedAt = new Date(),
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<CheckChannelResult> {
   validateChannelId(channelId);
   if (!Number.isFinite(startedAt.getTime())) {
@@ -1323,9 +1385,22 @@ async function executeChannelCheck(
   );
 
   let values: readonly unknown[];
+  let cookieFilePath: string | undefined;
   try {
+    cookieFilePath = channel.authorizationPlatform === null
+      ? undefined
+      : await cookieAuthorizationService?.getConfiguredFilePath(
+          channel.authorizationPlatform,
+        );
+    if (
+      channel.authorizationPlatform !== null &&
+      cookieFilePath === undefined
+    ) {
+      throw new Error('channel authorization service is unavailable');
+    }
     values = await operations.fetchChannelEntries({
       url: source.fetchUrl,
+      ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
       ...(channel.proxyUrl === undefined
         ? {}
         : { proxyUrl: channel.proxyUrl }),
@@ -1354,6 +1429,7 @@ async function executeChannelCheck(
       (url) =>
         operations.fetchVideoMetadata({
           url,
+          ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
           ...(channel.proxyUrl === undefined
             ? {}
             : { proxyUrl: channel.proxyUrl }),
@@ -1385,11 +1461,18 @@ export function checkChannel(
   taskManager: YtDlpTaskManager,
   channelId: number,
   startedAt = new Date(),
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<CheckChannelResult> {
   return taskManager.submit({
     type: 'channel_manual_check',
     execute: (operations) =>
-      executeChannelCheck(database, operations, channelId, startedAt),
+      executeChannelCheck(
+        database,
+        operations,
+        channelId,
+        startedAt,
+        cookieAuthorizationService,
+      ),
   }).result;
 }
 
@@ -1398,11 +1481,18 @@ export function checkScheduledChannel(
   taskManager: YtDlpTaskManager,
   channelId: number,
   startedAt = new Date(),
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<CheckChannelResult> {
   return taskManager.submit({
     type: 'channel_scheduled_check',
     execute: (operations) =>
-      executeChannelCheck(database, operations, channelId, startedAt),
+      executeChannelCheck(
+        database,
+        operations,
+        channelId,
+        startedAt,
+        cookieAuthorizationService,
+      ),
   }).result;
 }
 
@@ -1480,11 +1570,19 @@ export function updateChannel(
   try {
     database.exec('BEGIN IMMEDIATE');
     const existingChannel = database
-      .prepare('SELECT id FROM channels WHERE id = ?')
-      .pluck()
-      .get(channelId);
+      .prepare('SELECT id, platform FROM channels WHERE id = ?')
+      .get(channelId) as { id: number; platform: ChannelPlatform } | undefined;
     if (existingChannel === undefined) {
       throw new BusinessError('CHANNEL_NOT_FOUND', 'channel not found');
+    }
+    if (
+      channelInput.authorizationPlatform !== null &&
+      channelInput.authorizationPlatform !== existingChannel.platform
+    ) {
+      throw new BusinessError(
+        'VALIDATION_ERROR',
+        'channel authorization platform mismatch',
+      );
     }
 
     if (channelInput.proxyId !== null) {
@@ -1516,13 +1614,14 @@ export function updateChannel(
       .prepare(
         `UPDATE channels
          SET custom_name = ?, custom_name_key = ?, proxy_id = ?,
-             check_interval_minutes = ?, updated_at = ?
+             authorization_platform = ?, check_interval_minutes = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
         channelInput.customName,
         customNameKey,
         channelInput.proxyId,
+        channelInput.authorizationPlatform,
         channelInput.checkIntervalMinutes,
         updatedAt,
         channelId,

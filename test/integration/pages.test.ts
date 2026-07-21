@@ -421,8 +421,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('id="authorization-platform" name="platform"');
     expect(html.match(/name="cookieFile"/g)).toHaveLength(1);
     expect(html).toContain('删除会立即移除文件且无法恢复');
-    expect(html).toContain('尚未接入业务流程');
-    expect(html).toContain('不会用于频道同步、元数据探测或媒体下载');
+    expect(html).toContain('使用范围');
+    expect(html).toContain('频道可选择同平台授权用于首次同步、手动检查和定时检查');
     expect(html).toContain('安全获取与导出说明');
     expect(html).toContain('Cookie 等同账号登录凭据');
     expect(html).toContain('不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性');
@@ -471,6 +471,10 @@ describe('server-rendered pages', () => {
     expect(channelsScript).toContain('formatChinaTimestamp(channel.lastCheck.nextAt)');
     expect(channelsHtml).not.toContain('<table');
     expect(channelsHtml).toContain('class="form-stack"');
+    expect(channelsHtml).toContain('name="authorizationPlatform"');
+    expect(channelsHtml).toContain('仅可选择与频道相同平台的授权');
+    expect(channelsScript).toContain("request('/api/authorizations/cookies')");
+    expect(channelsScript).toContain('authorizationPlatform');
     expect(channelsHtml).not.toContain('data-channel-edit-modal-root');
     expect(channelsHtml).not.toContain('buildChannelEditModal');
     expect(channelsHtml).not.toContain('channel-create-modal');
@@ -1284,6 +1288,8 @@ describe('server-rendered pages', () => {
     expect(authorizationsScript).toContain('if (!confirmed) return;');
     expect(authorizationsScript).toContain("`/api/authorizations/cookies/${configuration.platform}`");
     expect(authorizationsScript).toContain("'DELETE'");
+    expect(authorizationsScript).toContain("'/api/authorizations/cookies/bilibili/validate'");
+    expect(authorizationsScript).toContain("result.valid ? '登录态有效' : '登录态已失效'");
   });
 
   it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/authorizations', '/downloads', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {

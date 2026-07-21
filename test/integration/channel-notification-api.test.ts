@@ -270,6 +270,7 @@ describe('channel API', () => {
       url: 'https://www.youtube.com/@first',
       customName: 'First channel',
       proxyId: null,
+      authorizationPlatform: null,
       checkIntervalMinutes: null,
     });
     expect(createResponse.status).toBe(201);
@@ -298,6 +299,7 @@ describe('channel API', () => {
       url: 'https://www.youtube.com/@first',
       customName: 'First channel',
       proxyId: null,
+      authorizationPlatform: null,
       checkIntervalMinutes: null,
       effectiveCheckIntervalMinutes: 60,
       pausedAt: null,
@@ -312,6 +314,7 @@ describe('channel API', () => {
       'url',
       'customName',
       'proxyId',
+      'authorizationPlatform',
       'checkIntervalMinutes',
       'effectiveCheckIntervalMinutes',
       'pausedAt',

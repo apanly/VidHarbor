@@ -14,6 +14,7 @@ interface CommonOptions {
   readonly executablePath: string;
   readonly url: string;
   readonly proxyUrl?: string;
+  readonly cookieFilePath?: string;
 }
 
 export interface FetchOptions extends CommonOptions {
@@ -310,6 +311,9 @@ function fetchArgs(options: FetchOptions, singleVideo: boolean): string[] {
     args.push('--dateafter', options.dateAfter, '--break-on-reject');
   }
   appendProxyArgument(args, options.proxyUrl);
+  if (options.cookieFilePath !== undefined) {
+    args.push('--cookies', options.cookieFilePath);
+  }
   args.push(options.url);
   return args;
 }

@@ -122,6 +122,26 @@ describe('yt-dlp argument protocol', () => {
     expect(args.some((argument) => argument.includes('cookie'))).toBe(false);
   });
 
+  it('passes one configured Cookie file to channel and detail fetches', async () => {
+    const cookieFilePath = '/data/cookies/bilibili.cookies.txt';
+    const [channelResult] = await fetchChannelEntries({
+      executablePath,
+      url: 'fixture://echo',
+      cookieFilePath,
+    });
+    const detailResult = await fetchVideoMetadata({
+      executablePath,
+      url: 'fixture://echo',
+      cookieFilePath,
+    });
+
+    for (const result of [channelResult, detailResult]) {
+      const args = (result as { args: string[] }).args;
+      expect(args.filter((argument) => argument === '--cookies')).toHaveLength(1);
+      expect(args).toContain(cookieFilePath);
+    }
+  });
+
   it('disables playlist expansion for a single-resource probe', async () => {
     const result = await fetchVideoMetadata({
       executablePath,

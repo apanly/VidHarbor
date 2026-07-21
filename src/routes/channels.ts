@@ -22,6 +22,18 @@ import {
   isYtDlpTaskCancellationError,
   type YtDlpTaskManager,
 } from '../yt-dlp-task-manager.js';
+import type { CookieAuthorizationService } from '../services/cookie-authorization.js';
+
+async function requireSelectedAuthorization(
+  input: unknown,
+  cookieAuthorizationService: CookieAuthorizationService,
+): Promise<void> {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return;
+  const platform = (input as Record<string, unknown>).authorizationPlatform;
+  if (platform === 'youtube' || platform === 'bilibili') {
+    await cookieAuthorizationService.getConfiguredFilePath(platform);
+  }
+}
 
 function parseChannelId(value: string): number {
   if (!/^[1-9]\d*$/.test(value)) {
@@ -39,6 +51,7 @@ export function createChannelsRouter(
   database: DatabaseConnection,
   taskManager: YtDlpTaskManager,
   runtime: RuntimeCoordinator,
+  cookieAuthorizationService: CookieAuthorizationService,
 ): Router {
   const router = Router();
   const initialSyncTaskQueue = {
@@ -64,7 +77,8 @@ export function createChannelsRouter(
     response.json({ items: listUpdatedChannels(database) });
   });
 
-  router.post('/', (request, response) => {
+  router.post('/', async (request, response) => {
+    await requireSelectedAuthorization(request.body, cookieAuthorizationService);
     response.status(201).json({ channel: saveChannel(database, request.body) });
   });
 
@@ -76,11 +90,14 @@ export function createChannelsRouter(
         initialSyncTaskQueue,
         parseChannelId(request.params.id),
         request.body,
+        new Date(),
+        cookieAuthorizationService,
       ),
     );
   });
 
-  router.patch('/:id', (request, response) => {
+  router.patch('/:id', async (request, response) => {
+    await requireSelectedAuthorization(request.body, cookieAuthorizationService);
     response.json({
       channel: updateChannel(
         database,
@@ -137,6 +154,8 @@ export function createChannelsRouter(
         database,
         taskManager,
         parseChannelId(request.params.id),
+        new Date(),
+        cookieAuthorizationService,
       ),
     );
   });

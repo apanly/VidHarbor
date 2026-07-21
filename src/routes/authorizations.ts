@@ -1,5 +1,7 @@
 import { Router } from 'express';
 
+import type { DatabaseConnection } from '../db/client.js';
+import { BusinessError } from '../errors.js';
 import {
   type CookieAuthorizationService,
   type CookieConfiguration,
@@ -18,6 +20,7 @@ function toConfigurationResponse(configuration: CookieConfiguration): {
 }
 
 export function createAuthorizationsRouter(
+  database: DatabaseConnection,
   cookieAuthorizationService: CookieAuthorizationService,
 ): Router {
   const router = Router();
@@ -52,7 +55,25 @@ export function createAuthorizationsRouter(
     });
   });
 
+  router.post('/cookies/bilibili/validate', async (_request, response) => {
+    response.json({
+      valid: await cookieAuthorizationService.validateBilibiliConfiguration(),
+    });
+  });
+
   router.delete('/cookies/:platform', async (request, response) => {
+    const referenceCount = database
+      .prepare(
+        'SELECT COUNT(*) FROM channels WHERE authorization_platform = ?',
+      )
+      .pluck()
+      .get(request.params.platform) as number;
+    if (referenceCount > 0) {
+      throw new BusinessError(
+        'AUTHORIZATION_IN_USE',
+        'cookie authorization is used by channels',
+      );
+    }
     const configuration =
       await cookieAuthorizationService.deleteConfiguration(
         request.params.platform,
