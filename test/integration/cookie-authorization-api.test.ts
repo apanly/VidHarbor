@@ -187,35 +187,6 @@ describe('Cookie authorization API', () => {
     });
   });
 
-  it('validates Bilibili login state through the fixed official endpoint', async () => {
-    const cookie = `.bilibili.com\tTRUE\t/\tTRUE\t0\tSESSDATA\t${SENSITIVE_MARKER}\n`;
-    await writeRequest('/api/authorizations/cookies/bilibili', 'POST', cookie);
-    const realFetch = globalThis.fetch;
-    const remote = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-      if (String(input) === 'https://api.bilibili.com/x/web-interface/nav') {
-        expect(new Headers(init?.headers).get('cookie')).toContain(SENSITIVE_MARKER);
-        return Promise.resolve(new Response(JSON.stringify({
-          code: 0,
-          data: { isLogin: true },
-        }), { status: 200 }));
-      }
-      return realFetch(input, init);
-    });
-
-    const response = await fetch(
-      `${baseUrl}/api/authorizations/cookies/bilibili/validate`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', origin: baseUrl },
-        body: '{}',
-      },
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ valid: true });
-    expect(remote).toHaveBeenCalled();
-  });
-
   it('rejects deleting an authorization selected by a channel', async () => {
     await writeRequest(
       '/api/authorizations/cookies/bilibili',
@@ -386,6 +357,11 @@ describe('Cookie authorization API', () => {
     const responses = await Promise.all([
       fetch(`${baseUrl}/api/authorizations/cookies/youtube`),
       fetch(`${baseUrl}/api/authorizations/cookies/youtube/download`),
+      fetch(`${baseUrl}/api/authorizations/cookies/bilibili/validate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: '{}',
+      }),
       fetch(`${baseUrl}/api/authorizations/cookies`, {
         method: 'POST',
         headers: {
@@ -396,6 +372,6 @@ describe('Cookie authorization API', () => {
       }),
     ]);
 
-    expect(responses.map(({ status }) => status)).toEqual([404, 404, 404]);
+    expect(responses.map(({ status }) => status)).toEqual([404, 404, 404, 404]);
   });
 });

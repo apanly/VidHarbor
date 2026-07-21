@@ -3,7 +3,6 @@ import {
   lstat,
   mkdir,
   open,
-  readFile,
   rename,
   unlink,
   type FileHandle,
@@ -55,8 +54,6 @@ type QueueTail = Promise<void>;
 const HTTP_ONLY_PREFIX = Buffer.from('#HttpOnly_', 'ascii');
 const EMPTY_FILE_MESSAGE = 'cookie file is empty';
 const INVALID_FILE_MESSAGE = 'invalid Netscape cookie file';
-const BILIBILI_NAV_URL = 'https://api.bilibili.com/x/web-interface/nav';
-
 class CookieFileValidationError extends Error {
   constructor(readonly kind: 'empty' | 'invalid') {
     super(kind);
@@ -320,49 +317,6 @@ export class CookieAuthorizationService {
       throw validationError('cookie configuration is not configured');
     }
     return this.finalPath(definition);
-  }
-
-  async validateBilibiliConfiguration(): Promise<boolean> {
-    const path = await this.getConfiguredFilePath('bilibili');
-    try {
-      const content = await readFile(path, 'utf8');
-      const now = Math.floor(Date.now() / 1000);
-      const cookies = content
-        .split(/\r?\n/u)
-        .filter((line) => line !== '' && (!line.startsWith('#') || line.startsWith('#HttpOnly_')))
-        .map((line) => line.split('\t'))
-        .filter((fields) => {
-          const domain = fields[0]
-            ?.replace(/^#HttpOnly_/u, '')
-            .replace(/^\./u, '');
-          const expires = Number(fields[4]);
-          return fields.length === 7 &&
-            domain !== undefined &&
-            ('api.bilibili.com' === domain || 'api.bilibili.com'.endsWith(`.${domain}`)) &&
-            (expires === 0 || expires > now);
-        })
-        .map((fields) => `${fields[5]}=${fields[6]}`);
-      if (cookies.length === 0) return false;
-
-      const response = await fetch(BILIBILI_NAV_URL, {
-        headers: {
-          Cookie: cookies.join('; '),
-          'User-Agent': 'Mozilla/5.0',
-        },
-      });
-      if (!response.ok) throw new Error('unexpected response status');
-      const result = await response.json() as {
-        code?: unknown;
-        data?: { isLogin?: unknown };
-      };
-      return result.code === 0 && result.data?.isLogin === true;
-    } catch (error) {
-      if (error instanceof BusinessError) throw error;
-      throw new BusinessError(
-        'AUTHORIZATION_VALIDATION_FAILED',
-        'bilibili authorization validation failed',
-      );
-    }
   }
 
   private async save(

@@ -4,6 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><%= pageTitle %> · VidHarbor</title>
+    <link rel="icon" href="/public/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/public/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
     <link rel="stylesheet" href="/public/main.css">
   </head>
   <body>
@@ -21,7 +24,7 @@
           <a class="sidebar-link<%= currentPath === '/authorizations' ? ' active' : '' %>" href="/authorizations">授权管理</a>
           <a class="sidebar-link<%= currentPath === '/settings' ? ' active' : '' %>" href="/settings">配置管理</a>
           <a class="sidebar-link<%= currentPath === '/database' ? ' active' : '' %>" href="/database">数据库管理</a>
-          <a class="sidebar-link sidebar-guide-link<%= currentPath === '/guide' ? ' active' : '' %>" href="/guide">说明</a>
+          <a class="sidebar-link sidebar-guide-link<%= currentPath === '/guide' ? ' active' : '' %>" href="/guide">系统说明</a>
         </nav>
       </aside>
       <button class="sidebar-backdrop" type="button" data-sidebar-toggle aria-label="关闭菜单"></button>

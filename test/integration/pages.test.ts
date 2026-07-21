@@ -349,8 +349,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('href="/authorizations">授权管理</a>');
     expect(html).toContain('href="/downloads">下载管理</a>');
     expect(html).not.toContain('href="/yt-dlp-tasks">任务状态</a>');
-    expect(html).toContain('href="/guide">说明</a>');
-    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载管理<\/a>[\s\S]*href="\/channels">频道管理<\/a>[\s\S]*href="\/notifications">提醒列表<\/a>[\s\S]*href="\/authorizations">授权管理<\/a>[\s\S]*href="\/settings">配置管理<\/a>[\s\S]*href="\/database">数据库管理<\/a>[\s\S]*href="\/guide">说明<\/a>/);
+    expect(html).toContain('href="/guide">系统说明</a>');
+    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载管理<\/a>[\s\S]*href="\/channels">频道管理<\/a>[\s\S]*href="\/notifications">提醒列表<\/a>[\s\S]*href="\/authorizations">授权管理<\/a>[\s\S]*href="\/settings">配置管理<\/a>[\s\S]*href="\/database">数据库管理<\/a>[\s\S]*href="\/guide">系统说明<\/a>/);
     expect(html).not.toContain('navbar-nav flex-row');
     expect(html).not.toContain('deployment-warning');
     expect(html).not.toContain('切勿直接暴露到公网');
@@ -376,7 +376,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('&lt;下载根目录&gt;/&lt;下载ID&gt;/');
     expect(html).toContain('主媒体文件成功并通过校验，任务就算成功');
     expect(html).toContain('当前不提供');
-    expect(html).toContain('class="sidebar-link sidebar-guide-link active" href="/guide">说明</a>');
+    expect(html).toContain('class="sidebar-link sidebar-guide-link active" href="/guide">系统说明</a>');
     expect(html).toContain('id="guide-content" class="guide-markdown"');
     expect(html).toContain('<script src="/public/guide.js"></script>');
     expect(script).toContain("document.querySelectorAll('#guide-content h2')");
@@ -407,6 +407,9 @@ describe('server-rendered pages', () => {
 
     const html = await getPage('/authorizations');
     expect(html).toContain('<title>授权管理 · VidHarbor</title>');
+    expect(html).toContain('<link rel="icon" href="/public/favicon.svg" type="image/svg+xml">');
+    expect(html).toContain('<link rel="icon" href="/public/favicon.ico" sizes="any">');
+    expect(html).toContain('<link rel="apple-touch-icon" href="/public/apple-touch-icon.png">');
     expect(html).toContain('class="sidebar-link active" href="/authorizations">授权管理</a>');
     expect(html).toContain('data-authorization-create>新增授权</button>');
     expect(html).toContain('<table class="table align-middle authorization-table">');
@@ -424,6 +427,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('使用范围');
     expect(html).toContain('频道可选择同平台授权用于首次同步、手动检查和定时检查');
     expect(html).toContain('安全获取与导出说明');
+    expect(html).toContain('href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc"');
+    expect(html).toContain('target="_blank" rel="noopener noreferrer">Get cookies.txt LOCALLY</a>');
     expect(html).toContain('Cookie 等同账号登录凭据');
     expect(html).toContain('不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性');
     expect(html).toContain('不代表登录态当前有效');
@@ -1290,8 +1295,6 @@ describe('server-rendered pages', () => {
     expect(authorizationsScript).toContain('if (!confirmed) return;');
     expect(authorizationsScript).toContain("`/api/authorizations/cookies/${configuration.platform}`");
     expect(authorizationsScript).toContain("'DELETE'");
-    expect(authorizationsScript).toContain("'/api/authorizations/cookies/bilibili/validate'");
-    expect(authorizationsScript).toContain("result.valid ? '登录态有效' : '登录态已失效'");
   });
 
   it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/authorizations', '/downloads', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {

@@ -55,12 +55,6 @@ export function createAuthorizationsRouter(
     });
   });
 
-  router.post('/cookies/bilibili/validate', async (_request, response) => {
-    response.json({
-      valid: await cookieAuthorizationService.validateBilibiliConfiguration(),
-    });
-  });
-
   router.delete('/cookies/:platform', async (request, response) => {
     const referenceCount = database
       .prepare(
