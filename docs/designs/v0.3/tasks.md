@@ -302,7 +302,7 @@
   2. `rg -n "cookies=|cookies-from-browser=|cookieEnvironment" test/integration/{yt-dlp,channel-initial-sync,channel-scheduled-check,download-worker,download-api}.test.ts` → 等号参数与环境变量边界断言可定位
 
 ## task-14 · 递归验证下载队列对象无 Cookie 引用
-- 状态: pending
+- 状态: failed
 - 依赖: task-09
 - 文件范围:
   - test/integration/download-api.test.ts
