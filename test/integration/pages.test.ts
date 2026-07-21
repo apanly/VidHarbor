@@ -696,18 +696,20 @@ describe('server-rendered pages', () => {
 
     const youtube = cards.get('youtube')!;
     const bilibili = cards.get('bilibili')!;
-    expect(youtube.status.textContent).toBe('未配置');
+    expect(youtube.status.textContent === '未配置').toBe(true);
     expect(youtube.status.hidden).toBe(false);
-    expect(youtube.submit.textContent).toBe('上传');
+    expect(youtube.submit.textContent === '上传').toBe(true);
     expect(youtube.updated.hidden).toBe(true);
-    expect(youtube.time.dateTime).toBe('');
+    expect(youtube.time.dateTime === '').toBe(true);
     expect(youtube.deleteContainer.children).toHaveLength(0);
-    expect(bilibili.status.textContent).toBe('已配置');
+    expect(bilibili.status.textContent === '已配置').toBe(true);
     expect(bilibili.status.hidden).toBe(false);
-    expect(bilibili.submit.textContent).toBe('替换');
+    expect(bilibili.submit.textContent === '替换').toBe(true);
     expect(bilibili.updated.hidden).toBe(false);
-    expect(bilibili.time.dateTime).toBe('2026-07-21T08:30:00.000Z');
-    expect(bilibili.time.textContent).toBe('中国标准时间 2026-07-21T08:30:00.000Z');
+    expect(bilibili.time.dateTime === '2026-07-21T08:30:00.000Z').toBe(true);
+    expect(
+      bilibili.time.textContent === '中国标准时间 2026-07-21T08:30:00.000Z',
+    ).toBe(true);
     expect(bilibili.deleteContainer.children).toHaveLength(1);
     expect(Object.keys(bilibili.card.dataset).sort()).toEqual([
       'authorizationPlatform',
@@ -724,16 +726,16 @@ describe('server-rendered pages', () => {
       contentType: 'application/octet-stream',
       bodyIsSelectedFile: true,
     });
-    expect(youtube.fileControl.value).toBe('');
-    expect(youtube.status.textContent).toBe('已配置');
-    expect(youtube.submit.textContent).toBe('替换');
+    expect(youtube.fileControl.value === '').toBe(true);
+    expect(youtube.status.textContent === '已配置').toBe(true);
+    expect(youtube.submit.textContent === '替换').toBe(true);
 
     youtube.fileControl.files = [selectedFile];
     youtube.fileControl.value = `${sensitiveMarker}.txt`;
     await youtube.form.listeners.get('submit')!({ preventDefault: () => undefined });
     expect(requestSummaries[2]?.bodyIsSelectedFile).toBe(true);
-    expect(youtube.fileControl.value).toBe('');
-    expect(youtube.status.textContent).toBe('已配置');
+    expect(youtube.fileControl.value === '').toBe(true);
+    expect(youtube.status.textContent === '已配置').toBe(true);
 
     const deleteButton = bilibili.deleteContainer.children[0];
     await deleteButton.listeners.get('click')!({ preventDefault: () => undefined });
@@ -744,7 +746,7 @@ describe('server-rendered pages', () => {
       contentType: undefined,
       bodyIsSelectedFile: false,
     });
-    expect(bilibili.status.textContent).toBe('未配置');
+    expect(bilibili.status.textContent === '未配置').toBe(true);
     expect(bilibili.updated.hidden).toBe(true);
     expect(bilibili.deleteContainer.children).toHaveLength(0);
 

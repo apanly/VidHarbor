@@ -344,7 +344,7 @@
   2. `rg -n "vimeo|unknown|unrecognized|platform" test/integration/database.test.ts` → 历史与未知平台样例可定位
 
 ## task-16 · 防止安全测试 matcher 泄露敏感原值
-- 状态: pending
+- 状态: done
 - 依赖: task-04, task-06
 - 文件范围:
   - test/integration/pages.test.ts

@@ -129,10 +129,11 @@ async function expectCookieInitializationFailure(
   if (!(failure instanceof Error)) {
     runningServers.push(failure);
   }
-  expect(failure).toBeInstanceOf(Error);
-  expect((failure as Error).message).toBe('cookie persistence failed');
+  expect(
+    failure instanceof Error && failure.message === 'cookie persistence failed',
+  ).toBe(true);
   expect(listen).not.toHaveBeenCalled();
-  expect(records).toEqual([]);
+  expect(records.length === 0).toBe(true);
 
   const exposed = JSON.stringify({
     message: (failure as Error).message,
