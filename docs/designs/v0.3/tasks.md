@@ -118,7 +118,7 @@
   3. `rg -n "authorizations" src/routes/pages.ts src/views/partials/header.ejs src/views/authorizations.ejs src/public/authorizations.js` → 页面、导航、模板和脚本入口均命中
 
 ## task-06 · 覆盖授权页面的固定渲染与敏感信息边界
-- 状态: pending
+- 状态: done
 - 依赖: task-03, task-05
 - 文件范围:
   - test/integration/pages.test.ts

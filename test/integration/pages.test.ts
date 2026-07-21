@@ -16,6 +16,7 @@ import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { formatFailureReason } from '../../src/redaction.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import type { DownloadQueue } from '../../src/services/download.js';
 import {
   YtDlpTaskManager,
@@ -46,6 +47,10 @@ beforeEach(async () => {
     enqueue: () => undefined,
     cancel: async () => undefined,
   };
+  const cookieAuthorizationService = new CookieAuthorizationService(
+    join(sandbox, 'cookies'),
+  );
+  await cookieAuthorizationService.initialize();
   const app = createApp(
     createApiRouter(
       database,
@@ -53,6 +58,7 @@ beforeEach(async () => {
       new RuntimeCoordinator(() => undefined),
       taskManager,
       queue,
+      cookieAuthorizationService,
     ),
   );
   app.set('views', new URL('../../src/views', import.meta.url).pathname);
@@ -326,6 +332,7 @@ describe('server-rendered pages', () => {
     ['/channels', '<h1>频道</h1>'],
     ['/channels/7', '频道详情'],
     ['/notifications', '新视频提醒'],
+    ['/authorizations', '<h1>授权管理</h1>'],
     ['/downloads', '<h1>下载</h1>'],
     ['/guide', '<h1>VidHarbor</h1>'],
   ] as const)('renders %s with the shared page shell', async (path, marker) => {
@@ -339,10 +346,11 @@ describe('server-rendered pages', () => {
     expect(html).toContain('href="/settings">配置</a>');
     expect(html).toContain('href="/channels">频道</a>');
     expect(html).toContain('href="/notifications">提醒</a>');
+    expect(html).toContain('href="/authorizations">授权管理</a>');
     expect(html).toContain('href="/downloads">下载</a>');
     expect(html).not.toContain('href="/yt-dlp-tasks">任务状态</a>');
     expect(html).toContain('href="/guide">说明</a>');
-    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/database">数据库<\/a>[\s\S]*href="\/guide">说明<\/a>/);
+    expect(html).toMatch(/href="\/">总览<\/a>[\s\S]*href="\/downloads">下载<\/a>[\s\S]*href="\/channels">频道<\/a>[\s\S]*href="\/notifications">提醒<\/a>[\s\S]*href="\/authorizations">授权管理<\/a>[\s\S]*href="\/settings">配置<\/a>[\s\S]*href="\/database">数据库<\/a>[\s\S]*href="\/guide">说明<\/a>/);
     expect(html).not.toContain('navbar-nav flex-row');
     expect(html).not.toContain('deployment-warning');
     expect(html).not.toContain('切勿直接暴露到公网');
@@ -360,7 +368,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('只能部署在可信内网');
     expect(html).toContain('最近 1、3、6 或 12 个月');
     expect(html).toContain('固定为检查开始时间之前最近 1 个自然月');
-    expect(html).toContain('YouTube、Bilibili、Vimeo、X');
+    expect(html).toContain('YouTube、Bilibili、X');
+    expect(html).not.toContain('Vimeo');
     expect(html).toContain('Facebook 公开单视频或 Reel');
     expect(html).toContain('抖音公开单视频地址可提交');
     expect(html).toContain('space.bilibili.com/&lt;数字UID&gt;');
@@ -382,6 +391,332 @@ describe('server-rendered pages', () => {
     expect(dockerfile).toContain('ARG TARGETARCH');
     expect(dockerfile).toContain('{ test -z "$TARGETARCH" || test "$architecture" = "$TARGETARCH"; }');
     expect(dockerfile).not.toContain('ARG TARGETARCH=arm64');
+  });
+
+  it('renders the fixed authorization page without exposing saved Cookie material', async () => {
+    const sensitiveMarker = 'pages-cookie-sensitive-marker';
+    const upload = await fetch(`${baseUrl}/api/authorizations/cookies/youtube`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        origin: baseUrl,
+      },
+      body: `.example.test\tTRUE\t/\tFALSE\t0\tsession\t${sensitiveMarker}\n`,
+    });
+    expect(upload.status).toBe(200);
+
+    const html = await getPage('/authorizations');
+    const platformIds = [...html.matchAll(/data-authorization-platform="([^"]+)"/g)]
+      .map((match) => match[1]);
+
+    expect(html).toContain('<title>授权管理 · VidHarbor</title>');
+    expect(html).toContain('class="sidebar-link active" href="/authorizations">授权管理</a>');
+    expect(platformIds).toEqual([
+      'youtube',
+      'bilibili',
+      'x',
+      'facebook',
+      'douyin',
+    ]);
+    expect(html).toMatch(/<h3>YouTube<\/h3>[\s\S]*<h3>Bilibili<\/h3>[\s\S]*<h3>X<\/h3>[\s\S]*<h3>Facebook<\/h3>[\s\S]*<h3>抖音<\/h3>/);
+    expect(html.match(/data-authorization-upload/g)).toHaveLength(5);
+    expect(html.match(/data-authorization-status/g)).toHaveLength(5);
+    expect(html.match(/data-authorization-updated hidden/g)).toHaveLength(5);
+    expect(html).toContain('每个平台仅保存一份文件；再次上传会完整替换已有配置。');
+    expect(html).toContain('尚未接入业务流程');
+    expect(html).toContain('不会用于频道同步、元数据探测或媒体下载');
+    expect(html).toContain('安全获取与导出说明');
+    expect(html).toContain('Cookie 等同账号登录凭据');
+    expect(html).toContain('不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性');
+    expect(html).toContain('不代表登录态当前有效');
+    expect(html).toContain('<script type="module" src="/public/authorizations.js"></script>');
+    expect(html).not.toContain('Vimeo');
+    expect(html.includes(sensitiveMarker)).toBe(false);
+    expect(html).not.toMatch(/data-authorization-(?:domain|cookie-name|cookie-value|file-name|path|preview|download)/);
+    expect(html).not.toContain('预览 Cookie');
+    expect(html).not.toContain('下载 Cookie');
+    expect(html).not.toMatch(/<a[^>]+\bdownload(?:\s|=|>)/);
+  });
+
+  it('uses only public authorization metadata and sends the selected File directly', async () => {
+    type AuthorizationEventListener = (
+      event: { preventDefault(): void },
+    ) => void | Promise<void>;
+    interface AuthorizationNode {
+      className: string;
+      type: string;
+      textContent: string;
+      hidden: boolean;
+      disabled: boolean;
+      value: string;
+      dateTime: string;
+      files: File[];
+      readonly dataset: Record<string, string>;
+      readonly elements: Record<string, AuthorizationNode>;
+      readonly children: AuthorizationNode[];
+      readonly attributes: Map<string, string>;
+      readonly listeners: Map<string, AuthorizationEventListener>;
+      querySelector(selector: string): AuthorizationNode;
+      addEventListener(type: string, listener: AuthorizationEventListener): void;
+      replaceChildren(...children: AuthorizationNode[]): void;
+      append(...children: AuthorizationNode[]): void;
+      setAttribute(name: string, value: string): void;
+      removeAttribute(name: string): void;
+    }
+
+    const allNodes: AuthorizationNode[] = [];
+    const node = (): AuthorizationNode => {
+      const result: AuthorizationNode = {
+        className: '',
+        type: '',
+        textContent: '',
+        hidden: false,
+        disabled: false,
+        value: '',
+        dateTime: '',
+        files: [],
+        dataset: {},
+        elements: {},
+        children: [],
+        attributes: new Map(),
+        listeners: new Map(),
+        querySelector: () => {
+          throw new Error('unexpected selector');
+        },
+        addEventListener(type, listener) {
+          this.listeners.set(type, listener);
+        },
+        replaceChildren(...children) {
+          this.children.splice(0, this.children.length, ...children);
+        },
+        append(...children) {
+          this.children.push(...children);
+        },
+        setAttribute(name, value) {
+          this.attributes.set(name, value);
+        },
+        removeAttribute(name) {
+          this.attributes.delete(name);
+          if (name === 'datetime') this.dateTime = '';
+        },
+      };
+      allNodes.push(result);
+      return result;
+    };
+    const makeCard = (platform: string) => {
+      const card = node();
+      const status = node();
+      const updated = node();
+      const time = node();
+      const submit = node();
+      const deleteContainer = node();
+      const error = node();
+      const form = node();
+      const fileControl = node();
+      card.dataset.authorizationPlatform = platform;
+      form.elements.cookieFile = fileControl;
+      const cardSelectors = new Map<string, AuthorizationNode>([
+        ['[data-authorization-status]', status],
+        ['[data-authorization-updated]', updated],
+        ['[data-authorization-time]', time],
+        ['[data-authorization-submit]', submit],
+        ['[data-authorization-delete]', deleteContainer],
+        ['[data-authorization-error]', error],
+        ['[data-authorization-upload]', form],
+      ]);
+      card.querySelector = (selector) => {
+        const match = cardSelectors.get(selector);
+        if (match === undefined) throw new Error(`unexpected card selector: ${selector}`);
+        return match;
+      };
+      form.querySelector = (selector) => {
+        if (selector !== '[data-authorization-submit]') {
+          throw new Error(`unexpected form selector: ${selector}`);
+        }
+        return submit;
+      };
+      return {
+        card,
+        status,
+        updated,
+        time,
+        submit,
+        deleteContainer,
+        fileControl,
+        form,
+      };
+    };
+
+    const cards = new Map([
+      ['youtube', makeCard('youtube')],
+      ['bilibili', makeCard('bilibili')],
+    ]);
+    const fakeDocument = {
+      createElement: () => node(),
+      querySelector: (selector: string) => {
+        const match = selector.match(/^\[data-authorization-platform="([^"]+)"\]$/);
+        if (match === null) throw new Error(`unexpected document selector: ${selector}`);
+        const card = cards.get(match[1]);
+        if (card === undefined) throw new Error(`unexpected platform: ${match[1]}`);
+        return card.card;
+      },
+    };
+    const sensitiveMarker = 'browser-cookie-sensitive-marker';
+    const selectedFile = new File(
+      [`.example.test\tTRUE\t/\tFALSE\t0\tsession\t${sensitiveMarker}\n`],
+      `${sensitiveMarker}.txt`,
+      { type: 'text/plain' },
+    );
+    const requestSummaries: Array<{
+      path: string;
+      method: string;
+      contentType: string | undefined;
+      bodyIsSelectedFile: boolean;
+    }> = [];
+    const confirmations: string[] = [];
+    let youtubeUploads = 0;
+    const fakeFetch = async (path: string, init: RequestInit = {}) => {
+      const headers = init.headers as Record<string, string> | undefined;
+      requestSummaries.push({
+        path,
+        method: init.method ?? 'GET',
+        contentType: headers?.['Content-Type'],
+        bodyIsSelectedFile: init.body === selectedFile,
+      });
+      if (path.endsWith('/youtube')) youtubeUploads += 1;
+      if (path.endsWith('/youtube') && youtubeUploads === 2) {
+        return new Response(JSON.stringify({
+          error: { code: 'VALIDATION_ERROR', message: 'invalid Netscape cookie file' },
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const configuration = path.endsWith('/youtube')
+        ? {
+            platform: 'youtube',
+            configured: true,
+            updatedAt: '2026-07-21T09:00:00.000Z',
+          }
+        : { platform: 'bilibili', configured: false, updatedAt: null };
+      return new Response(JSON.stringify({ configuration }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const script = await getPublicScript('authorizations.js');
+    const executableSource = script.slice(
+      script.indexOf('const platformLabels'),
+      script.indexOf('\nload().catch'),
+    );
+    const helpers = new Function(
+      'document',
+      'fetch',
+      'confirm',
+      'formatChinaTimestamp',
+      `${executableSource}; return { renderConfiguration, bindUploadForm };`,
+    )(
+      fakeDocument,
+      fakeFetch,
+      (message: string) => {
+        confirmations.push(message);
+        return true;
+      },
+      (value: string) => `中国标准时间 ${value}`,
+    ) as {
+      renderConfiguration(configuration: Record<string, unknown>): void;
+      bindUploadForm(card: AuthorizationNode): void;
+    };
+    const sensitiveFields = {
+      cookie: sensitiveMarker,
+      domain: sensitiveMarker,
+      name: sensitiveMarker,
+      value: sensitiveMarker,
+      fileName: `${sensitiveMarker}.txt`,
+      path: `/private/${sensitiveMarker}`,
+      previewUrl: `/preview/${sensitiveMarker}`,
+      downloadUrl: `/download/${sensitiveMarker}`,
+    };
+
+    helpers.renderConfiguration({
+      platform: 'youtube',
+      configured: false,
+      updatedAt: null,
+      ...sensitiveFields,
+    });
+    helpers.renderConfiguration({
+      platform: 'bilibili',
+      configured: true,
+      updatedAt: '2026-07-21T08:30:00.000Z',
+      ...sensitiveFields,
+    });
+
+    const youtube = cards.get('youtube')!;
+    const bilibili = cards.get('bilibili')!;
+    expect(youtube.status.textContent).toBe('未配置');
+    expect(youtube.submit.textContent).toBe('上传');
+    expect(youtube.updated.hidden).toBe(true);
+    expect(youtube.time.dateTime).toBe('');
+    expect(youtube.deleteContainer.children).toHaveLength(0);
+    expect(bilibili.status.textContent).toBe('已配置');
+    expect(bilibili.submit.textContent).toBe('替换');
+    expect(bilibili.updated.hidden).toBe(false);
+    expect(bilibili.time.dateTime).toBe('2026-07-21T08:30:00.000Z');
+    expect(bilibili.time.textContent).toBe('中国标准时间 2026-07-21T08:30:00.000Z');
+    expect(bilibili.deleteContainer.children).toHaveLength(1);
+    expect(Object.keys(bilibili.card.dataset).sort()).toEqual([
+      'authorizationPlatform',
+      'configured',
+    ]);
+
+    helpers.bindUploadForm(youtube.card);
+    youtube.fileControl.files = [selectedFile];
+    youtube.fileControl.value = `${sensitiveMarker}.txt`;
+    await youtube.form.listeners.get('submit')!({ preventDefault: () => undefined });
+    expect(requestSummaries[0]).toEqual({
+      path: '/api/authorizations/cookies/youtube',
+      method: 'PUT',
+      contentType: 'application/octet-stream',
+      bodyIsSelectedFile: true,
+    });
+    expect(youtube.fileControl.value).toBe('');
+    expect(youtube.status.textContent).toBe('已配置');
+    expect(youtube.submit.textContent).toBe('替换');
+
+    youtube.fileControl.files = [selectedFile];
+    youtube.fileControl.value = `${sensitiveMarker}.txt`;
+    await youtube.form.listeners.get('submit')!({ preventDefault: () => undefined });
+    expect(requestSummaries[1]?.bodyIsSelectedFile).toBe(true);
+    expect(youtube.fileControl.value).toBe('');
+    expect(youtube.status.textContent).toBe('已配置');
+
+    const deleteButton = bilibili.deleteContainer.children[0];
+    await deleteButton.listeners.get('click')!({ preventDefault: () => undefined });
+    expect(confirmations).toEqual(['确认删除 Bilibili 的 Cookie 配置？']);
+    expect(requestSummaries[2]).toEqual({
+      path: '/api/authorizations/cookies/bilibili',
+      method: 'DELETE',
+      contentType: undefined,
+      bodyIsSelectedFile: false,
+    });
+    expect(bilibili.status.textContent).toBe('未配置');
+    expect(bilibili.updated.hidden).toBe(true);
+    expect(bilibili.deleteContainer.children).toHaveLength(0);
+
+    const publicConfigurationFields = [...new Set(
+      [...script.matchAll(/configuration\.([A-Za-z]+)/g)].map((match) => match[1]),
+    )].sort();
+    expect(publicConfigurationFields).toEqual(['configured', 'platform', 'updatedAt']);
+    expect(script).not.toMatch(/File\.text|\.text\(\)|localStorage|sessionStorage/);
+    expect(script).not.toMatch(/file\.(?:name|path)|previewUrl|downloadUrl/);
+    const visibleState = allNodes.flatMap((current) => [
+      current.textContent,
+      current.value,
+      current.dateTime,
+      ...Object.values(current.dataset),
+      ...current.attributes.values(),
+    ]);
+    expect(visibleState.some((value) => value.includes(sensitiveMarker))).toBe(false);
   });
 
   it('renders add and edit forms in dialogs with single-column fields', async () => {
@@ -1147,9 +1482,22 @@ describe('server-rendered pages', () => {
     expect(styles).toMatch(/\.channel-check-table td:last-child\s*\{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/s);
   });
 
+  it('keeps authorization cards and actions usable on mobile widths', async () => {
+    const styles = await readFile(
+      new URL('../../src/styles/main.scss', import.meta.url),
+      'utf8',
+    );
+
+    expect(styles).toMatch(/\.authorization-platform-grid\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/s);
+    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.authorization-platform-grid\s*\{[^}]*grid-template-columns: 1fr;/);
+    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.authorization-actions\s*\{[^}]*flex-direction: column;/);
+    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.authorization-actions \.btn\s*\{[^}]*width: 100%;/);
+  });
+
   it('requires confirmation before page delete actions', async () => {
     const settingsScript = await getPublicScript('settings.js');
     const downloadsScript = await getPublicScript('downloads.js');
+    const authorizationsScript = await getPublicScript('authorizations.js');
 
     expect(settingsScript).toContain("confirm(`确认删除代理「${proxy.name}」？`)");
     expect(settingsScript).toContain('if (!confirmed) return;');
@@ -1158,9 +1506,14 @@ describe('server-rendered pages', () => {
     expect(downloadsScript).toContain("confirm(`确认永久删除下载「${download.title}」及其文件？`)");
     expect(downloadsScript).toContain('if (!confirmed) return;');
     expect(downloadsScript).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
+
+    expect(authorizationsScript).toContain('confirm(`确认删除 ${label} 的 Cookie 配置？`)');
+    expect(authorizationsScript).toContain('if (!confirmed) return;');
+    expect(authorizationsScript).toContain("`/api/authorizations/cookies/${configuration.platform}`");
+    expect(authorizationsScript).toContain("'DELETE'");
   });
 
-  it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/downloads', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {
+  it.each(['/', '/settings', '/channels', '/channels/7', '/notifications', '/authorizations', '/downloads', '/guide', '/downloads/preview?id=1'])('keeps JavaScript and CSS external on %s', async (path) => {
     const html = await getPage(path);
 
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
