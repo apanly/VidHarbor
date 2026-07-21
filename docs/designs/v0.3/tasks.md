@@ -24,7 +24,7 @@
   2. `npm run build` → TypeScript 与前端资源构建成功
 
 ## task-02 · 接入 Cookie API、原始请求体例外与启动初始化
-- 状态: pending
+- 状态: done
 - 依赖: task-01
 - 文件范围:
   - src/routes/authorizations.ts (新建)

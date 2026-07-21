@@ -1,6 +1,6 @@
 import type { AddressInfo } from 'node:net';
 
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/app.js';
@@ -12,8 +12,18 @@ let stopServer: (() => Promise<void>) | undefined;
 beforeEach(async () => {
   const api = Router();
 
-  api.post('/contract', (request, response) => {
+  const echoJsonBody = (request: Request, response: Response) => {
     response.json(request.body);
+  };
+  api.post('/contract', echoJsonBody);
+  api.put('/contract', echoJsonBody);
+  api.patch('/contract', echoJsonBody);
+  api.put('/authorizations/cookies/:platform', async (request, response) => {
+    let size = 0;
+    for await (const chunk of request) {
+      size += Buffer.byteLength(chunk);
+    }
+    response.json({ size });
   });
   api.get('/business-error', () => {
     throw new BusinessError('VIDEO_FETCH_FAILED', 'video probe failed');
@@ -87,6 +97,56 @@ describe('HTTP contract', () => {
       error: { code: 'VALIDATION_ERROR' },
     });
   });
+
+  it('passes the exact Cookie upload path through as an unbuffered binary stream', async () => {
+    const body = 'raw-cookie-request-body';
+    const response = await fetch(
+      `${baseUrl}/api/authorizations/cookies/youtube`,
+      {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/octet-stream',
+          origin: baseUrl,
+        },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      size: Buffer.byteLength(body),
+    });
+  });
+
+  it.each([
+    ['POST', '/api/contract'],
+    ['PUT', '/api/contract'],
+    ['PATCH', '/api/contract'],
+    ['POST', '/api/authorizations/cookies/youtube'],
+    ['PATCH', '/api/authorizations/cookies/youtube'],
+    ['PUT', '/api/authorizations/cookies'],
+    ['PUT', '/api/authorizations/cookies/youtube/export'],
+  ])(
+    'keeps the JSON contract for %s %s',
+    async (method, path) => {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers: {
+          'content-type': 'application/octet-stream',
+          origin: baseUrl,
+        },
+        body: 'raw-body',
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'application/json required',
+        },
+      });
+    },
+  );
 
   it('rejects malformed JSON with the validation envelope', async () => {
     const response = await fetch(`${baseUrl}/api/contract`, {
