@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import {
   access,
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -22,6 +23,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const fsControl = vi.hoisted(() => ({
   rejectedChmodPath: undefined as string | undefined,
+  rejectedLstatPath: undefined as string | undefined,
 }));
 
 vi.mock('node:fs/promises', async () => {
@@ -36,7 +38,15 @@ vi.mock('node:fs/promises', async () => {
     }
     await actual.chmod(path, mode);
   };
-  return { ...actual, chmod: controlledChmod };
+  const controlledLstat: typeof actual.lstat = async (path, options) => {
+    if (String(path) === fsControl.rejectedLstatPath) {
+      throw Object.assign(new Error(`EACCES: cannot lstat ${String(path)}`), {
+        code: 'EACCES',
+      });
+    }
+    return await actual.lstat(path, options as never);
+  };
+  return { ...actual, chmod: controlledChmod, lstat: controlledLstat };
 });
 
 import type { AppConfig } from '../../src/config.js';
@@ -148,6 +158,7 @@ function listenerNames(server: Server, event: string): string[] {
 
 afterEach(async () => {
   fsControl.rejectedChmodPath = undefined;
+  fsControl.rejectedLstatPath = undefined;
   vi.restoreAllMocks();
   process.env.PATH = originalPath;
   await Promise.allSettled(runningServers.splice(0).map((server) => server.stop()));
@@ -264,6 +275,34 @@ describe('server lifecycle', () => {
       fixedFile,
       sensitiveTarget,
     ]);
+  });
+
+  it('does not listen when an exact Cookie temporary path is a symbolic link', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    const sensitiveTarget = join(dirname(config.databasePath), 'cookie-secret');
+    const temporaryPath = join(storage, '.youtube.cookies.txt.pending');
+    await mkdir(storage);
+    await writeFile(sensitiveTarget, SENSITIVE_COOKIE_MARKER);
+    await symlink(sensitiveTarget, temporaryPath);
+
+    await expectCookieInitializationFailure(config, [
+      SENSITIVE_COOKIE_MARKER,
+      storage,
+      temporaryPath,
+      sensitiveTarget,
+    ]);
+    expect((await lstat(temporaryPath)).isSymbolicLink()).toBe(true);
+  });
+
+  it('does not listen when an exact Cookie temporary path cannot be inspected', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    const temporaryPath = join(storage, '.youtube.cookies.txt.pending');
+    await mkdir(storage);
+    fsControl.rejectedLstatPath = temporaryPath;
+
+    await expectCookieInitializationFailure(config, [storage, temporaryPath]);
   });
 
   it('does not listen or expose sensitive data when fixed Cookie file permissions cannot be corrected', async () => {

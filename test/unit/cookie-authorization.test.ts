@@ -161,6 +161,46 @@ describe('CookieAuthorizationService', () => {
     expect(entries.includes('.unrelated.pending')).toBe(true);
   });
 
+  it('allows exact module temporary files to be absent during initialization', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-cookie-test-'));
+    sandboxes.push(sandbox);
+    const storage = join(sandbox, 'cookies');
+
+    const service = new CookieAuthorizationService(storage);
+    await expect(service.initialize()).resolves.toBeUndefined();
+  });
+
+  it.each(['symbolic link', 'directory'] as const)(
+    'rejects an exact module temporary path that is a %s',
+    async (pathType) => {
+      const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-cookie-test-'));
+      sandboxes.push(sandbox);
+      const storage = join(sandbox, 'cookies');
+      const temporaryPath = join(storage, '.youtube.cookies.txt.pending');
+      await mkdir(storage);
+
+      if (pathType === 'symbolic link') {
+        const target = join(sandbox, 'target');
+        await writeFile(target, 'preserve');
+        await symlink(target, temporaryPath);
+      } else {
+        await mkdir(temporaryPath);
+      }
+
+      const service = new CookieAuthorizationService(storage);
+      await expectBusinessError(
+        service.initialize(),
+        'PERSISTENCE_ERROR',
+        'cookie persistence failed',
+      );
+
+      const status = await lstat(temporaryPath);
+      expect(
+        pathType === 'symbolic link' ? status.isSymbolicLink() : status.isDirectory(),
+      ).toBe(true);
+    },
+  );
+
   it('lists all five isolated states in fixed order and persists them across instances', async () => {
     const { storage, service } = await createService();
     const initial = await service.listConfigurations();

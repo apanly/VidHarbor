@@ -258,8 +258,11 @@ export class CookieAuthorizationService {
           if (!isNotFound(error)) throw error;
         }
 
+        const temporaryPath = this.temporaryPath(definition);
         try {
-          await unlink(this.temporaryPath(definition));
+          const status = await lstat(temporaryPath);
+          if (!status.isFile()) throw new Error('not a regular file');
+          await unlink(temporaryPath);
         } catch (error) {
           if (!isNotFound(error)) throw error;
         }

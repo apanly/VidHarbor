@@ -233,7 +233,7 @@
   2. `rg -n "data-authorization-status.*hidden|status\.hidden" src/views/authorizations.ejs src/public/authorizations.js test/integration/pages.test.ts` → 状态隐藏与成功显示边界可定位
 
 ## task-11 · 初始化时拒绝非普通 pending 路径
-- 状态: pending
+- 状态: done
 - 依赖: task-01, task-04
 - 文件范围:
   - src/services/cookie-authorization.ts
