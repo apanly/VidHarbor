@@ -1,0 +1,66 @@
+<%- include('partials/header') %>
+      <div class="authorization-page-heading">
+        <div>
+          <p class="authorization-page-kicker">COOKIE CREDENTIALS</p>
+          <h1>授权管理</h1>
+          <p class="authorization-page-summary">为每个平台保存一份 Netscape 格式的 Cookie 文件。</p>
+        </div>
+      </div>
+
+      <div id="authorization-page-error" class="alert alert-danger" role="alert" hidden></div>
+
+      <div class="alert alert-warning authorization-integration-warning" role="alert">
+        <strong>尚未接入业务流程</strong>
+        <p class="mb-0">已保存的 Cookie 不会用于频道同步、元数据探测或媒体下载，配置成功不会改变这些流程的当前行为。</p>
+      </div>
+
+      <% const authorizationPlatforms = [
+        { id: 'youtube', label: 'YouTube' },
+        { id: 'bilibili', label: 'Bilibili' },
+        { id: 'x', label: 'X' },
+        { id: 'facebook', label: 'Facebook' },
+        { id: 'douyin', label: '抖音' },
+      ]; %>
+      <section class="authorization-platform-section" aria-labelledby="authorization-platform-title">
+        <div class="authorization-section-heading">
+          <div>
+            <h2 id="authorization-platform-title">平台配置</h2>
+            <p>每个平台仅保存一份文件；再次上传会完整替换已有配置。</p>
+          </div>
+        </div>
+        <div id="authorization-platform-list" class="authorization-platform-grid">
+          <% for (const platform of authorizationPlatforms) { %>
+            <article class="authorization-platform-card" data-authorization-platform="<%= platform.id %>">
+              <div class="authorization-card-heading">
+                <h3><%= platform.label %></h3>
+                <span class="authorization-status" data-authorization-status>正在加载</span>
+              </div>
+              <p class="authorization-updated" data-authorization-updated hidden>
+                更新时间：<time data-authorization-time></time>
+              </p>
+              <form class="authorization-upload-form" data-authorization-upload>
+                <label class="form-label" for="authorization-file-<%= platform.id %>">Netscape Cookie 文件</label>
+                <input class="form-control" id="authorization-file-<%= platform.id %>" name="cookieFile" type="file" accept=".txt,text/plain" required>
+                <div class="authorization-actions">
+                  <button class="btn btn-primary" type="submit" data-authorization-submit>上传</button>
+                  <div data-authorization-delete></div>
+                </div>
+              </form>
+              <div class="alert alert-danger authorization-card-error" data-authorization-error role="alert" hidden></div>
+            </article>
+          <% } %>
+        </div>
+      </section>
+
+      <section class="authorization-safety-card" aria-labelledby="authorization-safety-title">
+        <h2 id="authorization-safety-title">安全获取与导出说明</h2>
+        <ol>
+          <li>只在可信设备上登录目标平台，并使用可信工具从当前登录会话导出 Netscape 格式的 <code>cookies.txt</code>。</li>
+          <li>在上方对应平台选择导出的文件并上传。系统不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性。</li>
+          <li>Cookie 等同账号登录凭据。不要通过聊天、工单、截图、日志或公开文件传递原文；不再需要或怀疑泄露时，请删除配置或重新导出后替换。</li>
+        </ol>
+        <p class="mb-0"><strong>“已配置”仅表示文件已保存且格式正确，不代表登录态当前有效。</strong></p>
+      </section>
+    </main>
+    <script type="module" src="/public/authorizations.js"></script>
+<%- include('partials/footer') %>

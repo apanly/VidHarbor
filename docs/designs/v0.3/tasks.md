@@ -92,7 +92,7 @@
   2. `npm run build` → 干净构建包含 Cookie 初始化接线与新资源
 
 ## task-05 · 新增授权管理页面、导航与浏览器交互
-- 状态: pending
+- 状态: done
 - 依赖: task-02
 - 文件范围:
   - src/routes/pages.ts

@@ -14,6 +14,7 @@ interface PageRoute {
 const PAGE_ROUTES: readonly PageRoute[] = [
   { path: '/', view: 'dashboard', title: '总览' },
   { path: '/settings', view: 'settings', title: '配置' },
+  { path: '/authorizations', view: 'authorizations', title: '授权管理' },
   { path: '/channels', view: 'channels', title: '频道' },
   { path: '/notifications', view: 'notifications', title: '提醒' },
   { path: '/downloads', view: 'downloads', title: '下载' },
