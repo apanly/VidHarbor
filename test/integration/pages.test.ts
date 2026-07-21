@@ -421,6 +421,8 @@ describe('server-rendered pages', () => {
     expect(html).toMatch(/<h3>YouTube<\/h3>[\s\S]*<h3>Bilibili<\/h3>[\s\S]*<h3>X<\/h3>[\s\S]*<h3>Facebook<\/h3>[\s\S]*<h3>抖音<\/h3>/);
     expect(html.match(/data-authorization-upload/g)).toHaveLength(5);
     expect(html.match(/data-authorization-status/g)).toHaveLength(5);
+    expect(html.match(/data-authorization-status hidden/g)).toHaveLength(5);
+    expect(html).not.toContain('正在加载');
     expect(html.match(/data-authorization-updated hidden/g)).toHaveLength(5);
     expect(html).toContain('每个平台仅保存一份文件；再次上传会完整替换已有配置。');
     expect(html).toContain('尚未接入业务流程');
@@ -550,15 +552,28 @@ describe('server-rendered pages', () => {
     const cards = new Map([
       ['youtube', makeCard('youtube')],
       ['bilibili', makeCard('bilibili')],
+      ['x', makeCard('x')],
+      ['facebook', makeCard('facebook')],
+      ['douyin', makeCard('douyin')],
     ]);
+    for (const { status } of cards.values()) status.hidden = true;
+    const pageError = node();
+    pageError.hidden = true;
     const fakeDocument = {
       createElement: () => node(),
       querySelector: (selector: string) => {
+        if (selector === '#authorization-page-error') return pageError;
         const match = selector.match(/^\[data-authorization-platform="([^"]+)"\]$/);
         if (match === null) throw new Error(`unexpected document selector: ${selector}`);
         const card = cards.get(match[1]);
         if (card === undefined) throw new Error(`unexpected platform: ${match[1]}`);
         return card.card;
+      },
+      querySelectorAll: (selector: string) => {
+        if (selector !== '[data-authorization-platform]') {
+          throw new Error(`unexpected document selector: ${selector}`);
+        }
+        return [...cards.values()].map(({ card }) => card);
       },
     };
     const sensitiveMarker = 'browser-cookie-sensitive-marker';
@@ -575,6 +590,7 @@ describe('server-rendered pages', () => {
     }> = [];
     const confirmations: string[] = [];
     let youtubeUploads = 0;
+    let metadataLoadFails = false;
     const fakeFetch = async (path: string, init: RequestInit = {}) => {
       const headers = init.headers as Record<string, string> | undefined;
       requestSummaries.push({
@@ -583,6 +599,25 @@ describe('server-rendered pages', () => {
         contentType: headers?.['Content-Type'],
         bodyIsSelectedFile: init.body === selectedFile,
       });
+      if (path === '/api/authorizations/cookies') {
+        if (metadataLoadFails) throw new Error('metadata unavailable');
+        return new Response(JSON.stringify({
+          configurations: [
+            { platform: 'youtube', configured: false, updatedAt: null },
+            {
+              platform: 'bilibili',
+              configured: true,
+              updatedAt: '2026-07-21T08:30:00.000Z',
+            },
+            { platform: 'x', configured: false, updatedAt: null },
+            { platform: 'facebook', configured: false, updatedAt: null },
+            { platform: 'douyin', configured: false, updatedAt: null },
+          ],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (path.endsWith('/youtube')) youtubeUploads += 1;
       if (path.endsWith('/youtube') && youtubeUploads === 2) {
         return new Response(JSON.stringify({
@@ -609,12 +644,13 @@ describe('server-rendered pages', () => {
       script.indexOf('const platformLabels'),
       script.indexOf('\nload().catch'),
     );
+    const loadCall = script.slice(script.indexOf('\nload().catch')).trim().replace(/;$/, '');
     const helpers = new Function(
       'document',
       'fetch',
       'confirm',
       'formatChinaTimestamp',
-      `${executableSource}; return { renderConfiguration, bindUploadForm };`,
+      `${executableSource}; return { renderConfiguration, bindUploadForm, start: () => ${loadCall} };`,
     )(
       fakeDocument,
       fakeFetch,
@@ -626,6 +662,7 @@ describe('server-rendered pages', () => {
     ) as {
       renderConfiguration(configuration: Record<string, unknown>): void;
       bindUploadForm(card: AuthorizationNode): void;
+      start(): Promise<void>;
     };
     const sensitiveFields = {
       cookie: sensitiveMarker,
@@ -638,6 +675,12 @@ describe('server-rendered pages', () => {
       downloadUrl: `/download/${sensitiveMarker}`,
     };
 
+    expect([...cards.values()].every(({ status }) => status.hidden)).toBe(true);
+    await helpers.start();
+    expect([...cards.values()].every(({ status }) => !status.hidden)).toBe(true);
+    expect([...cards.values()].every(({ status }) => (
+      status.textContent === '未配置' || status.textContent === '已配置'
+    ))).toBe(true);
     helpers.renderConfiguration({
       platform: 'youtube',
       configured: false,
@@ -654,11 +697,13 @@ describe('server-rendered pages', () => {
     const youtube = cards.get('youtube')!;
     const bilibili = cards.get('bilibili')!;
     expect(youtube.status.textContent).toBe('未配置');
+    expect(youtube.status.hidden).toBe(false);
     expect(youtube.submit.textContent).toBe('上传');
     expect(youtube.updated.hidden).toBe(true);
     expect(youtube.time.dateTime).toBe('');
     expect(youtube.deleteContainer.children).toHaveLength(0);
     expect(bilibili.status.textContent).toBe('已配置');
+    expect(bilibili.status.hidden).toBe(false);
     expect(bilibili.submit.textContent).toBe('替换');
     expect(bilibili.updated.hidden).toBe(false);
     expect(bilibili.time.dateTime).toBe('2026-07-21T08:30:00.000Z');
@@ -673,7 +718,7 @@ describe('server-rendered pages', () => {
     youtube.fileControl.files = [selectedFile];
     youtube.fileControl.value = `${sensitiveMarker}.txt`;
     await youtube.form.listeners.get('submit')!({ preventDefault: () => undefined });
-    expect(requestSummaries[0]).toEqual({
+    expect(requestSummaries[1]).toEqual({
       path: '/api/authorizations/cookies/youtube',
       method: 'PUT',
       contentType: 'application/octet-stream',
@@ -686,14 +731,14 @@ describe('server-rendered pages', () => {
     youtube.fileControl.files = [selectedFile];
     youtube.fileControl.value = `${sensitiveMarker}.txt`;
     await youtube.form.listeners.get('submit')!({ preventDefault: () => undefined });
-    expect(requestSummaries[1]?.bodyIsSelectedFile).toBe(true);
+    expect(requestSummaries[2]?.bodyIsSelectedFile).toBe(true);
     expect(youtube.fileControl.value).toBe('');
     expect(youtube.status.textContent).toBe('已配置');
 
     const deleteButton = bilibili.deleteContainer.children[0];
     await deleteButton.listeners.get('click')!({ preventDefault: () => undefined });
     expect(confirmations).toEqual(['确认删除 Bilibili 的 Cookie 配置？']);
-    expect(requestSummaries[2]).toEqual({
+    expect(requestSummaries[3]).toEqual({
       path: '/api/authorizations/cookies/bilibili',
       method: 'DELETE',
       contentType: undefined,
@@ -702,6 +747,16 @@ describe('server-rendered pages', () => {
     expect(bilibili.status.textContent).toBe('未配置');
     expect(bilibili.updated.hidden).toBe(true);
     expect(bilibili.deleteContainer.children).toHaveLength(0);
+
+    for (const { status } of cards.values()) {
+      status.textContent = '';
+      status.hidden = true;
+    }
+    metadataLoadFails = true;
+    await helpers.start();
+    expect([...cards.values()].every(({ status }) => status.hidden)).toBe(true);
+    expect(pageError.textContent).toBe('NETWORK_ERROR: 无法连接服务端');
+    expect(pageError.hidden).toBe(false);
 
     const publicConfigurationFields = [...new Set(
       [...script.matchAll(/configuration\.([A-Za-z]+)/g)].map((match) => match[1]),

@@ -80,6 +80,7 @@ function renderConfiguration(configuration) {
 
   card.dataset.configured = String(configuration.configured);
   status.textContent = configuration.configured ? '已配置' : '未配置';
+  status.hidden = false;
   submit.textContent = configuration.configured ? '替换' : '上传';
   deleteContainer.replaceChildren();
 

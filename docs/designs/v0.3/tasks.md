@@ -208,3 +208,159 @@
   1. `npm test -- --run test/integration/yt-dlp.test.ts test/integration/channel-initial-sync.test.ts test/integration/channel-scheduled-check.test.ts test/integration/download-worker.test.ts test/integration/download-api.test.ts --maxWorkers=1` → 全部 yt-dlp 隔离边界测试通过
   2. `rg -n "cookies-from-browser|--cookies|cookie" test/integration/{yt-dlp,channel-initial-sync,channel-scheduled-check,download-worker,download-api}.test.ts` → 负向参数断言可定位
   3. `npm test -- --run --maxWorkers=1 && npm run build` → 单 worker 全量测试与构建通过
+
+## task-10 · 限定授权卡片的配置状态显示
+- 状态: done
+- 依赖: task-05, task-06
+- 文件范围:
+  - src/views/authorizations.ejs
+  - src/public/authorizations.js
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 元数据返回前和加载失败后必须隐藏卡片状态区域，只有成功取得元数据后才允许显示“未配置”或“已配置”。
+  - 必须继续使用既有页面级固定错误处理加载失败，不能新增第三种配置状态或卡片级猜测状态。
+  - 不能改动授权页面以外的页面状态、API 契约或相邻无关功能。
+- 任务目的: 修复 bugfix-01 描述的问题
+- 实现入口: src/views/authorizations.ejs:36 授权状态初始标记、src/public/authorizations.js:71 `renderConfiguration`、test/integration/pages.test.ts:397 授权页面渲染测试与 :564 浏览器交互测试
+- 原始 bugfix 描述: `src/views/authorizations.ejs:36` 当前初始渲染“正在加载”，API 失败时会永久保留契约外第三种状态。元数据返回前应隐藏状态区域；成功后仅显示“未配置”或“已配置”，失败时保持隐藏并使用既有页面级固定错误。
+- 期望行为: `/authorizations` 初始渲染和加载失败时不展示配置状态；加载成功后五张卡片的状态区域可见且文本只可能是“未配置”或“已配置”。
+- 范围边界:
+  - 必须: 覆盖服务端初始 HTML、加载成功和加载失败三条状态可见性路径。
+  - 不能: 不能改动与本 bug 无关的模块，不能新增“加载中”“未知”或其他配置状态。
+  - 不做: 不修改上传、替换、删除、时间格式或 Cookie API 行为。
+- 验收标准:
+  1. `npm test -- --run test/integration/pages.test.ts --maxWorkers=1` → 授权页面初始、成功和失败状态测试通过
+  2. `rg -n "data-authorization-status.*hidden|status\.hidden" src/views/authorizations.ejs src/public/authorizations.js test/integration/pages.test.ts` → 状态隐藏与成功显示边界可定位
+
+## task-11 · 初始化时拒绝非普通 pending 路径
+- 状态: pending
+- 依赖: task-01, task-04
+- 文件范围:
+  - src/services/cookie-authorization.ts
+  - test/unit/cookie-authorization.test.ts
+  - test/integration/server-lifecycle.test.ts
+- 关键约束:
+  - 清理每个固定 pending 路径前必须使用 `lstat` 判断文件类型，只允许删除普通文件；`ENOENT` 是唯一允许继续的缺失情况。
+  - 符号链接、FIFO、目录及其他非普通类型或文件系统错误必须映射为固定 `PERSISTENCE_ERROR / cookie persistence failed` 并阻止启动监听。
+  - 不能跟随符号链接、宽泛扫描或删除未知文件，也不能改动与本 bug 无关的模块。
+- 任务目的: 修复 bugfix-02 描述的问题
+- 实现入口: src/services/cookie-authorization.ts:244 `CookieAuthorizationService.initialize`、test/unit/cookie-authorization.test.ts:135 初始化清理测试、test/integration/server-lifecycle.test.ts:109 `expectCookieInitializationFailure`
+- 原始 bugfix 描述: `src/services/cookie-authorization.ts:261` 清理固定 pending 路径前未用 lstat 验证普通文件，符号链接或 FIFO 会被静默删除并继续启动。仅普通文件允许清理，ENOENT 允许通过，其他类型或文件系统错误必须统一快速失败，并增加对应安全边界测试。
+- 期望行为: 初始化只清理本模块精确命名的普通 pending 文件；固定 pending 路径为符号链接、FIFO、目录或发生文件系统错误时快速失败，且 HTTP 不开始监听。
+- 范围边界:
+  - 必须: 覆盖普通文件清理、`ENOENT`、符号链接和至少一种其他非普通文件类型，并验证启动失败边界。
+  - 不能: 不能改动与本 bug 无关的模块，不能递归清理、跟随链接或放宽固定临时文件名集合。
+  - 不做: 不修改上传提交、最终 Cookie 文件读取、删除配置或后台清理流程。
+- 验收标准:
+  1. `npm test -- --run test/unit/cookie-authorization.test.ts test/integration/server-lifecycle.test.ts --maxWorkers=1` → pending 文件类型与启动失败边界测试通过
+  2. `rg -n "lstat|temporaryPath|pending" src/services/cookie-authorization.ts test/unit/cookie-authorization.test.ts test/integration/server-lifecycle.test.ts` → 固定 pending 路径校验入口可定位
+
+## task-12 · 补齐已配置 Cookie 失败替换的原子性测试
+- 状态: pending
+- 依赖: task-01
+- 文件范围:
+  - test/unit/cookie-authorization.test.ts
+- 关键约束:
+  - 必须从已配置状态分别覆盖无效格式、`sync`、`utimes` 和 `rename` 失败，逐次证明旧文件摘要、`configured`、`updatedAt` 与磁盘 `mtime` 不变。
+  - 断言和失败 diff 只能使用布尔值、摘要和时间，不能包含 Cookie 原文、字段、文件名、服务器路径或底层异常。
+  - 不能为了制造失败而修改生产服务契约或改动与本 bug 无关的模块。
+- 任务目的: 修复 bugfix-03 描述的问题
+- 实现入口: test/unit/cookie-authorization.test.ts:311 `keeps the prior file and mtime unchanged when replacement persistence fails` 测试及同文件持久化失败夹具
+- 原始 bugfix 描述: `test/unit/cookie-authorization.test.ts:311` 未证明已配置文件在无效格式替换及 sync、utimes 或 rename 提交失败时保持旧内容、旧状态和旧 mtime。增加不泄露原文的摘要、布尔状态及 mtime 断言，覆盖校验失败和原子提交失败。
+- 期望行为: 任一校验或原子提交阶段失败后，已配置平台仍指向原文件，配置状态、更新时间和磁盘修改时间均与替换前完全一致，失败输出不泄露敏感原值。
+- 范围边界:
+  - 必须: 对四类失败分别建立替换前后快照并机械比较摘要、布尔状态、`updatedAt` 和 `mtime`。
+  - 不能: 不能改动与本 bug 无关的模块，不能直接断言 Cookie 原文或把底层错误对象交给 matcher。
+  - 不做: 不扩展 Cookie 格式、平台集合、并发行为或 API 错误映射。
+- 验收标准:
+  1. `npm test -- --run test/unit/cookie-authorization.test.ts --maxWorkers=1` → 已配置文件的四类失败替换测试通过
+  2. `rg -n "sync|utimes|rename|mtime|fileDigest" test/unit/cookie-authorization.test.ts` → 原子性失败阶段及非敏感快照断言可定位
+
+## task-13 · 完整断言 yt-dlp 子进程无 Cookie 参数与环境变量
+- 状态: pending
+- 依赖: task-09
+- 文件范围:
+  - test/integration/yt-dlp.test.ts
+  - test/integration/channel-initial-sync.test.ts
+  - test/integration/channel-scheduled-check.test.ts
+  - test/integration/download-worker.test.ts
+  - test/integration/download-api.test.ts
+- 关键约束:
+  - 所有真实子进程边界 helper 必须同时拒绝独立参数 `--cookies`、`--cookies-from-browser` 和等号参数 `--cookies=...`、`--cookies-from-browser=...`。
+  - 必须检查环境变量名是否含 Cookie 引用，并只把非敏感布尔结果写入调用记录和 matcher；现有对敏感值及 Cookie 存储路径的拒绝断言必须保留。
+  - 不能输出环境变量原值、完整子进程环境或 Cookie 参数值，也不能改动生产 yt-dlp 参数生成逻辑及相邻无关功能。
+- 任务目的: 修复 bugfix-04 描述的问题
+- 实现入口: test/integration/yt-dlp.test.ts:28 `expectNoCookieArguments`、test/integration/channel-initial-sync.test.ts:156 `expectNoCookieReferences`、test/integration/channel-scheduled-check.test.ts:135 `expectNoCookieReferences`、test/integration/download-worker.test.ts:181 `expectNoCookieReferences`、test/integration/download-api.test.ts:182 `expectNoCookieReferences`
+- 原始 bugfix 描述: `test/integration/download-api.test.ts:182` 及 task-09 同类 helper 未拒绝 `--cookies=...`、`--cookies-from-browser=...`，也未检查 Cookie 相关环境变量名。所有真实子进程边界测试需覆盖独立与等号参数形式，并只用非敏感布尔结果断言环境变量名不存在。
+- 期望行为: 保存 Cookie 后，频道同步、定时检查、直接下载探测、媒体下载和缩略图等真实子进程记录均证明 argv 不含任何独立或等号 Cookie 选项，环境变量名和值也不含 Cookie 引用。
+- 范围边界:
+  - 必须: 统一五个测试边界的负向参数形式和环境变量名布尔检查，保留现有业务参数断言。
+  - 不能: 不能改动与本 bug 无关的模块，不能记录或比较完整环境对象、敏感原值或 Cookie 文件内容。
+  - 不做: 不给生产服务注入 Cookie 服务，不修改 `src/yt-dlp.ts`、worker、scheduler 或任务管理器。
+- 验收标准:
+  1. `npm test -- --run test/integration/yt-dlp.test.ts test/integration/channel-initial-sync.test.ts test/integration/channel-scheduled-check.test.ts test/integration/download-worker.test.ts test/integration/download-api.test.ts --maxWorkers=1` → 全部真实子进程 Cookie 隔离测试通过
+  2. `rg -n "cookies=|cookies-from-browser=|cookieEnvironment" test/integration/{yt-dlp,channel-initial-sync,channel-scheduled-check,download-worker,download-api}.test.ts` → 等号参数与环境变量边界断言可定位
+
+## task-14 · 递归验证下载队列对象无 Cookie 引用
+- 状态: pending
+- 依赖: task-09
+- 文件范围:
+  - test/integration/download-api.test.ts
+- 关键约束:
+  - 必须对完整排队对象的所有嵌套字段名与字符串值执行确定性的 Cookie 引用检查，覆盖 `advancedOptions` 等嵌套对象。
+  - 断言只能暴露是否存在引用的布尔结果，不能把完整队列对象、Cookie 原文、路径或状态对象交给 matcher。
+  - 不能发明队列字段别名、放宽固定队列契约或改动与本 bug 无关的模块。
+- 任务目的: 修复 bugfix-05 描述的问题
+- 实现入口: test/integration/download-api.test.ts:199 `expectNoCookieQueueFields`
+- 原始 bugfix 描述: `test/integration/download-api.test.ts:199` 只检查排队对象顶层字段和值，无法发现 `advancedOptions` 等嵌套对象中的 Cookie 字段、路径或状态。对完整队列对象递归检查所有字段名与字符串值，或精确断言嵌套固定结构。
+- 期望行为: 下载 API 排队对象任意嵌套层级中的字段名或字符串值一旦引用 Cookie 即被测试捕获，正常固定队列结构继续通过且失败信息不泄露原对象。
+- 范围边界:
+  - 必须: 覆盖顶层与至少一个嵌套对象的字段名、敏感标记和 Cookie 存储路径检查。
+  - 不能: 不能改动与本 bug 无关的模块，不能在失败 diff 中打印完整排队对象或敏感字符串。
+  - 不做: 不修改下载队列生产结构、下载 API 响应或 yt-dlp 参数生成。
+- 验收标准:
+  1. `npm test -- --run test/integration/download-api.test.ts --maxWorkers=1` → 完整队列对象的递归 Cookie 边界测试通过
+  2. `rg -n "expectNoCookieQueueFields|advancedOptions|recursive|cookie" test/integration/download-api.test.ts` → 嵌套队列检查入口可定位
+
+## task-15 · 使用真正未知平台验证数据库开放契约
+- 状态: pending
+- 依赖: task-08
+- 文件范围:
+  - test/integration/database.test.ts
+- 关键约束:
+  - 迁移后测试必须保留 `vimeo` 历史样例，并另用一个明确不属于当前平台集合的固定非空值验证写入和原值读取。
+  - 不能使用已知的 `generic` 充当未知平台，不能收紧 `downloads.platform` 约束、增加 migration 或改写历史数据。
+  - 不能改动与本 bug 无关的模块。
+- 任务目的: 修复 bugfix-06 描述的问题
+- 实现入口: test/integration/database.test.ts:220 `migrates schema 2 downloads and preserves Vimeo and unknown direct platform values` 测试、:269 迁移后未知平台插入断言
+- 原始 bugfix 描述: `test/integration/database.test.ts:269` 使用已知的 `generic` 代表未知平台，未证明 `downloads.platform` 接受任意非空历史值。保留 Vimeo 样例，并改用明确不属于当前平台集合的固定未知值进行迁移后写入和原值读取断言。
+- 期望行为: 从 schema 2 升级后，数据库同时接受并原样返回历史 `vimeo` 和一个不属于已知平台集合的固定非空平台值，现有记录与外键保持有效。
+- 范围边界:
+  - 必须: 同时断言未知值写入不抛错、查询结果保持原值以及 Vimeo 样例仍存在。
+  - 不能: 不能改动与本 bug 无关的模块，不能修改 migration、平台生产枚举或历史值映射。
+  - 不做: 不增加未知平台展示、提交入口、平台别名或 Cookie 关联。
+- 验收标准:
+  1. `npm test -- --run test/integration/database.test.ts --maxWorkers=1` → 迁移后的 Vimeo 与真正未知平台持久化测试通过
+  2. `rg -n "vimeo|unknown|unrecognized|platform" test/integration/database.test.ts` → 历史与未知平台样例可定位
+
+## task-16 · 防止安全测试 matcher 泄露敏感原值
+- 状态: pending
+- 依赖: task-04, task-06
+- 文件范围:
+  - test/integration/pages.test.ts
+  - test/integration/server-lifecycle.test.ts
+- 关键约束:
+  - 可能含敏感文件名、路径、底层异常、日志或 Cookie 标记的对象必须先转换为布尔结果或非敏感摘要，再交给 matcher。
+  - 必须保留对每个敏感标记不存在的机械断言，同时确保断言失败时 Vitest diff 不包含被检查的原始值。
+  - 不能删除安全边界断言、降低覆盖范围或改动与本 bug 无关的模块。
+- 任务目的: 修复 bugfix-07 描述的问题
+- 实现入口: test/integration/pages.test.ts:682 授权浏览器状态断言与 :719 可见状态敏感标记断言、test/integration/server-lifecycle.test.ts:109 `expectCookieInitializationFailure` 与 :122 启动失败日志断言
+- 原始 bugfix 描述: `test/integration/pages.test.ts:682` 与 `test/integration/server-lifecycle.test.ts:122` 将可能含敏感文件名、路径、底层异常或日志内容的原始对象交给 matcher，回归时 Vitest diff 会泄露原值。先转换为布尔值或非敏感摘要再断言，并保留仅对标记存在性的布尔检查。
+- 期望行为: 授权页面和服务启动安全测试继续证明敏感标记未进入可见状态、异常或日志，同时任何 matcher 失败只显示布尔值或非敏感摘要。
+- 范围边界:
+  - 必须: 审核并改写两处测试中直接比较敏感承载对象的 matcher，保留标记存在性检查。
+  - 不能: 不能改动与本 bug 无关的模块，不能把原始请求、DOM 状态、日志记录、异常对象或路径放入失败 diff。
+  - 不做: 不修改生产日志、错误消息、页面行为或 Cookie 持久化实现。
+- 验收标准:
+  1. `npm test -- --run test/integration/pages.test.ts test/integration/server-lifecycle.test.ts --maxWorkers=1` → 页面与启动安全断言通过
+  2. `rg -n "includes\(sensitive|some\(.*sensitive|toBe\(false\)" test/integration/pages.test.ts test/integration/server-lifecycle.test.ts` → 非敏感布尔 matcher 可定位
