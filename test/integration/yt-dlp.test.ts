@@ -7,6 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
+  createCookieBoundaryProbeSource,
+  expectNoCookieReferences,
+  type CookieBoundaryObservation,
+  VALID_COOKIE_FILE,
+} from '../helpers/cookie-boundary.js';
+import {
   downloadMedia,
   fetchChannelEntries,
   fetchVideoMetadata,
@@ -20,31 +26,9 @@ import {
 const executablePath = fileURLToPath(
   new URL('../fixtures/fake-yt-dlp.mjs', import.meta.url),
 );
-const COOKIE_VALUE_MARKER = 'task-09-cookie-value';
-const VALID_COOKIE_FILE = Buffer.from(
-  `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
-);
 
-interface YtDlpInvocation {
+interface YtDlpInvocation extends CookieBoundaryObservation {
   readonly hasProxy: boolean;
-  readonly cookieArgumentReference: boolean;
-  readonly cookieValueArgumentReference: boolean;
-  readonly cookieStorageArgumentReference: boolean;
-  readonly cookieEnvironmentNameReference: boolean;
-  readonly cookieEnvironmentReference: boolean;
-  readonly genericCookieEnvironmentFixtureDetected: boolean;
-}
-
-function expectNoCookieArguments(invocation: YtDlpInvocation): void {
-  expect(
-    Object.values(invocation).every((value) => typeof value === 'boolean'),
-  ).toBe(true);
-  expect(invocation.cookieArgumentReference).toBe(false);
-  expect(invocation.cookieValueArgumentReference).toBe(false);
-  expect(invocation.cookieStorageArgumentReference).toBe(false);
-  expect(invocation.cookieEnvironmentNameReference).toBe(false);
-  expect(invocation.cookieEnvironmentReference).toBe(false);
-  expect(invocation.genericCookieEnvironmentFixtureDetected).toBe(true);
 }
 
 beforeAll(async () => {
@@ -143,6 +127,9 @@ describe('yt-dlp argument protocol', () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-yt-dlp-cookie-'));
     const cookieStorageDirectory = join(sandbox, 'cookies');
     const boundaryExecutablePath = join(sandbox, 'fake-yt-dlp.mjs');
+    const cookieBoundaryProbe = createCookieBoundaryProbeSource(
+      cookieStorageDirectory,
+    );
     const cookieAuthorizationService = new CookieAuthorizationService(
       cookieStorageDirectory,
     );
@@ -150,41 +137,12 @@ describe('yt-dlp argument protocol', () => {
     try {
       await writeFile(
         boundaryExecutablePath,
-        `#!/usr/bin/env node
+`#!/usr/bin/env node
 const args = process.argv.slice(2);
-const cookieArgumentReference = args.some((argument) =>
-  argument === '--cookies' ||
-  argument.startsWith('--cookies=') ||
-  argument === '--cookies-from-browser' ||
-  argument.startsWith('--cookies-from-browser=') ||
-  /^cookie:/iu.test(argument)
-);
-const cookieValueArgumentReference = args.some((argument) =>
-  argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)})
-);
-const cookieStorageArgumentReference = args.some((argument) =>
-  argument.includes(${JSON.stringify(cookieStorageDirectory)})
-);
-const cookieEnvironmentNameReference = Object.keys(process.env).some((name) => /cookie/iu.test(name));
-const hasCookieEnvironmentReference = (environment) => Object.values(environment).some((value) =>
-  typeof value === 'string' && (
-    /cookie/iu.test(value) ||
-    value.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
-    value.includes(${JSON.stringify(cookieStorageDirectory)})
-  )
-);
-const cookieEnvironmentReference = hasCookieEnvironmentReference(process.env);
-const genericCookieEnvironmentFixtureDetected = hasCookieEnvironmentReference({
-  VIDHARBOR_TEST_REFERENCE: '--CoOkIeS-from-browser=chromium',
-});
+${cookieBoundaryProbe}
 process.stdout.write(JSON.stringify({
   hasProxy: args.includes('--proxy'),
-  cookieArgumentReference,
-  cookieValueArgumentReference,
-  cookieStorageArgumentReference,
-  cookieEnvironmentNameReference,
-  cookieEnvironmentReference,
-  genericCookieEnvironmentFixtureDetected,
+  ...cookieBoundary,
 }) + '\\n');
 `,
         'utf8',
@@ -202,7 +160,7 @@ process.stdout.write(JSON.stringify({
       const invocation = result as unknown as YtDlpInvocation;
 
       expect(invocation.hasProxy).toBe(false);
-      expectNoCookieArguments(invocation);
+      expectNoCookieReferences(invocation);
     } finally {
       await rm(sandbox, { recursive: true, force: true });
     }

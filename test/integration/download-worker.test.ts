@@ -17,6 +17,13 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  createCookieBoundaryProbeSource,
+  expectNoCookieReferences,
+  type CookieBoundaryObservation,
+  VALID_COOKIE_FILE,
+} from '../helpers/cookie-boundary.js';
+
 const fsControl = vi.hoisted(() => ({
   createTargetAtArchiveBoundary: false,
   rejectedRmPath: undefined as string | undefined,
@@ -94,15 +101,11 @@ import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 const FIRST_VIDEO_ID = 'aB_12-cD345';
 const SECOND_VIDEO_ID = 'eF_67-gH890';
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
-const COOKIE_VALUE_MARKER = 'task-09-cookie-value';
-const VALID_COOKIE_FILE = Buffer.from(
-  `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
-);
 const PROCESS_FIXTURE_PATH = fileURLToPath(
   new URL('../fixtures/fake-yt-dlp.mjs', import.meta.url),
 );
 
-interface YtDlpInvocation {
+interface YtDlpInvocation extends CookieBoundaryObservation {
   readonly hasProxy: boolean;
   readonly hasExpectedProxy: boolean;
   readonly noPlaylist: boolean;
@@ -110,12 +113,6 @@ interface YtDlpInvocation {
   readonly writesThumbnail: boolean;
   readonly hasFormat: boolean;
   readonly hasPrint: boolean;
-  readonly cookieArgumentReference: boolean;
-  readonly cookieValueArgumentReference: boolean;
-  readonly cookieStorageArgumentReference: boolean;
-  readonly cookieEnvironmentNameReference: boolean;
-  readonly cookieEnvironmentReference: boolean;
-  readonly genericCookieEnvironmentFixtureDetected: boolean;
 }
 
 let sandbox: string;
@@ -144,7 +141,9 @@ async function installCookieBoundaryYtDlp(): Promise<void> {
   const invocationLogPath = JSON.stringify(
     join(sandbox, 'cookie-boundary-argv.log'),
   );
-  const cookieStorageDirectory = JSON.stringify(join(sandbox, 'cookies'));
+  const cookieBoundaryProbe = createCookieBoundaryProbeSource(
+    join(sandbox, 'cookies'),
+  );
   await writeFile(
     wrapperPath,
     `#!/usr/bin/env node
@@ -152,31 +151,7 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
-const cookieArgumentReference = args.some((argument) =>
-  argument === '--cookies' || argument.startsWith('--cookies=') ||
-  argument === '--cookies-from-browser' || argument.startsWith('--cookies-from-browser=') ||
-  /^cookie:/iu.test(argument)
-);
-const cookieValueArgumentReference = args.some((argument) =>
-  argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)})
-);
-const cookieStorageArgumentReference = args.some((argument) =>
-  argument.includes(${cookieStorageDirectory})
-);
-const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
-  /cookie/iu.test(name)
-);
-const hasCookieEnvironmentReference = (environment) => Object.values(environment).some((value) =>
-  typeof value === 'string' && (
-    /cookie/iu.test(value) ||
-    value.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
-    value.includes(${cookieStorageDirectory})
-  )
-);
-const cookieEnvironmentReference = hasCookieEnvironmentReference(process.env);
-const genericCookieEnvironmentFixtureDetected = hasCookieEnvironmentReference({
-  VIDHARBOR_TEST_REFERENCE: '--CoOkIeS-from-browser=chromium',
-});
+${cookieBoundaryProbe}
 const proxyIndex = args.indexOf('--proxy');
 appendFileSync(${invocationLogPath}, JSON.stringify({
   hasProxy: proxyIndex !== -1,
@@ -186,12 +161,7 @@ appendFileSync(${invocationLogPath}, JSON.stringify({
   writesThumbnail: args.includes('--write-thumbnail'),
   hasFormat: args.includes('--format'),
   hasPrint: args.includes('--print'),
-  cookieArgumentReference,
-  cookieValueArgumentReference,
-  cookieStorageArgumentReference,
-  cookieEnvironmentNameReference,
-  cookieEnvironmentReference,
-  genericCookieEnvironmentFixtureDetected,
+  ...cookieBoundary,
 }) + '\\n');
 const result = spawnSync(process.execPath, [${JSON.stringify(PROCESS_FIXTURE_PATH)}, ...args], {
   env: { ...process.env, VIDHARBOR_FAKE_YT_DLP_LOG_ARGS: '0' },
@@ -223,18 +193,6 @@ async function readCookieBoundaryInvocations(): Promise<YtDlpInvocation[]> {
     .trimEnd()
     .split('\n')
     .map((line) => JSON.parse(line) as YtDlpInvocation);
-}
-
-function expectNoCookieReferences(invocation: YtDlpInvocation): void {
-  expect(
-    Object.values(invocation).every((value) => typeof value === 'boolean'),
-  ).toBe(true);
-  expect(invocation.cookieArgumentReference).toBe(false);
-  expect(invocation.cookieValueArgumentReference).toBe(false);
-  expect(invocation.cookieStorageArgumentReference).toBe(false);
-  expect(invocation.cookieEnvironmentNameReference).toBe(false);
-  expect(invocation.cookieEnvironmentReference).toBe(false);
-  expect(invocation.genericCookieEnvironmentFixtureDetected).toBe(true);
 }
 
 function insertPending(platformVideoId: string): number {

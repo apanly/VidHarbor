@@ -5,6 +5,12 @@ import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import {
+  createCookieBoundaryProbeSource,
+  expectNoCookieReferences,
+  type CookieBoundaryObservation,
+  VALID_COOKIE_FILE,
+} from '../helpers/cookie-boundary.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { BusinessError } from '../../src/errors.js';
@@ -19,23 +25,13 @@ const STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
 const DIRECT_URL = 'https://www.youtube.com/@direct';
 const BILIBILI_CHANNEL_URL = 'https://space.bilibili.com/3985676';
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
-const COOKIE_VALUE_MARKER = 'task-09-cookie-value';
-const VALID_COOKIE_FILE = Buffer.from(
-  `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
-);
 
-interface YtDlpInvocation {
+interface YtDlpInvocation extends CookieBoundaryObservation {
   readonly flatPlaylist: boolean;
   readonly noPlaylist: boolean;
   readonly bilibiliVideo: boolean;
   readonly hasDateAfter: boolean;
   readonly hasInitialDateBoundary: boolean;
-  readonly cookieArgumentReference: boolean;
-  readonly cookieValueArgumentReference: boolean;
-  readonly cookieStorageArgumentReference: boolean;
-  readonly cookieEnvironmentNameReference: boolean;
-  readonly cookieEnvironmentReference: boolean;
-  readonly genericCookieEnvironmentFixtureDetected: boolean;
 }
 
 let sandbox: string;
@@ -122,7 +118,9 @@ async function installFakeYtDlp(): Promise<void> {
   executablePath = join(sandbox, 'fake-yt-dlp.mjs');
   const fixtures = JSON.stringify(fixtureByUrl);
   const invocationLogPath = JSON.stringify(join(sandbox, 'argv.log'));
-  const cookieStorageDirectory = JSON.stringify(join(sandbox, 'cookies'));
+  const cookieBoundaryProbe = createCookieBoundaryProbeSource(
+    join(sandbox, 'cookies'),
+  );
   await writeFile(
     executablePath,
     `#!/usr/bin/env node
@@ -131,31 +129,7 @@ import { appendFileSync } from 'node:fs';
 const fixtures = ${fixtures};
 const args = process.argv.slice(2);
 const url = args.at(-1);
-const cookieArgumentReference = args.some((argument) =>
-  argument === '--cookies' || argument.startsWith('--cookies=') ||
-  argument === '--cookies-from-browser' || argument.startsWith('--cookies-from-browser=') ||
-  /^cookie:/iu.test(argument)
-);
-const cookieValueArgumentReference = args.some((argument) =>
-  argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)})
-);
-const cookieStorageArgumentReference = args.some((argument) =>
-  argument.includes(${cookieStorageDirectory})
-);
-const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
-  /cookie/iu.test(name)
-);
-const hasCookieEnvironmentReference = (environment) => Object.values(environment).some((value) =>
-  typeof value === 'string' && (
-    /cookie/iu.test(value) ||
-    value.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
-    value.includes(${cookieStorageDirectory})
-  )
-);
-const cookieEnvironmentReference = hasCookieEnvironmentReference(process.env);
-const genericCookieEnvironmentFixtureDetected = hasCookieEnvironmentReference({
-  VIDHARBOR_TEST_REFERENCE: '--CoOkIeS-from-browser=chromium',
-});
+${cookieBoundaryProbe}
 const dateAfterIndex = args.indexOf('--dateafter');
 const dateAfter = dateAfterIndex === -1 ? undefined : args[dateAfterIndex + 1];
 appendFileSync(${invocationLogPath}, JSON.stringify({
@@ -164,12 +138,7 @@ appendFileSync(${invocationLogPath}, JSON.stringify({
   bilibiliVideo: url?.startsWith('https://www.bilibili.com/video/') === true,
   hasDateAfter: dateAfter !== undefined,
   hasInitialDateBoundary: dateAfter === '20250717',
-  cookieArgumentReference,
-  cookieValueArgumentReference,
-  cookieStorageArgumentReference,
-  cookieEnvironmentNameReference,
-  cookieEnvironmentReference,
-  genericCookieEnvironmentFixtureDetected,
+  ...cookieBoundary,
 }) + '\\n');
 if (url === 'https://space.bilibili.com/3985676/video' && !args.includes('--flat-playlist')) process.exit(10);
 if (url?.startsWith('https://www.bilibili.com/video/') && !args.includes('--no-playlist')) process.exit(11);
@@ -195,18 +164,6 @@ async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
     .trimEnd()
     .split('\n')
     .map((line) => JSON.parse(line) as YtDlpInvocation);
-}
-
-function expectNoCookieReferences(invocation: YtDlpInvocation): void {
-  expect(
-    Object.values(invocation).every((value) => typeof value === 'boolean'),
-  ).toBe(true);
-  expect(invocation.cookieArgumentReference).toBe(false);
-  expect(invocation.cookieValueArgumentReference).toBe(false);
-  expect(invocation.cookieStorageArgumentReference).toBe(false);
-  expect(invocation.cookieEnvironmentNameReference).toBe(false);
-  expect(invocation.cookieEnvironmentReference).toBe(false);
-  expect(invocation.genericCookieEnvironmentFixtureDetected).toBe(true);
 }
 
 function setGlobalInterval(minutes = 60): void {

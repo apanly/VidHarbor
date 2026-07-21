@@ -14,6 +14,13 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  COOKIE_VALUE_MARKER,
+  createCookieBoundaryProbeSource,
+  expectNoCookieReferences,
+  type CookieBoundaryObservation,
+  VALID_COOKIE_FILE,
+} from '../helpers/cookie-boundary.js';
 import { createApiRouter, createApp } from '../../src/app.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
@@ -42,18 +49,9 @@ const FACEBOOK_REEL_URL = `https://www.facebook.com/reel/${FACEBOOK_REEL_ID}`;
 const DOUYIN_VIDEO_ID = '6961737553342991651';
 const DOUYIN_VIDEO_URL = `https://www.douyin.com/video/${DOUYIN_VIDEO_ID}`;
 const PROXY_URL = 'http://alice:secret@proxy.example:8080';
-const COOKIE_VALUE_MARKER = 'task-09-cookie-value';
-const VALID_COOKIE_FILE = Buffer.from(
-  `.youtube.com\tTRUE\t/\tTRUE\t0\ttask09\t${COOKIE_VALUE_MARKER}\n`,
-);
 
-interface YtDlpInvocation {
+interface YtDlpInvocation extends CookieBoundaryObservation {
   readonly noPlaylist: boolean;
-  readonly cookieArgumentReference: boolean;
-  readonly cookieValueArgumentReference: boolean;
-  readonly cookieStorageArgumentReference: boolean;
-  readonly cookieEnvironmentNameReference: boolean;
-  readonly cookieEnvironmentReference: boolean;
 }
 
 const DEFAULT_ADVANCED_OPTIONS = {
@@ -90,7 +88,9 @@ let taskManager: YtDlpTaskManager;
 async function installFakeYtDlp(): Promise<void> {
   executablePath = join(sandbox, 'fake-yt-dlp.mjs');
   const invocationLogPath = JSON.stringify(join(sandbox, 'argv.log'));
-  const cookieStorageDirectory = JSON.stringify(join(sandbox, 'cookies'));
+  const cookieBoundaryProbe = createCookieBoundaryProbeSource(
+    join(sandbox, 'cookies'),
+  );
   await writeFile(
     executablePath,
     `#!/usr/bin/env node
@@ -98,31 +98,10 @@ import { appendFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const url = process.argv.at(-1);
-const cookieArgumentReference = args.some((argument) =>
-  argument === '--cookies' || argument.startsWith('--cookies=') ||
-  argument === '--cookies-from-browser' || argument.startsWith('--cookies-from-browser=') ||
-  /^cookie:/iu.test(argument)
-);
-const cookieValueArgumentReference = args.some((argument) =>
-  argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)})
-);
-const cookieStorageArgumentReference = args.some((argument) =>
-  argument.includes(${cookieStorageDirectory})
-);
-const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
-  /cookie/iu.test(name)
-);
-const cookieEnvironmentReference = Object.values(process.env).some((value) =>
-  value?.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
-  value?.includes(${cookieStorageDirectory})
-);
+${cookieBoundaryProbe}
 appendFileSync(${invocationLogPath}, JSON.stringify({
   noPlaylist: args.includes('--no-playlist'),
-  cookieArgumentReference,
-  cookieValueArgumentReference,
-  cookieStorageArgumentReference,
-  cookieEnvironmentNameReference,
-  cookieEnvironmentReference,
+  ...cookieBoundary,
 }) + '\\n');
 if (url === 'https://www.youtube.com/watch?v=${SECOND_PLATFORM_VIDEO_ID}' || url === 'https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}') {
   process.stdout.write(JSON.stringify({
@@ -202,17 +181,6 @@ async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
     .trimEnd()
     .split('\n')
     .map((line) => JSON.parse(line) as YtDlpInvocation);
-}
-
-function expectNoCookieReferences(invocation: YtDlpInvocation): void {
-  expect(
-    Object.values(invocation).every((value) => typeof value === 'boolean'),
-  ).toBe(true);
-  expect(invocation.cookieArgumentReference).toBe(false);
-  expect(invocation.cookieValueArgumentReference).toBe(false);
-  expect(invocation.cookieStorageArgumentReference).toBe(false);
-  expect(invocation.cookieEnvironmentNameReference).toBe(false);
-  expect(invocation.cookieEnvironmentReference).toBe(false);
 }
 
 function hasCookieQueueReference(value: unknown): boolean {
