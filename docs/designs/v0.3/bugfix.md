@@ -29,3 +29,11 @@
 ## bugfix-08 · 接管并完成递归队列隔离测试
 - 关联 task: task-17
 - 描述: `task-14` worker 已修改 `test/integration/download-api.test.ts`，并通过 `git diff --check`、25 项定向测试及定位检索，但在最终写入 `result.json` 前因 `Selected model is at capacity. Please try a different model.` 异常退出。保留现有改动，复核递归字段名与字符串值检查仅向 matcher 暴露布尔结果，重跑原验收并完成任务。
+
+## bugfix-09 · 检测环境变量值中的通用 Cookie 引用
+- 关联 task: task-18
+- 描述: `test/integration/yt-dlp.test.ts:176` 及 channel-initial-sync、channel-scheduled-check、download-worker 的同类夹具只检查固定 marker 和存储目录，可能放过名称不含 cookie 的环境变量值中的 `--cookies`、`--cookies-from-browser` 或其他通用 Cookie 引用。同步修正四个夹具，并继续只向 matcher 暴露布尔结果。
+
+## bugfix-10 · 检测队列嵌套字符串中的通用 Cookie 引用
+- 关联 task: task-19
+- 描述: `test/integration/download-api.test.ts:218` 的递归检查只识别固定 marker 和当前存储目录，可能放过顶层或 `advancedOptions` 中其他 `--cookies`、`--cookies-from-browser` 等字符串。加入确定性的大小写不敏感通用 Cookie 引用检查及对应负向夹具，matcher 仍只接收最终布尔值。

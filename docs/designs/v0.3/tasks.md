@@ -386,3 +386,48 @@
   1. `npm test -- --run test/integration/download-api.test.ts --maxWorkers=1` → 完整队列对象的递归 Cookie 边界测试通过
   2. `rg -n "expectNoCookieQueueFields|hasCookieQueueReference|advancedOptions|cookie" test/integration/download-api.test.ts` → 嵌套队列检查入口可定位
   3. `git diff --check` → 现有修复与任务文档无空白错误
+
+## task-18 · 检测 yt-dlp 环境变量值中的通用 Cookie 引用
+- 状态: done
+- 依赖: task-13
+- 文件范围:
+  - test/integration/yt-dlp.test.ts
+  - test/integration/channel-initial-sync.test.ts
+  - test/integration/channel-scheduled-check.test.ts
+  - test/integration/download-worker.test.ts
+- 关键约束:
+  - 四个真实子进程夹具必须对环境变量字符串值执行确定性的大小写不敏感通用 Cookie 引用检查，覆盖 `--cookies`、`--cookies-from-browser` 及其他含 `cookie` 的引用，同时保留固定敏感 marker、Cookie 存储目录和环境变量名检查。
+  - 必须增加能证明名称不含 `cookie` 的环境变量值仍会被检测的负向夹具，并继续只把最终布尔结果写入调用记录和 matcher。
+  - 不能输出环境变量原值、完整子进程环境、Cookie 参数值或存储路径，不能改动与本 bug 无关的模块。
+- 任务目的: 修复 bugfix-09 描述的问题
+- 实现入口: test/integration/yt-dlp.test.ts:176 `cookieEnvironmentReference`、test/integration/channel-initial-sync.test.ts:152 `cookieEnvironmentReference`、test/integration/channel-scheduled-check.test.ts:125 `cookieEnvironmentReference`、test/integration/download-worker.test.ts:171 `cookieEnvironmentReference`
+- 原始 bugfix 描述: `test/integration/yt-dlp.test.ts:176` 及 channel-initial-sync、channel-scheduled-check、download-worker 的同类夹具只检查固定 marker 和存储目录，可能放过名称不含 cookie 的环境变量值中的 `--cookies`、`--cookies-from-browser` 或其他通用 Cookie 引用。同步修正四个夹具，并继续只向 matcher 暴露布尔结果。
+- 期望行为: 任一真实 yt-dlp 子进程环境变量值只要包含大小写任意的通用 Cookie 引用，即使变量名不含 `cookie` 且值不含固定 marker 或当前存储目录，测试仍将其识别；正常调用记录继续只暴露无引用的布尔结果。
+- 范围边界:
+  - 必须: 同步覆盖四个夹具的通用引用检测与负向夹具，并保留现有 argv、环境变量名、固定敏感 marker 和存储路径边界。
+  - 不能: 不能改动与本 bug 无关的模块，不能把环境变量原值、完整环境对象、Cookie 参数值或路径交给 matcher。
+  - 不做: 不修改生产 yt-dlp 参数生成、频道服务、下载 worker、任务管理器或 Cookie 服务注入关系。
+- 验收标准:
+  1. `npm test -- --run test/integration/yt-dlp.test.ts test/integration/channel-initial-sync.test.ts test/integration/channel-scheduled-check.test.ts test/integration/download-worker.test.ts --maxWorkers=1` → 四个真实子进程环境变量隔离测试通过
+  2. `rg -n "cookieEnvironmentReference|cookies-from-browser|toBe\(false\)" test/integration/{yt-dlp,channel-initial-sync,channel-scheduled-check,download-worker}.test.ts` → 通用 Cookie 引用检测及布尔 matcher 可定位
+
+## task-19 · 检测下载队列嵌套字符串中的通用 Cookie 引用
+- 状态: pending
+- 依赖: task-17
+- 文件范围:
+  - test/integration/download-api.test.ts
+- 关键约束:
+  - `hasCookieQueueReference` 必须对完整排队对象任意层级的字符串值执行确定性的大小写不敏感通用 Cookie 引用检查，覆盖顶层、`advancedOptions`、`--cookies`、`--cookies-from-browser` 及其他含 `cookie` 的引用。
+  - 必须增加不依赖固定敏感 marker 或当前 Cookie 存储目录的负向夹具，并保持 `expectNoCookieQueueFields` 只向 matcher 暴露最终布尔值。
+  - 不能输出完整队列对象、Cookie 原文、路径、状态对象或敏感字符串，不能改动与本 bug 无关的模块。
+- 任务目的: 修复 bugfix-10 描述的问题
+- 实现入口: test/integration/download-api.test.ts:217 `hasCookieQueueReference`、test/integration/download-api.test.ts:232 `expectNoCookieQueueFields`、test/integration/download-api.test.ts:375 递归队列引用测试
+- 原始 bugfix 描述: `test/integration/download-api.test.ts:218` 的递归检查只识别固定 marker 和当前存储目录，可能放过顶层或 `advancedOptions` 中其他 `--cookies`、`--cookies-from-browser` 等字符串。加入确定性的大小写不敏感通用 Cookie 引用检查及对应负向夹具，matcher 仍只接收最终布尔值。
+- 期望行为: 下载排队对象任意嵌套层级的字符串值只要包含大小写任意的通用 Cookie 引用，即使不含固定 marker 或当前存储目录，也会被递归测试捕获；正常固定队列仍通过且失败 diff 只显示布尔值。
+- 范围边界:
+  - 必须: 覆盖顶层与 `advancedOptions` 嵌套字符串中的通用 Cookie 引用，并保留字段名、固定敏感 marker 和存储路径检查。
+  - 不能: 不能改动与本 bug 无关的模块，不能把完整队列对象、Cookie 原文、路径、状态对象或敏感字符串交给 matcher。
+  - 不做: 不修改下载队列生产结构、下载 API 响应、yt-dlp 参数生成或其他测试文件。
+- 验收标准:
+  1. `npm test -- --run test/integration/download-api.test.ts --maxWorkers=1` → 下载队列通用 Cookie 引用递归测试通过
+  2. `rg -n "hasCookieQueueReference|expectNoCookieQueueFields|advancedOptions|cookies-from-browser" test/integration/download-api.test.ts` → 通用嵌套字符串检查与布尔 matcher 可定位

@@ -31,6 +31,7 @@ interface YtDlpInvocation {
   readonly cookieStorageArgumentReference: boolean;
   readonly cookieEnvironmentNameReference: boolean;
   readonly cookieEnvironmentReference: boolean;
+  readonly genericCookieEnvironmentFixtureDetected: boolean;
 }
 
 let sandbox: string;
@@ -149,11 +150,18 @@ const sanitizedArgs = args.filter((argument, index) => {
 const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
   /cookie/iu.test(name)
 );
-const cookieEnvironmentReference = Object.values(process.env).some((value) =>
-  value?.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
-  value?.includes(${cookieStorageDirectory})
+const hasCookieEnvironmentReference = (environment) => Object.values(environment).some((value) =>
+  typeof value === 'string' && (
+    /cookie/iu.test(value) ||
+    value.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
+    value.includes(${cookieStorageDirectory})
+  )
 );
-appendFileSync(${invocationLogPath}, JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference }) + '\\n');
+const cookieEnvironmentReference = hasCookieEnvironmentReference(process.env);
+const genericCookieEnvironmentFixtureDetected = hasCookieEnvironmentReference({
+  VIDHARBOR_TEST_REFERENCE: '--CoOkIeS-from-browser=chromium',
+});
+appendFileSync(${invocationLogPath}, JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference, genericCookieEnvironmentFixtureDetected }) + '\\n');
 if (url === 'https://space.bilibili.com/3985676/video' && !args.includes('--flat-playlist')) process.exit(10);
 if (url?.startsWith('https://www.bilibili.com/video/') && !args.includes('--no-playlist')) process.exit(11);
 if (url === 'https://www.youtube.com/@failure/videos') {
@@ -186,6 +194,7 @@ function expectNoCookieReferences(invocation: YtDlpInvocation): void {
   expect(invocation.cookieStorageArgumentReference).toBe(false);
   expect(invocation.cookieEnvironmentNameReference).toBe(false);
   expect(invocation.cookieEnvironmentReference).toBe(false);
+  expect(invocation.genericCookieEnvironmentFixtureDetected).toBe(true);
 }
 
 function setGlobalInterval(minutes = 60): void {
