@@ -870,6 +870,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('name="url"');
     expect(html).toContain('Facebook 公开单视频或 Reel');
     expect(html).toContain('抖音公开单视频');
+    expect(html).not.toContain('Vimeo');
     expect(html).toContain('name="proxyId"');
     expect(script).toContain("request('/api/proxies')");
     expect(html).not.toContain('name="targetSubdirectory"');
@@ -1005,6 +1006,61 @@ describe('server-rendered pages', () => {
       status: 202,
       headers: { 'Content-Type': 'application/json' },
     }))('/direct', 'POST', {})).resolves.toEqual({ accepted: true });
+  });
+
+  it('renders historical Vimeo and unknown download platform values', async () => {
+    const script = await getPublicScript('downloads.js');
+    const platformField = { textContent: '' };
+    const thumbnail = { hidden: false, src: '' };
+    const article = {
+      querySelector(selector: string) {
+        if (selector === '[data-download-field="platform"]') return platformField;
+        if (selector === '.download-card-thumbnail') return thumbnail;
+        return null;
+      },
+    };
+    const functionSource = script.slice(
+      script.indexOf('const platformLabels'),
+      script.indexOf('function renderDownloads'),
+    );
+    const { updateDownloadCard } = new Function(
+      'document',
+      'formatChinaTimestamp',
+      `${functionSource}; return { updateDownloadCard };`,
+    )({}, (value: string) => value) as {
+      updateDownloadCard(
+        articleNode: typeof article,
+        previous: Record<string, unknown>,
+        download: Record<string, unknown>,
+      ): void;
+    };
+    const download = {
+      title: 'Historical download',
+      thumbnailUrl: null,
+      sourceType: 'direct',
+      progressPercent: null,
+      speedText: null,
+      etaSeconds: null,
+      durationSeconds: null,
+      outputSizeBytes: null,
+      startedAt: null,
+      finishedAt: null,
+      networkMode: 'direct',
+      proxyName: null,
+      outputPath: null,
+      failureReason: null,
+      status: 'pending',
+    };
+
+    updateDownloadCard(article, { status: 'pending' }, { ...download, platform: 'vimeo' });
+    expect(platformField.textContent).toBe('Vimeo');
+
+    updateDownloadCard(
+      article,
+      { status: 'pending' },
+      { ...download, platform: 'unknown-platform' },
+    );
+    expect(platformField.textContent).toBe('unknown-platform');
   });
 
   it('filters downloads by title and exposes distinct tab and empty-state contracts', async () => {

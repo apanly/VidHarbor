@@ -164,7 +164,7 @@
   3. `rg -n "Vimeo" src/views/downloads.ejs README.md` → 不在当前下载帮助或 README 中留下官方支持表述
 
 ## task-08 · 固化 Vimeo 历史记录与未知平台显示兼容
-- 状态: pending
+- 状态: done
 - 依赖: task-06, task-07
 - 文件范围:
   - test/integration/database.test.ts

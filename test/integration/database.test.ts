@@ -217,7 +217,7 @@ describe('SQLite database', () => {
     }
   });
 
-  it('migrates schema 2 downloads and permits a non-YouTube direct platform', async () => {
+  it('migrates schema 2 downloads and preserves Vimeo and unknown direct platform values', async () => {
     const database = openDatabase(await temporaryDatabasePath());
     const migrationOne = await readFile(
       new URL('../../src/db/migrations/001-initial.sql', import.meta.url),
@@ -272,11 +272,29 @@ describe('SQLite database', () => {
             `INSERT INTO downloads (
               source_type, source_url, platform, platform_video_id, title,
               network_mode, status, created_at
-            ) VALUES ('direct', 'https://vimeo.com/123456789', 'vimeo',
-                      '123456789', 'Vimeo', 'direct', 'pending', ?)`,
+            ) VALUES ('direct', 'https://media.example/videos/generic', 'generic',
+                      'generic', 'Generic', 'direct', 'pending', ?)`,
           )
           .run(timestamp),
       ).not.toThrow();
+      expect(() =>
+        database
+          .prepare(
+            `INSERT INTO downloads (
+              source_type, source_url, platform, platform_video_id, title,
+              network_mode, status, created_at
+            ) VALUES ('direct', 'https://vimeo.com/123456789', 'vimeo',
+                      '123456789', 'Historical Vimeo', 'direct', 'pending', ?)`,
+          )
+          .run(timestamp),
+      ).not.toThrow();
+      expect(database.prepare(
+        `SELECT platform, title FROM downloads
+         WHERE platform IN ('vimeo', 'generic') ORDER BY id`,
+      ).all()).toEqual([
+        { platform: 'generic', title: 'Generic' },
+        { platform: 'vimeo', title: 'Historical Vimeo' },
+      ]);
       expect(database.pragma('foreign_key_check')).toEqual([]);
     } finally {
       database.close();
