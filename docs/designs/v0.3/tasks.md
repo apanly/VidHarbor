@@ -1,7 +1,7 @@
 # Tasks - v0.3
 
 ## task-01 · 实现 Cookie 授权文件服务与严格格式边界
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/services/cookie-authorization.ts (新建)
