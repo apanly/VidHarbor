@@ -412,7 +412,7 @@
   2. `rg -n "cookieEnvironmentReference|cookies-from-browser|toBe\(false\)" test/integration/{yt-dlp,channel-initial-sync,channel-scheduled-check,download-worker}.test.ts` → 通用 Cookie 引用检测及布尔 matcher 可定位
 
 ## task-19 · 检测下载队列嵌套字符串中的通用 Cookie 引用
-- 状态: pending
+- 状态: done
 - 依赖: task-17
 - 文件范围:
   - test/integration/download-api.test.ts

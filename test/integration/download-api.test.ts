@@ -217,6 +217,7 @@ function expectNoCookieReferences(invocation: YtDlpInvocation): void {
 function hasCookieQueueReference(value: unknown): boolean {
   if (typeof value === 'string') {
     return (
+      value.toLowerCase().includes('cookie') ||
       value.includes(COOKIE_VALUE_MARKER) ||
       value.includes(join(sandbox, 'cookies'))
     );
@@ -405,6 +406,30 @@ describe('download API', () => {
         advancedOptions: {
           ...DEFAULT_ADVANCED_OPTIONS,
           filenamePreset: join(sandbox, 'cookies', 'youtube.txt'),
+        },
+      }),
+    ).toBe(true);
+    expect(
+      hasCookieQueueReference({
+        ...cleanQueue,
+        sourceUrl: 'https://media.example/CoOkIe-reference',
+      }),
+    ).toBe(true);
+    expect(
+      hasCookieQueueReference({
+        ...cleanQueue,
+        advancedOptions: {
+          ...DEFAULT_ADVANCED_OPTIONS,
+          format: '--CoOkIeS /fixtures/browser-session.txt',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      hasCookieQueueReference({
+        ...cleanQueue,
+        advancedOptions: {
+          ...DEFAULT_ADVANCED_OPTIONS,
+          filenamePreset: '--CoOkIeS-FrOm-BrOwSeR firefox',
         },
       }),
     ).toBe(true);
