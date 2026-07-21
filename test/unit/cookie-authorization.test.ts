@@ -24,7 +24,7 @@ import {
 } from '../../src/services/cookie-authorization.js';
 
 const replacementFailure = vi.hoisted(() => ({
-  stage: null as null | 'sync' | 'utimes' | 'rename',
+  stage: null as null | 'sync' | 'utimes' | 'stat' | 'rename',
 }));
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -45,6 +45,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       }
       if (replacementFailure.stage === 'utimes') {
         vi.spyOn(handle, 'utimes').mockRejectedValueOnce(
+          new Error('injected persistence failure'),
+        );
+      }
+      if (replacementFailure.stage === 'stat') {
+        vi.spyOn(handle, 'stat').mockRejectedValueOnce(
           new Error('injected persistence failure'),
         );
       }
@@ -414,6 +419,7 @@ describe('CookieAuthorizationService', () => {
     ['invalid format', null, 'VALIDATION_ERROR', 'invalid Netscape cookie file'],
     ['sync', 'sync', 'PERSISTENCE_ERROR', 'cookie persistence failed'],
     ['utimes', 'utimes', 'PERSISTENCE_ERROR', 'cookie persistence failed'],
+    ['stat', 'stat', 'PERSISTENCE_ERROR', 'cookie persistence failed'],
     ['rename', 'rename', 'PERSISTENCE_ERROR', 'cookie persistence failed'],
   ] as const)(
     'keeps the prior file and mtime unchanged when replacement fails at %s',

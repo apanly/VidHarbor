@@ -88,12 +88,6 @@ function getPlatformDefinition(platform: string): PlatformDefinition {
   return definition;
 }
 
-export function isCookiePlatform(platform: string): platform is CookiePlatform {
-  return COOKIE_PLATFORMS.some(
-    (definition) => definition.platform === platform,
-  );
-}
-
 class NetscapeCookieValidator {
   private lineStarted = false;
   private lineIsWhitespace = true;
@@ -338,14 +332,13 @@ export class CookieAuthorizationService {
 
       const updatedAt = new Date();
       await handle.utimes(updatedAt, updatedAt);
+      const finalStatus = await handle.stat();
+      if (!finalStatus.isFile()) throw new Error('not a regular file');
       await handle.close();
       handle = undefined;
 
-      const finalPath = this.finalPath(definition);
-      await rename(temporaryPath, finalPath);
+      await rename(temporaryPath, this.finalPath(definition));
       committed = true;
-      const finalStatus = await lstat(finalPath);
-      if (!finalStatus.isFile()) throw new Error('not a regular file');
       return {
         platform: definition.platform,
         configured: true,
