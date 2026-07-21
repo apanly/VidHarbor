@@ -393,10 +393,10 @@ describe('server-rendered pages', () => {
     expect(dockerfile).not.toContain('ARG TARGETARCH=arm64');
   });
 
-  it('renders the fixed authorization page without exposing saved Cookie material', async () => {
+  it('renders authorization table and form without exposing saved Cookie material', async () => {
     const sensitiveMarker = 'pages-cookie-sensitive-marker';
     const upload = await fetch(`${baseUrl}/api/authorizations/cookies/youtube`, {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
         origin: baseUrl,
@@ -406,25 +406,21 @@ describe('server-rendered pages', () => {
     expect(upload.status).toBe(200);
 
     const html = await getPage('/authorizations');
-    const platformIds = [...html.matchAll(/data-authorization-platform="([^"]+)"/g)]
-      .map((match) => match[1]);
-
     expect(html).toContain('<title>授权管理 · VidHarbor</title>');
     expect(html).toContain('class="sidebar-link active" href="/authorizations">授权管理</a>');
-    expect(platformIds).toEqual([
-      'youtube',
-      'bilibili',
-      'x',
-      'facebook',
-      'douyin',
-    ]);
-    expect(html).toMatch(/<h3>YouTube<\/h3>[\s\S]*<h3>Bilibili<\/h3>[\s\S]*<h3>X<\/h3>[\s\S]*<h3>Facebook<\/h3>[\s\S]*<h3>抖音<\/h3>/);
-    expect(html.match(/data-authorization-upload/g)).toHaveLength(5);
-    expect(html.match(/data-authorization-status/g)).toHaveLength(5);
-    expect(html.match(/data-authorization-status hidden/g)).toHaveLength(5);
-    expect(html).not.toContain('正在加载');
-    expect(html.match(/data-authorization-updated hidden/g)).toHaveLength(5);
-    expect(html).toContain('每个平台仅保存一份文件；再次上传会完整替换已有配置。');
+    expect(html).toContain('data-authorization-create>新增授权</button>');
+    expect(html).toContain('<table class="table align-middle authorization-table">');
+    expect(html).toContain('<th scope="col">平台</th>');
+    expect(html).toContain('<th scope="col">状态</th>');
+    expect(html).toContain('<th scope="col">更新时间</th>');
+    expect(html).toContain('<th scope="col">操作</th>');
+    expect(html).toContain('<tbody id="authorization-list"></tbody>');
+    expect(html).toContain('id="authorization-modal"');
+    expect(html).toContain('data-bs-backdrop="static"');
+    expect(html).toContain('id="authorization-form"');
+    expect(html).toContain('id="authorization-platform" name="platform"');
+    expect(html.match(/name="cookieFile"/g)).toHaveLength(1);
+    expect(html).toContain('删除会立即移除文件且无法恢复');
     expect(html).toContain('尚未接入业务流程');
     expect(html).toContain('不会用于频道同步、元数据探测或媒体下载');
     expect(html).toContain('安全获取与导出说明');
@@ -434,6 +430,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('<script type="module" src="/public/authorizations.js"></script>');
     expect(html).not.toContain('Vimeo');
     expect(html.includes(sensitiveMarker)).toBe(false);
+    expect(html).not.toContain('authorization-platform-card');
     expect(html).not.toMatch(/data-authorization-(?:domain|cookie-name|cookie-value|file-name|path|preview|download)/);
     expect(html).not.toContain('预览 Cookie');
     expect(html).not.toContain('下载 Cookie');
@@ -1259,16 +1256,15 @@ describe('server-rendered pages', () => {
     expect(styles).toMatch(/\.channel-check-table td:last-child\s*\{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/s);
   });
 
-  it('keeps authorization cards and actions usable on mobile widths', async () => {
+  it('keeps authorization table and create action usable on mobile widths', async () => {
     const styles = await readFile(
       new URL('../../src/styles/main.scss', import.meta.url),
       'utf8',
     );
 
-    expect(styles).toMatch(/\.authorization-platform-grid\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/s);
-    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.authorization-platform-grid\s*\{[^}]*grid-template-columns: 1fr;/);
-    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.authorization-actions\s*\{[^}]*flex-direction: column;/);
-    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.authorization-actions \.btn\s*\{[^}]*width: 100%;/);
+    expect(styles).toMatch(/\.authorization-table\s*\{[^}]*min-width: 42rem;/s);
+    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.authorization-page-heading\s*\{[^}]*flex-direction: column;/);
+    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.authorization-page-heading \.btn\s*\{[^}]*width: 100%;/);
   });
 
   it('requires confirmation before page delete actions', async () => {
@@ -1284,7 +1280,7 @@ describe('server-rendered pages', () => {
     expect(downloadsScript).toContain('if (!confirmed) return;');
     expect(downloadsScript).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
 
-    expect(authorizationsScript).toContain('confirm(`确认删除 ${label} 的 Cookie 配置？`)');
+    expect(authorizationsScript).toContain('confirm(`确认删除 ${label} 的 Cookie 配置？删除后无法恢复。`)');
     expect(authorizationsScript).toContain('if (!confirmed) return;');
     expect(authorizationsScript).toContain("`/api/authorizations/cookies/${configuration.platform}`");
     expect(authorizationsScript).toContain("'DELETE'");

@@ -18,13 +18,15 @@ beforeEach(async () => {
   api.post('/contract', echoJsonBody);
   api.put('/contract', echoJsonBody);
   api.patch('/contract', echoJsonBody);
-  api.put('/authorizations/cookies/:platform', async (request, response) => {
+  const echoCookieUpload = async (request: Request, response: Response) => {
     let size = 0;
     for await (const chunk of request) {
       size += Buffer.byteLength(chunk);
     }
     response.json({ size });
-  });
+  };
+  api.post('/authorizations/cookies/:platform', echoCookieUpload);
+  api.put('/authorizations/cookies/:platform', echoCookieUpload);
   api.get('/business-error', () => {
     throw new BusinessError('VIDEO_FETCH_FAILED', 'video probe failed');
   });
@@ -98,12 +100,14 @@ describe('HTTP contract', () => {
     });
   });
 
-  it('passes the exact Cookie upload path through as an unbuffered binary stream', async () => {
+  it.each(['POST', 'PUT'] as const)(
+    'passes %s Cookie uploads through as an unbuffered binary stream',
+    async (method) => {
     const body = 'raw-cookie-request-body';
     const response = await fetch(
       `${baseUrl}/api/authorizations/cookies/youtube`,
       {
-        method: 'PUT',
+        method,
         headers: {
           'content-type': 'application/octet-stream',
           origin: baseUrl,
@@ -116,13 +120,13 @@ describe('HTTP contract', () => {
     await expect(response.json()).resolves.toEqual({
       size: Buffer.byteLength(body),
     });
-  });
+    },
+  );
 
   it.each([
     ['POST', '/api/contract'],
     ['PUT', '/api/contract'],
     ['PATCH', '/api/contract'],
-    ['POST', '/api/authorizations/cookies/youtube'],
     ['PATCH', '/api/authorizations/cookies/youtube'],
     ['PUT', '/api/authorizations/cookies'],
     ['PUT', '/api/authorizations/cookies/youtube/export'],

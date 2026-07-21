@@ -3,8 +3,9 @@
         <div>
           <p class="authorization-page-kicker">COOKIE CREDENTIALS</p>
           <h1>授权管理</h1>
-          <p class="authorization-page-summary">为每个平台保存一份 Netscape 格式的 Cookie 文件。</p>
+          <p class="authorization-page-summary">管理各平台的 Netscape Cookie 文件，每个平台最多保存一份。</p>
         </div>
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#authorization-modal" data-authorization-create>新增授权</button>
       </div>
 
       <div id="authorization-page-error" class="alert alert-danger" role="alert" hidden></div>
@@ -14,41 +15,18 @@
         <p class="mb-0">已保存的 Cookie 不会用于频道同步、元数据探测或媒体下载，配置成功不会改变这些流程的当前行为。</p>
       </div>
 
-      <% const authorizationPlatforms = [
-        { id: 'youtube', label: 'YouTube' },
-        { id: 'bilibili', label: 'Bilibili' },
-        { id: 'x', label: 'X' },
-        { id: 'facebook', label: 'Facebook' },
-        { id: 'douyin', label: '抖音' },
-      ]; %>
-      <section class="authorization-platform-section" aria-labelledby="authorization-platform-title">
+      <section class="authorization-list-card" aria-labelledby="authorization-list-title">
         <div class="authorization-section-heading">
-          <div>
-            <h2 id="authorization-platform-title">平台配置</h2>
-            <p>每个平台仅保存一份文件；再次上传会完整替换已有配置。</p>
-          </div>
+          <h2 id="authorization-list-title">已配置授权</h2>
+          <p>编辑会完整替换原文件；删除会立即移除文件且无法恢复。</p>
         </div>
-        <div id="authorization-platform-list" class="authorization-platform-grid">
-          <% for (const platform of authorizationPlatforms) { %>
-            <article class="authorization-platform-card" data-authorization-platform="<%= platform.id %>">
-              <div class="authorization-card-heading">
-                <h3><%= platform.label %></h3>
-                <span class="authorization-status" data-authorization-status hidden></span>
-              </div>
-              <p class="authorization-updated" data-authorization-updated hidden>
-                更新时间：<time data-authorization-time></time>
-              </p>
-              <form class="authorization-upload-form" data-authorization-upload>
-                <label class="form-label" for="authorization-file-<%= platform.id %>">Netscape Cookie 文件</label>
-                <input class="form-control" id="authorization-file-<%= platform.id %>" name="cookieFile" type="file" accept=".txt,text/plain" required>
-                <div class="authorization-actions">
-                  <button class="btn btn-primary" type="submit" data-authorization-submit>上传</button>
-                  <div data-authorization-delete></div>
-                </div>
-              </form>
-              <div class="alert alert-danger authorization-card-error" data-authorization-error role="alert" hidden></div>
-            </article>
-          <% } %>
+        <div class="table-responsive">
+          <table class="table align-middle authorization-table">
+            <thead>
+              <tr><th scope="col">平台</th><th scope="col">状态</th><th scope="col">更新时间</th><th scope="col">操作</th></tr>
+            </thead>
+            <tbody id="authorization-list"></tbody>
+          </table>
         </div>
       </section>
 
@@ -56,11 +34,39 @@
         <h2 id="authorization-safety-title">安全获取与导出说明</h2>
         <ol>
           <li>只在可信设备上登录目标平台，并使用可信工具从当前登录会话导出 Netscape 格式的 <code>cookies.txt</code>。</li>
-          <li>在上方对应平台选择导出的文件并上传。系统不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性。</li>
-          <li>Cookie 等同账号登录凭据。不要通过聊天、工单、截图、日志或公开文件传递原文；不再需要或怀疑泄露时，请删除配置或重新导出后替换。</li>
+          <li>新增授权时选择平台并上传文件；编辑授权时重新上传完整文件。系统不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性。</li>
+          <li>Cookie 等同账号登录凭据。不要通过聊天、工单、截图、日志或公开文件传递原文；不再需要或怀疑泄露时，请删除授权或重新导出后替换。</li>
         </ol>
         <p class="mb-0"><strong>“已配置”仅表示文件已保存且格式正确，不代表登录态当前有效。</strong></p>
       </section>
+
+      <div class="modal fade" id="authorization-modal" tabindex="-1" aria-labelledby="authorization-modal-title" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <form id="authorization-form" class="authorization-modal-form">
+              <div class="modal-header">
+                <h2 class="modal-title h5" id="authorization-modal-title">新增授权</h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
+              </div>
+              <div class="modal-body">
+                <div>
+                  <label class="form-label" for="authorization-platform">平台</label>
+                  <select class="form-select" id="authorization-platform" name="platform" required></select>
+                </div>
+                <div>
+                  <label class="form-label" for="authorization-file">Netscape Cookie 文件</label>
+                  <input class="form-control" id="authorization-file" name="cookieFile" type="file" accept=".txt,text/plain" required>
+                </div>
+                <div class="alert alert-danger mb-0" data-form-error role="alert" hidden></div>
+              </div>
+              <div class="modal-footer">
+                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" type="submit" data-authorization-submit>新增授权</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
     </main>
     <script type="module" src="/public/authorizations.js"></script>
 <%- include('partials/footer') %>

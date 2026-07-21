@@ -33,7 +33,7 @@ const requireJsonBody: RequestHandler = (request, _response, next) => {
   }
 
   const isCookieUpload =
-    request.method === 'PUT' &&
+    ['POST', 'PUT'].includes(request.method) &&
     /^\/authorizations\/cookies\/[^/]+$/.test(request.path);
   const requiredMediaType = isCookieUpload
     ? 'application/octet-stream'

@@ -26,12 +26,24 @@ export function createAuthorizationsRouter(
     const configurations =
       await cookieAuthorizationService.listConfigurations();
     response.json({
-      configurations: configurations.map(toConfigurationResponse),
+      configurations: configurations
+        .filter(({ configured }) => configured)
+        .map(toConfigurationResponse),
+    });
+  });
+
+  router.post('/cookies/:platform', async (request, response) => {
+    const configuration = await cookieAuthorizationService.createConfiguration(
+      request.params.platform,
+      request,
+    );
+    response.json({
+      configuration: toConfigurationResponse(configuration),
     });
   });
 
   router.put('/cookies/:platform', async (request, response) => {
-    const configuration = await cookieAuthorizationService.saveConfiguration(
+    const configuration = await cookieAuthorizationService.updateConfiguration(
       request.params.platform,
       request,
     );

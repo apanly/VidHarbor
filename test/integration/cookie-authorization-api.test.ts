@@ -48,7 +48,7 @@ async function startApi(
 
 async function writeRequest(
   path: string,
-  method: 'PUT' | 'DELETE',
+  method: 'POST' | 'PUT' | 'DELETE',
   body?: string,
   contentType = 'application/octet-stream',
   origin = baseUrl,
@@ -82,27 +82,19 @@ afterEach(async () => {
 });
 
 describe('Cookie authorization API', () => {
-  it('lists the five fixed configurations with only public metadata', async () => {
+  it('lists only configured platforms with public metadata', async () => {
     const response = await fetch(
       `${baseUrl}/api/authorizations/cookies`,
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      configurations: [
-        { platform: 'youtube', configured: false, updatedAt: null },
-        { platform: 'bilibili', configured: false, updatedAt: null },
-        { platform: 'x', configured: false, updatedAt: null },
-        { platform: 'facebook', configured: false, updatedAt: null },
-        { platform: 'douyin', configured: false, updatedAt: null },
-      ],
-    });
+    await expect(response.json()).resolves.toEqual({ configurations: [] });
   });
 
   it('uploads, replaces, rebuilds, and deletes one platform without exposing content', async () => {
     const upload = await writeRequest(
       '/api/authorizations/cookies/youtube',
-      'PUT',
+      'POST',
       VALID_COOKIE,
     );
     const uploadText = await upload.text();
@@ -122,6 +114,19 @@ describe('Cookie authorization API', () => {
     });
     expect(typeof uploaded.configuration.updatedAt).toBe('string');
     expect(uploadText.includes(SENSITIVE_MARKER)).toBe(false);
+
+    const duplicate = await writeRequest(
+      '/api/authorizations/cookies/youtube',
+      'POST',
+      VALID_COOKIE,
+    );
+    expect(duplicate.status).toBe(400);
+    await expect(duplicate.json()).resolves.toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'cookie configuration already exists',
+      },
+    });
 
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
     const replacement = await writeRequest(
@@ -179,7 +184,7 @@ describe('Cookie authorization API', () => {
     [
       'unknown upload platform',
       '/api/authorizations/cookies/vimeo',
-      'PUT',
+      'POST',
       VALID_COOKIE,
       'application/octet-stream',
       undefined,
@@ -197,7 +202,7 @@ describe('Cookie authorization API', () => {
     [
       'wrong upload media type',
       '/api/authorizations/cookies/youtube',
-      'PUT',
+      'POST',
       VALID_COOKIE,
       'application/json',
       undefined,
@@ -206,7 +211,7 @@ describe('Cookie authorization API', () => {
     [
       'empty upload',
       '/api/authorizations/cookies/youtube',
-      'PUT',
+      'POST',
       '',
       'application/octet-stream',
       undefined,
@@ -215,7 +220,7 @@ describe('Cookie authorization API', () => {
     [
       'invalid Netscape upload',
       '/api/authorizations/cookies/youtube',
-      'PUT',
+      'POST',
       'not-a-cookie-file',
       'application/octet-stream',
       undefined,
@@ -231,9 +236,18 @@ describe('Cookie authorization API', () => {
       'cookie configuration is not configured',
     ],
     [
-      'cross-origin upload',
+      'unconfigured edit',
       '/api/authorizations/cookies/youtube',
       'PUT',
+      VALID_COOKIE,
+      'application/octet-stream',
+      undefined,
+      'cookie configuration is not configured',
+    ],
+    [
+      'cross-origin upload',
+      '/api/authorizations/cookies/youtube',
+      'POST',
       VALID_COOKIE,
       'application/octet-stream',
       'https://attacker.example',
@@ -278,7 +292,7 @@ describe('Cookie authorization API', () => {
       fetch(`${baseUrl}/api/authorizations/cookies`),
       writeRequest(
         '/api/authorizations/cookies/youtube',
-        'PUT',
+        'POST',
         VALID_COOKIE,
       ),
       writeRequest(

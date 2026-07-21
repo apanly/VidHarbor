@@ -184,7 +184,12 @@ describe('CookieAuthorizationService', () => {
 
     for (const platform of ['YouTube', 'twitter', 'X', 'vimeo', 'custom']) {
       await expectBusinessError(
-        service.saveConfiguration(platform, source(VALID_COOKIE_A)),
+        service.createConfiguration(platform, source(VALID_COOKIE_A)),
+        'VALIDATION_ERROR',
+        'invalid cookie platform',
+      );
+      await expectBusinessError(
+        service.updateConfiguration(platform, source(VALID_COOKIE_A)),
         'VALIDATION_ERROR',
         'invalid cookie platform',
       );
@@ -278,7 +283,7 @@ describe('CookieAuthorizationService', () => {
     expect(initial.every(({ updatedAt }) => updatedAt === null)).toBe(true);
 
     for (const { platform } of COOKIE_PLATFORMS) {
-      const saved = await service.saveConfiguration(
+      const saved = await service.createConfiguration(
         platform,
         source(VALID_COOKIE_A),
       );
@@ -318,11 +323,26 @@ describe('CookieAuthorizationService', () => {
     ]);
   });
 
+  it('separates create and update existence requirements', async () => {
+    const { service } = await createService();
+    await expectBusinessError(
+      service.updateConfiguration('youtube', source(VALID_COOKIE_A)),
+      'VALIDATION_ERROR',
+      'cookie configuration is not configured',
+    );
+    await service.createConfiguration('youtube', source(VALID_COOKIE_A));
+    await expectBusinessError(
+      service.createConfiguration('youtube', source(VALID_COOKIE_B)),
+      'VALIDATION_ERROR',
+      'cookie configuration already exists',
+    );
+  });
+
   it('fully replaces one file and advances only its successful update time', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-21T08:30:00.000Z'));
     const { storage, service } = await createService();
-    const first = await service.saveConfiguration(
+    const first = await service.createConfiguration(
       'youtube',
       source(VALID_COOKIE_A),
     );
@@ -331,7 +351,7 @@ describe('CookieAuthorizationService', () => {
     );
 
     vi.setSystemTime(new Date('2026-07-21T08:30:01.000Z'));
-    const second = await service.saveConfiguration(
+    const second = await service.updateConfiguration(
       'youtube',
       source(VALID_COOKIE_B),
     );
@@ -355,11 +375,11 @@ describe('CookieAuthorizationService', () => {
   it('serializes modifications to the same platform in arrival order', async () => {
     const { storage, service } = await createService();
     const firstSource = new PassThrough();
-    const first = service.saveConfiguration('youtube', firstSource);
+    const first = service.createConfiguration('youtube', firstSource);
     await nextTurn();
 
     let secondSettled = false;
-    const second = service.saveConfiguration(
+    const second = service.updateConfiguration(
       'youtube',
       source(VALID_COOKIE_B),
     );
@@ -385,10 +405,10 @@ describe('CookieAuthorizationService', () => {
   it('does not block a different platform behind an unfinished upload', async () => {
     const { service } = await createService();
     const blockedSource = new PassThrough();
-    const blocked = service.saveConfiguration('youtube', blockedSource);
+    const blocked = service.createConfiguration('youtube', blockedSource);
     await nextTurn();
 
-    const independent = await service.saveConfiguration(
+    const independent = await service.createConfiguration(
       'bilibili',
       source(VALID_COOKIE_A),
     );
@@ -401,7 +421,7 @@ describe('CookieAuthorizationService', () => {
   it('creates temporary files with restricted permissions while streaming', async () => {
     const { storage, service } = await createService();
     const input = new PassThrough();
-    const saving = service.saveConfiguration('facebook', input);
+    const saving = service.createConfiguration('facebook', input);
     const temporaryPath = join(storage, '.facebook.cookies.txt.pending');
     await waitForPath(temporaryPath);
 
@@ -425,7 +445,7 @@ describe('CookieAuthorizationService', () => {
     'keeps the prior file and mtime unchanged when replacement fails at %s',
     async (failureCase, stage, code, message) => {
       const { storage, service } = await createService();
-      await service.saveConfiguration('youtube', source(VALID_COOKIE_A));
+      await service.createConfiguration('youtube', source(VALID_COOKIE_A));
       const before = await replacementSnapshot(service, storage);
       expect(before.configured).toBe(true);
       replacementFailure.stage = stage;
@@ -436,7 +456,7 @@ describe('CookieAuthorizationService', () => {
           : VALID_COOKIE_B;
       let expectedFailure = false;
       try {
-        await service.saveConfiguration('youtube', source(replacement));
+        await service.updateConfiguration('youtube', source(replacement));
       } catch (error) {
         expectedFailure =
           error instanceof BusinessError &&
@@ -452,7 +472,7 @@ describe('CookieAuthorizationService', () => {
 
   it('preserves configured state when deletion fails', async () => {
     const { storage, service } = await createService();
-    await service.saveConfiguration('douyin', source(VALID_COOKIE_A));
+    await service.createConfiguration('douyin', source(VALID_COOKIE_A));
     const before = (await service.listConfigurations())[4];
     await chmod(storage, 0o500);
     try {
@@ -487,7 +507,7 @@ describe('CookieAuthorizationService', () => {
       'cookie persistence failed',
     );
     await expectBusinessError(
-      service.saveConfiguration('bilibili', source(VALID_COOKIE_A)),
+      service.createConfiguration('bilibili', source(VALID_COOKIE_A)),
       'PERSISTENCE_ERROR',
       'cookie persistence failed',
     );
@@ -503,7 +523,7 @@ describe('CookieAuthorizationService', () => {
     );
     let caught: unknown;
     try {
-      await service.saveConfiguration('x', failingSource);
+      await service.createConfiguration('x', failingSource);
     } catch (error) {
       caught = error;
     }
@@ -533,7 +553,7 @@ describe('Netscape cookie format boundary', () => {
     ],
   ])('accepts %s', async (_description, content) => {
     const { service } = await createService();
-    const saved = await service.saveConfiguration('youtube', source(content));
+    const saved = await service.createConfiguration('youtube', source(content));
     expect(saved.configured).toBe(true);
     expect(saved.updatedAt === null).toBe(false);
   });
@@ -544,7 +564,7 @@ describe('Netscape cookie format boundary', () => {
   ])('reports an empty file for %s', async (_description, content) => {
     const { storage, service } = await createService();
     await expectBusinessError(
-      service.saveConfiguration('youtube', source(content)),
+      service.createConfiguration('youtube', source(content)),
       'VALIDATION_ERROR',
       'cookie file is empty',
     );
@@ -606,7 +626,7 @@ describe('Netscape cookie format boundary', () => {
   ])('rejects %s', async (_description, content) => {
     const { storage, service } = await createService();
     await expectBusinessError(
-      service.saveConfiguration('youtube', source(content)),
+      service.createConfiguration('youtube', source(content)),
       'VALIDATION_ERROR',
       'invalid Netscape cookie file',
     );
@@ -622,7 +642,7 @@ describe('Netscape cookie format boundary', () => {
       `# Netscape HTTP Cookie File\r\n${VALID_COOKIE_A}${VALID_COOKIE_B}`,
     );
     const chunks = Array.from(content, (byte) => Buffer.from([byte]));
-    const saved = await service.saveConfiguration(
+    const saved = await service.createConfiguration(
       'facebook',
       Readable.from(chunks),
     );

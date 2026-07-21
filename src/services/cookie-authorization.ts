@@ -279,14 +279,30 @@ export class CookieAuthorizationService {
     }
   }
 
-  async saveConfiguration(
+  async createConfiguration(
     platform: string,
     source: Readable,
   ): Promise<CookieConfiguration> {
     const definition = getPlatformDefinition(platform);
-    return await this.runExclusive(definition.platform, () =>
-      this.save(definition, source),
-    );
+    return await this.runExclusive(definition.platform, async () => {
+      if (await this.configurationExists(definition)) {
+        throw validationError('cookie configuration already exists');
+      }
+      return await this.save(definition, source);
+    });
+  }
+
+  async updateConfiguration(
+    platform: string,
+    source: Readable,
+  ): Promise<CookieConfiguration> {
+    const definition = getPlatformDefinition(platform);
+    return await this.runExclusive(definition.platform, async () => {
+      if (!(await this.configurationExists(definition))) {
+        throw validationError('cookie configuration is not configured');
+      }
+      return await this.save(definition, source);
+    });
   }
 
   async deleteConfiguration(platform: string): Promise<CookieConfiguration> {
@@ -442,6 +458,19 @@ export class CookieAuthorizationService {
       if (!status.isFile()) throw new Error('not a regular file');
     } catch (error) {
       if (!isNotFound(error)) throw error;
+    }
+  }
+
+  private async configurationExists(
+    definition: PlatformDefinition,
+  ): Promise<boolean> {
+    try {
+      const status = await lstat(this.finalPath(definition));
+      if (!status.isFile()) throw new Error('not a regular file');
+      return true;
+    } catch (error) {
+      if (isNotFound(error)) return false;
+      throw persistenceError();
     }
   }
 
