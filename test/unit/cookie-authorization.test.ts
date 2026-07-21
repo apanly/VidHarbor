@@ -340,6 +340,9 @@ describe('CookieAuthorizationService', () => {
     expect(secondDigest === firstDigest).toBe(false);
     expect(first.updatedAt).toBe('2026-07-21T08:30:00.000Z');
     expect(second.updatedAt).toBe('2026-07-21T08:30:01.000Z');
+    expect(second.updatedAt).toBe(
+      (await lstat(join(storage, 'youtube.cookies.txt'))).mtime.toISOString(),
+    );
     expect(listed[0]?.updatedAt).toBe(second.updatedAt);
     expect(listed.slice(1).every(({ configured }) => !configured)).toBe(true);
   });

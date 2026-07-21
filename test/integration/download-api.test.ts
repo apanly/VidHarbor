@@ -48,7 +48,7 @@ const VALID_COOKIE_FILE = Buffer.from(
 );
 
 interface YtDlpInvocation {
-  readonly args: string[];
+  readonly noPlaylist: boolean;
   readonly cookieArgumentReference: boolean;
   readonly cookieValueArgumentReference: boolean;
   readonly cookieStorageArgumentReference: boolean;
@@ -109,15 +109,6 @@ const cookieValueArgumentReference = args.some((argument) =>
 const cookieStorageArgumentReference = args.some((argument) =>
   argument.includes(${cookieStorageDirectory})
 );
-const sanitizedArgs = args.filter((argument, index) => {
-  const previous = args[index - 1];
-  return argument !== '--cookies' && !argument.startsWith('--cookies=') &&
-    argument !== '--cookies-from-browser' && !argument.startsWith('--cookies-from-browser=') &&
-    previous !== '--cookies' && previous !== '--cookies-from-browser' &&
-    !/^cookie:/iu.test(argument) &&
-    !argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) &&
-    !argument.includes(${cookieStorageDirectory});
-});
 const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
   /cookie/iu.test(name)
 );
@@ -125,7 +116,14 @@ const cookieEnvironmentReference = Object.values(process.env).some((value) =>
   value?.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) ||
   value?.includes(${cookieStorageDirectory})
 );
-appendFileSync(${invocationLogPath}, JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference }) + '\\n');
+appendFileSync(${invocationLogPath}, JSON.stringify({
+  noPlaylist: args.includes('--no-playlist'),
+  cookieArgumentReference,
+  cookieValueArgumentReference,
+  cookieStorageArgumentReference,
+  cookieEnvironmentNameReference,
+  cookieEnvironmentReference,
+}) + '\\n');
 if (url === 'https://www.youtube.com/watch?v=${SECOND_PLATFORM_VIDEO_ID}' || url === 'https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Youtube',
@@ -207,6 +205,9 @@ async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
 }
 
 function expectNoCookieReferences(invocation: YtDlpInvocation): void {
+  expect(
+    Object.values(invocation).every((value) => typeof value === 'boolean'),
+  ).toBe(true);
   expect(invocation.cookieArgumentReference).toBe(false);
   expect(invocation.cookieValueArgumentReference).toBe(false);
   expect(invocation.cookieStorageArgumentReference).toBe(false);
@@ -602,7 +603,7 @@ describe('download API', () => {
     const [invocation] = await readYtDlpInvocations();
     if (invocation === undefined) throw new Error('yt-dlp was not invoked');
     expectNoCookieReferences(invocation);
-    expect(invocation.args).toContain('--no-playlist');
+    expect(invocation.noPlaylist).toBe(true);
     expect(database.prepare('SELECT platform, duration_seconds FROM downloads').get())
       .toEqual({ platform: 'generic', duration_seconds: 126 });
   });

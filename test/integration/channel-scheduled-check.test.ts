@@ -25,7 +25,7 @@ const VALID_COOKIE_FILE = Buffer.from(
 );
 
 interface YtDlpInvocation {
-  readonly args: string[];
+  readonly hasDateAfter: boolean;
   readonly cookieArgumentReference: boolean;
   readonly cookieValueArgumentReference: boolean;
   readonly cookieStorageArgumentReference: boolean;
@@ -111,15 +111,6 @@ const cookieValueArgumentReference = args.some((argument) =>
 const cookieStorageArgumentReference = args.some((argument) =>
   argument.includes(${cookieStorageDirectory})
 );
-const sanitizedArgs = args.filter((argument, index) => {
-  const previous = args[index - 1];
-  return argument !== '--cookies' && !argument.startsWith('--cookies=') &&
-    argument !== '--cookies-from-browser' && !argument.startsWith('--cookies-from-browser=') &&
-    previous !== '--cookies' && previous !== '--cookies-from-browser' &&
-    !/^cookie:/iu.test(argument) &&
-    !argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) &&
-    !argument.includes(${cookieStorageDirectory});
-});
 const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
   /cookie/iu.test(name)
 );
@@ -134,9 +125,17 @@ const cookieEnvironmentReference = hasCookieEnvironmentReference(process.env);
 const genericCookieEnvironmentFixtureDetected = hasCookieEnvironmentReference({
   VIDHARBOR_TEST_REFERENCE: '--CoOkIeS-from-browser=chromium',
 });
-appendFileSync(${invocationLogPath}, JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference, genericCookieEnvironmentFixtureDetected }) + '\\n');
 const dateAfterIndex = args.indexOf('--dateafter');
 const dateAfter = dateAfterIndex === -1 ? undefined : args[dateAfterIndex + 1];
+appendFileSync(${invocationLogPath}, JSON.stringify({
+  hasDateAfter: dateAfter !== undefined,
+  cookieArgumentReference,
+  cookieValueArgumentReference,
+  cookieStorageArgumentReference,
+  cookieEnvironmentNameReference,
+  cookieEnvironmentReference,
+  genericCookieEnvironmentFixtureDetected,
+}) + '\\n');
 if (url === 'https://www.youtube.com/@failure/videos') {
   process.stderr.write('cannot use ${PROXY_URL} with alice:secret');
   process.exit(3);
@@ -168,6 +167,9 @@ async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
 }
 
 function expectNoCookieReferences(invocation: YtDlpInvocation): void {
+  expect(
+    Object.values(invocation).every((value) => typeof value === 'boolean'),
+  ).toBe(true);
   expect(invocation.cookieArgumentReference).toBe(false);
   expect(invocation.cookieValueArgumentReference).toBe(false);
   expect(invocation.cookieStorageArgumentReference).toBe(false);
@@ -327,7 +329,7 @@ describe('scheduled channel checks', () => {
     expect(invocations).toHaveLength(2);
     for (const invocation of invocations) {
       expectNoCookieReferences(invocation);
-      expect(invocation.args).toContain('--dateafter');
+      expect(invocation.hasDateAfter).toBe(true);
     }
   });
 

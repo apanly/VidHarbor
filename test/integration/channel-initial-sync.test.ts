@@ -25,7 +25,11 @@ const VALID_COOKIE_FILE = Buffer.from(
 );
 
 interface YtDlpInvocation {
-  readonly args: string[];
+  readonly flatPlaylist: boolean;
+  readonly noPlaylist: boolean;
+  readonly bilibiliVideo: boolean;
+  readonly hasDateAfter: boolean;
+  readonly hasInitialDateBoundary: boolean;
   readonly cookieArgumentReference: boolean;
   readonly cookieValueArgumentReference: boolean;
   readonly cookieStorageArgumentReference: boolean;
@@ -138,15 +142,6 @@ const cookieValueArgumentReference = args.some((argument) =>
 const cookieStorageArgumentReference = args.some((argument) =>
   argument.includes(${cookieStorageDirectory})
 );
-const sanitizedArgs = args.filter((argument, index) => {
-  const previous = args[index - 1];
-  return argument !== '--cookies' && !argument.startsWith('--cookies=') &&
-    argument !== '--cookies-from-browser' && !argument.startsWith('--cookies-from-browser=') &&
-    previous !== '--cookies' && previous !== '--cookies-from-browser' &&
-    !/^cookie:/iu.test(argument) &&
-    !argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) &&
-    !argument.includes(${cookieStorageDirectory});
-});
 const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
   /cookie/iu.test(name)
 );
@@ -161,7 +156,21 @@ const cookieEnvironmentReference = hasCookieEnvironmentReference(process.env);
 const genericCookieEnvironmentFixtureDetected = hasCookieEnvironmentReference({
   VIDHARBOR_TEST_REFERENCE: '--CoOkIeS-from-browser=chromium',
 });
-appendFileSync(${invocationLogPath}, JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference, genericCookieEnvironmentFixtureDetected }) + '\\n');
+const dateAfterIndex = args.indexOf('--dateafter');
+const dateAfter = dateAfterIndex === -1 ? undefined : args[dateAfterIndex + 1];
+appendFileSync(${invocationLogPath}, JSON.stringify({
+  flatPlaylist: args.includes('--flat-playlist'),
+  noPlaylist: args.includes('--no-playlist'),
+  bilibiliVideo: url?.startsWith('https://www.bilibili.com/video/') === true,
+  hasDateAfter: dateAfter !== undefined,
+  hasInitialDateBoundary: dateAfter === '20250717',
+  cookieArgumentReference,
+  cookieValueArgumentReference,
+  cookieStorageArgumentReference,
+  cookieEnvironmentNameReference,
+  cookieEnvironmentReference,
+  genericCookieEnvironmentFixtureDetected,
+}) + '\\n');
 if (url === 'https://space.bilibili.com/3985676/video' && !args.includes('--flat-playlist')) process.exit(10);
 if (url?.startsWith('https://www.bilibili.com/video/') && !args.includes('--no-playlist')) process.exit(11);
 if (url === 'https://www.youtube.com/@failure/videos') {
@@ -189,6 +198,9 @@ async function readYtDlpInvocations(): Promise<YtDlpInvocation[]> {
 }
 
 function expectNoCookieReferences(invocation: YtDlpInvocation): void {
+  expect(
+    Object.values(invocation).every((value) => typeof value === 'boolean'),
+  ).toBe(true);
   expect(invocation.cookieArgumentReference).toBe(false);
   expect(invocation.cookieValueArgumentReference).toBe(false);
   expect(invocation.cookieStorageArgumentReference).toBe(false);
@@ -315,11 +327,11 @@ describe('channel initial synchronization', () => {
     expect(count('notifications')).toBe(0);
     const invocations = await readYtDlpInvocations();
     for (const invocation of invocations) expectNoCookieReferences(invocation);
-    expect(invocations[0]?.args).toContain('--flat-playlist');
+    expect(invocations[0]?.flatPlaylist).toBe(true);
     expect(
       invocations
-        .filter((invocation) => invocation.args.at(-1)?.includes('/video/'))
-        .every((invocation) => invocation.args.includes('--no-playlist')),
+        .filter((invocation) => invocation.bilibiliVideo)
+        .every((invocation) => invocation.noPlaylist),
     ).toBe(true);
   });
 
@@ -403,8 +415,8 @@ describe('channel initial synchronization', () => {
     const [invocation] = await readYtDlpInvocations();
     if (invocation === undefined) throw new Error('yt-dlp was not invoked');
     expectNoCookieReferences(invocation);
-    expect(invocation.args).toContain('--dateafter');
-    expect(invocation.args).toContain('20250717');
+    expect(invocation.hasDateAfter).toBe(true);
+    expect(invocation.hasInitialDateBoundary).toBe(true);
   });
 
   it('uses exactly the selected proxy and honors a channel interval override', async () => {

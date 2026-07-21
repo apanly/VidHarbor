@@ -296,6 +296,17 @@ describe('server lifecycle', () => {
     expect((await lstat(temporaryPath)).isSymbolicLink()).toBe(true);
   });
 
+  it('does not listen when an exact Cookie temporary path is a FIFO', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    const temporaryPath = join(storage, '.youtube.cookies.txt.pending');
+    await mkdir(storage);
+    await execFileAsync('mkfifo', [temporaryPath]);
+
+    await expectCookieInitializationFailure(config, [storage, temporaryPath]);
+    expect((await lstat(temporaryPath)).isFIFO()).toBe(true);
+  });
+
   it('does not listen when an exact Cookie temporary path cannot be inspected', async () => {
     const config = await createConfig();
     const storage = cookieStoragePath(config);

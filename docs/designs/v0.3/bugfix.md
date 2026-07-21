@@ -37,3 +37,23 @@
 ## bugfix-10 · 检测队列嵌套字符串中的通用 Cookie 引用
 - 关联 task: task-19
 - 描述: `test/integration/download-api.test.ts:218` 的递归检查只识别固定 marker 和当前存储目录，可能放过顶层或 `advancedOptions` 中其他 `--cookies`、`--cookies-from-browser` 等字符串。加入确定性的大小写不敏感通用 Cookie 引用检查及对应负向夹具，matcher 仍只接收最终布尔值。
+
+## bugfix-11 · yt-dlp 隔离夹具只记录非敏感协议事实
+- 关联 task: -
+- 描述: `test/integration/channel-initial-sync.test.ts:164` 及 scheduled-check、download-worker、yt-dlp 同类夹具仍记录 `sanitizedArgs`，可能把带凭据的代理 URL 写入临时日志或断言 diff。子进程内将所需协议事实转换为布尔值，只记录这些布尔值和 Cookie 引用检测结果，不记录原始参数数组。
+
+## bugfix-12 · 保存响应使用最终文件 mtime
+- 关联 task: -
+- 描述: `src/services/cookie-authorization.ts:344` 在 rename 后直接返回调用 utimes 时构造的时间，可能与文件系统精度舍入后的真实 mtime 不一致。rename 成功后 lstat 最终路径、确认普通文件，并以其 mtime 作为 `updatedAt` 唯一事实源；读取失败按固定持久化错误处理并补测试。
+
+## bugfix-13 · 覆盖 pending FIFO 启动安全边界
+- 关联 task: -
+- 描述: `test/integration/server-lifecycle.test.ts:281` 未覆盖固定 pending 路径为 FIFO 的明确安全边界。增加 FIFO 用例，证明启动以固定 `cookie persistence failed` 失败、Server.listen 不调用、FIFO 不删除，且敏感路径不进入 matcher 或日志；若环境创建 FIFO 有明确项目约定则按该约定测试。
+
+## bugfix-14 · 断言上传失败的固定非敏感反馈
+- 关联 task: -
+- 描述: `test/integration/pages.test.ts:729` 的失败上传路径只检查文件控件与既有状态，没有验证卡片错误节点。暴露测试夹具中的 error 节点，断言固定公开错误文本、可见状态、不含 sensitiveMarker，并继续证明状态保持“已配置”且不产生第三种状态。
+
+## bugfix-15 · 限定禁止读取所选 File 内容的测试契约
+- 关联 task: -
+- 描述: `test/integration/pages.test.ts:767` 的通用 `\.text\(\)` 正则会错误禁止合法的 `Response.text()`。将断言限定为所选 File 的 `text()` 调用，或用 fake File 调用标记证明未读取文件内容；保留 localStorage/sessionStorage 的独立禁止断言。

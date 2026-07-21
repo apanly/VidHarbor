@@ -544,6 +544,7 @@ describe('server-rendered pages', () => {
         time,
         submit,
         deleteContainer,
+        error,
         fileControl,
         form,
       };
@@ -582,6 +583,14 @@ describe('server-rendered pages', () => {
       `${sensitiveMarker}.txt`,
       { type: 'text/plain' },
     );
+    let selectedFileTextRead = false;
+    Object.defineProperty(selectedFile, 'text', {
+      configurable: true,
+      value: async () => {
+        selectedFileTextRead = true;
+        return sensitiveMarker;
+      },
+    });
     const requestSummaries: Array<{
       path: string;
       method: string;
@@ -736,6 +745,13 @@ describe('server-rendered pages', () => {
     expect(requestSummaries[2]?.bodyIsSelectedFile).toBe(true);
     expect(youtube.fileControl.value === '').toBe(true);
     expect(youtube.status.textContent === '已配置').toBe(true);
+    expect(youtube.status.hidden).toBe(false);
+    expect(
+      youtube.error.textContent ===
+        'VALIDATION_ERROR: invalid Netscape cookie file',
+    ).toBe(true);
+    expect(youtube.error.hidden).toBe(false);
+    expect(youtube.error.textContent.includes(sensitiveMarker)).toBe(false);
 
     const deleteButton = bilibili.deleteContainer.children[0];
     await deleteButton.listeners.get('click')!({ preventDefault: () => undefined });
@@ -764,7 +780,8 @@ describe('server-rendered pages', () => {
       [...script.matchAll(/configuration\.([A-Za-z]+)/g)].map((match) => match[1]),
     )].sort();
     expect(publicConfigurationFields).toEqual(['configured', 'platform', 'updatedAt']);
-    expect(script).not.toMatch(/File\.text|\.text\(\)|localStorage|sessionStorage/);
+    expect(selectedFileTextRead).toBe(false);
+    expect(script).not.toMatch(/localStorage|sessionStorage/);
     expect(script).not.toMatch(/file\.(?:name|path)|previewUrl|downloadUrl/);
     const visibleState = allNodes.flatMap((current) => [
       current.textContent,

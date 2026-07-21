@@ -341,12 +341,15 @@ export class CookieAuthorizationService {
       await handle.close();
       handle = undefined;
 
-      await rename(temporaryPath, this.finalPath(definition));
+      const finalPath = this.finalPath(definition);
+      await rename(temporaryPath, finalPath);
       committed = true;
+      const finalStatus = await lstat(finalPath);
+      if (!finalStatus.isFile()) throw new Error('not a regular file');
       return {
         platform: definition.platform,
         configured: true,
-        updatedAt: updatedAt.toISOString(),
+        updatedAt: finalStatus.mtime.toISOString(),
       };
     } catch (error) {
       failure = error;

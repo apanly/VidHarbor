@@ -103,7 +103,13 @@ const PROCESS_FIXTURE_PATH = fileURLToPath(
 );
 
 interface YtDlpInvocation {
-  readonly args: string[];
+  readonly hasProxy: boolean;
+  readonly hasExpectedProxy: boolean;
+  readonly noPlaylist: boolean;
+  readonly thumbnail: boolean;
+  readonly writesThumbnail: boolean;
+  readonly hasFormat: boolean;
+  readonly hasPrint: boolean;
   readonly cookieArgumentReference: boolean;
   readonly cookieValueArgumentReference: boolean;
   readonly cookieStorageArgumentReference: boolean;
@@ -157,15 +163,6 @@ const cookieValueArgumentReference = args.some((argument) =>
 const cookieStorageArgumentReference = args.some((argument) =>
   argument.includes(${cookieStorageDirectory})
 );
-const sanitizedArgs = args.filter((argument, index) => {
-  const previous = args[index - 1];
-  return argument !== '--cookies' && !argument.startsWith('--cookies=') &&
-    argument !== '--cookies-from-browser' && !argument.startsWith('--cookies-from-browser=') &&
-    previous !== '--cookies' && previous !== '--cookies-from-browser' &&
-    !/^cookie:/iu.test(argument) &&
-    !argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) &&
-    !argument.includes(${cookieStorageDirectory});
-});
 const cookieEnvironmentNameReference = Object.keys(process.env).some((name) =>
   /cookie/iu.test(name)
 );
@@ -180,9 +177,24 @@ const cookieEnvironmentReference = hasCookieEnvironmentReference(process.env);
 const genericCookieEnvironmentFixtureDetected = hasCookieEnvironmentReference({
   VIDHARBOR_TEST_REFERENCE: '--CoOkIeS-from-browser=chromium',
 });
-appendFileSync(${invocationLogPath}, JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference, genericCookieEnvironmentFixtureDetected }) + '\\n');
+const proxyIndex = args.indexOf('--proxy');
+appendFileSync(${invocationLogPath}, JSON.stringify({
+  hasProxy: proxyIndex !== -1,
+  hasExpectedProxy: proxyIndex !== -1 && args[proxyIndex + 1] === ${JSON.stringify(PROXY_URL)},
+  noPlaylist: args.includes('--no-playlist'),
+  thumbnail: args.includes('--skip-download'),
+  writesThumbnail: args.includes('--write-thumbnail'),
+  hasFormat: args.includes('--format'),
+  hasPrint: args.includes('--print'),
+  cookieArgumentReference,
+  cookieValueArgumentReference,
+  cookieStorageArgumentReference,
+  cookieEnvironmentNameReference,
+  cookieEnvironmentReference,
+  genericCookieEnvironmentFixtureDetected,
+}) + '\\n');
 const result = spawnSync(process.execPath, [${JSON.stringify(PROCESS_FIXTURE_PATH)}, ...args], {
-  env: process.env,
+  env: { ...process.env, VIDHARBOR_FAKE_YT_DLP_LOG_ARGS: '0' },
   stdio: 'inherit',
 });
 if (result.error !== undefined) throw result.error;
@@ -214,6 +226,9 @@ async function readCookieBoundaryInvocations(): Promise<YtDlpInvocation[]> {
 }
 
 function expectNoCookieReferences(invocation: YtDlpInvocation): void {
+  expect(
+    Object.values(invocation).every((value) => typeof value === 'boolean'),
+  ).toBe(true);
   expect(invocation.cookieArgumentReference).toBe(false);
   expect(invocation.cookieValueArgumentReference).toBe(false);
   expect(invocation.cookieStorageArgumentReference).toBe(false);
@@ -870,42 +885,51 @@ if (args.includes('--skip-download')) {
     worker.enqueue(job(directId, SECOND_VIDEO_ID, 'fixture://worker-second'));
     await worker.waitForIdle();
 
-    const invocations = (await readFile(join(sandbox, 'argv.log'), 'utf8'))
-      .trimEnd()
-      .split('\n')
-      .map((line) => JSON.parse(line) as string[]);
-    const proxyArguments = invocations[0]?.flatMap((argument, index, all) =>
-      argument === '--proxy' ? [all[index + 1]] : [],
-    );
-    expect(proxyArguments).toEqual([PROXY_URL]);
-    expect(invocations[1]).not.toContain('--proxy');
-
     const boundaryInvocations = await readCookieBoundaryInvocations();
     expect(boundaryInvocations).toHaveLength(4);
     for (const invocation of boundaryInvocations) {
       expectNoCookieReferences(invocation);
-      expect(invocation.args).toContain('--no-playlist');
+      expect(invocation.noPlaylist).toBe(true);
     }
+    expect(boundaryInvocations.map(({ hasProxy }) => hasProxy)).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+    expect(boundaryInvocations.map(({ hasExpectedProxy }) => hasExpectedProxy)).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
     const thumbnailInvocations = boundaryInvocations.filter((invocation) =>
-      invocation.args.includes('--skip-download'),
+      invocation.thumbnail,
     );
     expect(thumbnailInvocations).toHaveLength(2);
     expect(
       thumbnailInvocations.every((invocation) =>
-        invocation.args.includes('--write-thumbnail'),
+        invocation.writesThumbnail,
       ),
     ).toBe(true);
     const mediaInvocations = boundaryInvocations.filter(
-      (invocation) => !invocation.args.includes('--skip-download'),
+      (invocation) => !invocation.thumbnail,
     );
     expect(mediaInvocations).toHaveLength(2);
     expect(
       mediaInvocations.every(
         (invocation) =>
-          invocation.args.includes('--format') &&
-          invocation.args.includes('--print'),
+          invocation.hasFormat && invocation.hasPrint,
       ),
     ).toBe(true);
+    const rawArgumentLogExists = await access(join(sandbox, 'argv.log')).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      },
+    );
+    expect(rawArgumentLogExists).toBe(false);
   });
 
   it('persists a redacted process failure and continues with the next FIFO item', async () => {

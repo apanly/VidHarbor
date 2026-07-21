@@ -33,7 +33,9 @@ if (url?.startsWith('fixture://worker-')) {
     process.exit(0);
   }
   const filepath = output.replace('%(id)s', id).replace('%(ext)s', 'mp4');
-  await appendFile(join(controlDirectory, 'argv.log'), `${JSON.stringify(args)}\n`);
+  if (process.env.VIDHARBOR_FAKE_YT_DLP_LOG_ARGS !== '0') {
+    await appendFile(join(controlDirectory, 'argv.log'), `${JSON.stringify(args)}\n`);
+  }
   await appendFile(join(controlDirectory, 'execution.log'), `start:${url}\n`);
 
   if (url === 'fixture://worker-block-first') {

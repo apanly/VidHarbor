@@ -26,7 +26,7 @@ const VALID_COOKIE_FILE = Buffer.from(
 );
 
 interface YtDlpInvocation {
-  readonly args: string[];
+  readonly hasProxy: boolean;
   readonly cookieArgumentReference: boolean;
   readonly cookieValueArgumentReference: boolean;
   readonly cookieStorageArgumentReference: boolean;
@@ -36,6 +36,9 @@ interface YtDlpInvocation {
 }
 
 function expectNoCookieArguments(invocation: YtDlpInvocation): void {
+  expect(
+    Object.values(invocation).every((value) => typeof value === 'boolean'),
+  ).toBe(true);
   expect(invocation.cookieArgumentReference).toBe(false);
   expect(invocation.cookieValueArgumentReference).toBe(false);
   expect(invocation.cookieStorageArgumentReference).toBe(false);
@@ -162,18 +165,6 @@ const cookieValueArgumentReference = args.some((argument) =>
 const cookieStorageArgumentReference = args.some((argument) =>
   argument.includes(${JSON.stringify(cookieStorageDirectory)})
 );
-const sanitizedArgs = args.filter((argument, index) => {
-  const previous = args[index - 1];
-  return argument !== '--cookies' &&
-    !argument.startsWith('--cookies=') &&
-    argument !== '--cookies-from-browser' &&
-    !argument.startsWith('--cookies-from-browser=') &&
-    previous !== '--cookies' &&
-    previous !== '--cookies-from-browser' &&
-    !/^cookie:/iu.test(argument) &&
-    !argument.includes(${JSON.stringify(COOKIE_VALUE_MARKER)}) &&
-    !argument.includes(${JSON.stringify(cookieStorageDirectory)});
-});
 const cookieEnvironmentNameReference = Object.keys(process.env).some((name) => /cookie/iu.test(name));
 const hasCookieEnvironmentReference = (environment) => Object.values(environment).some((value) =>
   typeof value === 'string' && (
@@ -186,7 +177,15 @@ const cookieEnvironmentReference = hasCookieEnvironmentReference(process.env);
 const genericCookieEnvironmentFixtureDetected = hasCookieEnvironmentReference({
   VIDHARBOR_TEST_REFERENCE: '--CoOkIeS-from-browser=chromium',
 });
-process.stdout.write(JSON.stringify({ args: sanitizedArgs, cookieArgumentReference, cookieValueArgumentReference, cookieStorageArgumentReference, cookieEnvironmentNameReference, cookieEnvironmentReference, genericCookieEnvironmentFixtureDetected }) + '\\n');
+process.stdout.write(JSON.stringify({
+  hasProxy: args.includes('--proxy'),
+  cookieArgumentReference,
+  cookieValueArgumentReference,
+  cookieStorageArgumentReference,
+  cookieEnvironmentNameReference,
+  cookieEnvironmentReference,
+  genericCookieEnvironmentFixtureDetected,
+}) + '\\n');
 `,
         'utf8',
       );
@@ -202,7 +201,7 @@ process.stdout.write(JSON.stringify({ args: sanitizedArgs, cookieArgumentReferen
       });
       const invocation = result as unknown as YtDlpInvocation;
 
-      expect(invocation.args).not.toContain('--proxy');
+      expect(invocation.hasProxy).toBe(false);
       expectNoCookieArguments(invocation);
     } finally {
       await rm(sandbox, { recursive: true, force: true });
