@@ -110,7 +110,7 @@ function createDownloadCard(download) {
   const article = document.createElement('article'); article.className = 'download-card'; article.dataset.downloadId = String(download.id);
   const header = document.createElement('header'); header.className = 'download-card-header';
   const identity = document.createElement('div'); identity.className = 'download-card-identity';
-  const thumbnail = document.createElement('img'); thumbnail.className = 'download-card-thumbnail'; thumbnail.alt = ''; thumbnail.hidden = true;
+  const thumbnail = document.createElement('img'); thumbnail.className = 'download-card-thumbnail'; thumbnail.alt = ''; thumbnail.referrerPolicy = 'no-referrer'; thumbnail.hidden = true;
   const title = fieldElement('h3', 'download-card-title', 'title');
   const meta = document.createElement('div'); meta.className = 'download-card-meta';
   const source = fieldElement('span', 'badge download-source', 'sourceType');

@@ -101,6 +101,7 @@ function renderVideo(video) {
     image.src = video.thumbnailUrl;
     image.alt = '';
     image.loading = 'lazy';
+    image.referrerPolicy = 'no-referrer';
     visual.append(image);
   } else {
     const placeholder = document.createElement('span');

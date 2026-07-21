@@ -518,6 +518,7 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('channel-back-link');
     expect(html).toContain('data-channel-id="7"');
     expect(script).toContain("const row = document.createElement('tr')");
+    expect(script).toContain("image.referrerPolicy = 'no-referrer'");
     expect(script).toContain('setChannelTab(button.dataset.channelTab)');
     expect(script).toContain("pending: '等待下载'");
     expect(script).toContain("completed: '下载完成'");
@@ -608,6 +609,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain("let selectedTab = 'completed'");
     expect(script).toContain("facebook: 'Facebook'");
     expect(script).toContain("douyin: '抖音'");
+    expect(script).toContain("thumbnail.referrerPolicy = 'no-referrer'");
     expect(html).not.toMatch(/name="(?:autoplay|autoDownload)"/);
     expect(html).not.toContain('proxy.url');
   });
