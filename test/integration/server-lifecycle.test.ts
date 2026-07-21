@@ -1,13 +1,43 @@
 import { execFile } from 'node:child_process';
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { Server } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const fsControl = vi.hoisted(() => ({
+  rejectedChmodPath: undefined as string | undefined,
+}));
+
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>(
+    'node:fs/promises',
+  );
+  const controlledChmod: typeof actual.chmod = async (path, mode) => {
+    if (String(path) === fsControl.rejectedChmodPath) {
+      throw Object.assign(new Error(`EACCES: cannot chmod ${String(path)}`), {
+        code: 'EACCES',
+      });
+    }
+    await actual.chmod(path, mode);
+  };
+  return { ...actual, chmod: controlledChmod };
+});
 
 import type { AppConfig } from '../../src/config.js';
 import { openDatabase } from '../../src/db/client.js';
@@ -25,6 +55,15 @@ const runningServers: RunningServer[] = [];
 const execFileAsync = promisify(execFile);
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const originalPath = process.env.PATH;
+const SENSITIVE_COOKIE_MARKER = 'server-lifecycle-cookie-secret';
+
+function cookieStoragePath(config: AppConfig): string {
+  return join(dirname(config.databasePath), 'cookies');
+}
+
+function permissionMode(value: number): number {
+  return value & 0o777;
+}
 
 async function expectStartupFailure(
   config: AppConfig,
@@ -67,6 +106,33 @@ async function createConfig(): Promise<AppConfig> {
   };
 }
 
+async function expectCookieInitializationFailure(
+  config: AppConfig,
+  sensitiveValues: readonly string[],
+): Promise<void> {
+  const listen = vi.spyOn(Server.prototype, 'listen');
+  const records: LifecycleLogRecord[] = [];
+  const failure = await startServer(config, (record) => records.push(record)).catch(
+    (error: unknown) => error,
+  );
+
+  if (!(failure instanceof Error)) {
+    runningServers.push(failure);
+  }
+  expect(failure).toBeInstanceOf(Error);
+  expect((failure as Error).message).toBe('cookie persistence failed');
+  expect(listen).not.toHaveBeenCalled();
+  expect(records).toEqual([]);
+
+  const exposed = JSON.stringify({
+    message: (failure as Error).message,
+    records,
+  });
+  for (const sensitiveValue of sensitiveValues) {
+    expect(exposed.includes(sensitiveValue)).toBe(false);
+  }
+}
+
 async function stop(server: RunningServer): Promise<void> {
   const index = runningServers.indexOf(server);
   if (index !== -1) runningServers.splice(index, 1);
@@ -81,6 +147,7 @@ function listenerNames(server: Server, event: string): string[] {
 }
 
 afterEach(async () => {
+  fsControl.rejectedChmodPath = undefined;
   vi.restoreAllMocks();
   process.env.PATH = originalPath;
   await Promise.allSettled(runningServers.splice(0).map((server) => server.stop()));
@@ -112,6 +179,109 @@ function directInput(url: string, proxyId: number | null) {
 }
 
 describe('server lifecycle', () => {
+  it('creates the Cookie storage beside the database with restricted permissions without changing lifecycle events', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    const records: LifecycleLogRecord[] = [];
+    await expect(access(storage)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const server = await startServer(config, (record) => records.push(record));
+    runningServers.push(server);
+
+    expect(permissionMode((await stat(storage)).mode)).toBe(0o700);
+    expect(records.map((record) => record.event)).toEqual([
+      'database_migrated',
+      'downloads_recovered',
+      'download_worker_started',
+      'scheduler_started',
+      'http_started',
+    ]);
+    await expect(
+      access(join(config.downloadsMountPath, 'cookies')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('secures fixed Cookie files, removes only exact temporary remnants, and preserves unknown files', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    const fixedFile = join(storage, 'youtube.cookies.txt');
+    const exactTemporaryFiles = [
+      '.youtube.cookies.txt.pending',
+      '.x.cookies.txt.pending',
+    ];
+    const unknownFiles = [
+      '.unrelated.pending',
+      '.youtube.cookies.txt.pending.backup',
+      'operator-notes.txt',
+    ];
+    await mkdir(storage, { mode: 0o777 });
+    await chmod(storage, 0o777);
+    await writeFile(fixedFile, SENSITIVE_COOKIE_MARKER, { mode: 0o666 });
+    await chmod(fixedFile, 0o666);
+    await Promise.all(
+      [...exactTemporaryFiles, ...unknownFiles].map((fileName) =>
+        writeFile(join(storage, fileName), SENSITIVE_COOKIE_MARKER),
+      ),
+    );
+
+    const server = await startServer(config, () => undefined);
+    runningServers.push(server);
+
+    expect(permissionMode((await stat(storage)).mode)).toBe(0o700);
+    expect(permissionMode((await stat(fixedFile)).mode)).toBe(0o600);
+    const entries = await readdir(storage);
+    expect(
+      exactTemporaryFiles.every((fileName) => !entries.includes(fileName)),
+    ).toBe(true);
+    expect(
+      unknownFiles.every((fileName) => entries.includes(fileName)),
+    ).toBe(true);
+  });
+
+  it('does not listen or expose sensitive data when the Cookie storage path is not a directory', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    await writeFile(storage, SENSITIVE_COOKIE_MARKER);
+
+    await expectCookieInitializationFailure(config, [
+      SENSITIVE_COOKIE_MARKER,
+      storage,
+    ]);
+  });
+
+  it('does not listen or expose sensitive data when a fixed Cookie path is not a regular file', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    const sensitiveTarget = join(dirname(config.databasePath), 'cookie-secret');
+    const fixedFile = join(storage, 'youtube.cookies.txt');
+    await mkdir(storage);
+    await writeFile(sensitiveTarget, SENSITIVE_COOKIE_MARKER);
+    await symlink(sensitiveTarget, fixedFile);
+
+    await expectCookieInitializationFailure(config, [
+      SENSITIVE_COOKIE_MARKER,
+      storage,
+      fixedFile,
+      sensitiveTarget,
+    ]);
+  });
+
+  it('does not listen or expose sensitive data when fixed Cookie file permissions cannot be corrected', async () => {
+    const config = await createConfig();
+    const storage = cookieStoragePath(config);
+    const fixedFile = join(storage, 'youtube.cookies.txt');
+    await mkdir(storage);
+    await writeFile(fixedFile, SENSITIVE_COOKIE_MARKER, { mode: 0o666 });
+    await chmod(fixedFile, 0o666);
+    fsControl.rejectedChmodPath = fixedFile;
+
+    await expectCookieInitializationFailure(config, [
+      SENSITIVE_COOKIE_MARKER,
+      storage,
+      fixedFile,
+    ]);
+  });
+
   it('fails startup when yt-dlp is not executable', async () => {
     const config = await createConfig();
     const originalPath = process.env.PATH;

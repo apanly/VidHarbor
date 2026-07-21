@@ -72,7 +72,7 @@
   2. `rg -n "createApiRouter\(" test/integration/{channel-notification-api,database-browser,download-api,settings-proxy-api}.test.ts` → 四个显式依赖注入入口仍可定位
 
 ## task-04 · 验证 Cookie 存储的服务生命周期边界
-- 状态: pending
+- 状态: done
 - 依赖: task-02
 - 文件范围:
   - test/integration/server-lifecycle.test.ts
