@@ -9,6 +9,7 @@ import { createApiRouter, createApp } from '../../src/app.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import type { DownloadQueue } from '../../src/services/download.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
@@ -34,6 +35,10 @@ beforeEach(async () => {
     enqueue: () => undefined,
     cancel: async () => undefined,
   };
+  const cookieAuthorizationService = new CookieAuthorizationService(
+    join(sandbox, 'cookies'),
+  );
+  await cookieAuthorizationService.initialize();
   const app = createApp(
     createApiRouter(
       database,
@@ -41,6 +46,7 @@ beforeEach(async () => {
       new RuntimeCoordinator(() => undefined),
       taskManager,
       queue,
+      cookieAuthorizationService,
     ),
   );
   app.set('views', new URL('../../src/views', import.meta.url).pathname);

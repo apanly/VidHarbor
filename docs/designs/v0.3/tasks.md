@@ -49,7 +49,7 @@
   2. `npm run build` → 新路由、必填依赖和启动接线通过编译
 
 ## task-03 · 更新现有 API 测试的必填 Cookie 服务夹具
-- 状态: pending
+- 状态: done
 - 依赖: task-02
 - 文件范围:
   - test/integration/channel-notification-api.test.ts

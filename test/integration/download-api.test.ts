@@ -8,6 +8,7 @@ import { createApiRouter, createApp } from '../../src/app.js';
 import { RuntimeCoordinator } from '../../src/runtime.js';
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import type {
   DownloadQueue,
   QueuedDownload,
@@ -16,8 +17,8 @@ import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const FIRST_PLATFORM_VIDEO_ID = 'aB_12-cD345';
 const SECOND_PLATFORM_VIDEO_ID = 'eF_67-gH890';
-const VIMEO_VIDEO_ID = '123456789';
-const VIMEO_VIDEO_URL = `https://vimeo.com/${VIMEO_VIDEO_ID}`;
+const GENERIC_VIDEO_ID = 'generic-123456789';
+const GENERIC_VIDEO_URL = `https://media.example/videos/${GENERIC_VIDEO_ID}`;
 const BILIBILI_VIDEO_ID = 'BV13x41117TL';
 const BILIBILI_VIDEO_URL = `https://www.bilibili.com/video/${BILIBILI_VIDEO_ID}`;
 const X_VIDEO_ID = '2001841416071450628';
@@ -78,11 +79,11 @@ if (url === 'https://www.youtube.com/watch?v=${SECOND_PLATFORM_VIDEO_ID}' || url
   }) + '\\n');
   process.exit(0);
 }
-if (url === '${VIMEO_VIDEO_URL}') {
+if (url === '${GENERIC_VIDEO_URL}') {
   process.stdout.write(JSON.stringify({
-    extractor_key: 'Vimeo',
-    id: '${VIMEO_VIDEO_ID}',
-    title: 'Vimeo video',
+    extractor_key: 'Generic',
+    id: '${GENERIC_VIDEO_ID}',
+    title: 'Generic video',
     duration: 125.2
   }) + '\\n');
   process.exit(0);
@@ -219,6 +220,10 @@ beforeEach(async () => {
     enqueue: (download) => queued.push(download),
     cancel: async () => undefined,
   };
+  const cookieAuthorizationService = new CookieAuthorizationService(
+    join(sandbox, 'cookies'),
+  );
+  await cookieAuthorizationService.initialize();
 
   const server = createApp(
     createApiRouter(
@@ -227,6 +232,7 @@ beforeEach(async () => {
       new RuntimeCoordinator((error) => runtimeErrors.push(error)),
       taskManager,
       queue,
+      cookieAuthorizationService,
     ),
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
@@ -295,8 +301,8 @@ describe('download API', () => {
           `INSERT INTO downloads (
             source_type, source_url, platform, platform_video_id, title,
             network_mode, status, created_at
-          ) VALUES ('direct', 'https://vimeo.com/987654321', 'vimeo',
-                    '987654321', 'Changed', 'direct', 'pending', ?)`,
+          ) VALUES ('direct', 'https://media.example/videos/changed', 'generic',
+                    'changed', 'Changed', 'direct', 'pending', ?)`,
         )
         .run('2026-07-17T09:00:00.000Z');
       await vi.advanceTimersByTimeAsync(10_000);
@@ -381,14 +387,14 @@ describe('download API', () => {
   });
 
   it('creates a generic direct download with 202 after metadata probing', async () => {
-    const response = await request('/downloads/direct', 'POST', directInput(VIMEO_VIDEO_URL, null));
+    const response = await request('/downloads/direct', 'POST', directInput(GENERIC_VIDEO_URL, null));
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
       download: {
         id: expect.any(Number),
         sourceType: 'direct',
-        title: 'Vimeo video',
+        title: 'Generic video',
         status: 'pending',
         outputPath: null,
         failureReason: null,
@@ -409,7 +415,7 @@ describe('download API', () => {
       { type: 'metadata_probe', status: 'succeeded' },
     ]);
     expect(database.prepare('SELECT platform, duration_seconds FROM downloads').get())
-      .toEqual({ platform: 'vimeo', duration_seconds: 126 });
+      .toEqual({ platform: 'generic', duration_seconds: 126 });
   });
 
   it.each([
@@ -528,11 +534,11 @@ describe('download API', () => {
       `INSERT INTO downloads (
         source_type, source_url, platform, platform_video_id, title,
         network_mode, status, created_at
-      ) VALUES ('direct', ?, 'vimeo', ?, ?, 'direct', 'pending', ?)`,
+      ) VALUES ('direct', ?, 'generic', ?, ?, 'direct', 'pending', ?)`,
     );
     for (let index = 1; index <= 21; index += 1) {
       insert.run(
-        `https://vimeo.com/${String(index)}`,
+        `https://media.example/videos/${String(index)}`,
         `page_${String(index)}`,
         index === 7 ? 'Unique Search Title' : `Download ${String(index)}`,
         `2026-07-17T09:00:${String(index).padStart(2, '0')}.000Z`,
@@ -543,7 +549,7 @@ describe('download API', () => {
         `INSERT INTO downloads (
           source_type, source_url, platform, platform_video_id, title,
           network_mode, status, output_path, output_size_bytes, created_at
-        ) VALUES ('direct', 'https://vimeo.com/completed', 'vimeo',
+        ) VALUES ('direct', 'https://media.example/videos/completed', 'generic',
                   'completed_page', 'Completed', 'direct', 'completed',
                   '/downloads/completed_page.webm', 2048, ?)`,
       )
@@ -552,11 +558,11 @@ describe('download API', () => {
       `INSERT INTO downloads (
         source_type, source_url, platform, platform_video_id, title,
         network_mode, status, failure_reason, created_at, finished_at
-      ) VALUES ('direct', ?, 'vimeo', ?, ?, 'direct', ?, 'stopped', ?, ?)`,
+      ) VALUES ('direct', ?, 'generic', ?, ?, 'direct', ?, 'stopped', ?, ?)`,
     );
     for (const [status, id] of [['failed', 'failed_page'], ['canceled', 'canceled_page'], ['interrupted', 'interrupted_page']] as const) {
       insertTerminal.run(
-        `https://vimeo.com/${id}`,
+        `https://media.example/videos/${id}`,
         id,
         id,
         status,
@@ -669,7 +675,7 @@ describe('download API', () => {
       `INSERT INTO downloads (
         source_type, source_url, platform, platform_video_id, title,
         network_mode, archive_layout, status, created_at
-      ) VALUES ('direct', 'https://media.example/thumbnail', 'vimeo',
+      ) VALUES ('direct', 'https://media.example/thumbnail', 'generic',
                 'thumbnail-video', 'Thumbnail', 'direct',
                 'download_directory', 'pending', ?)`,
     ).run(createdAt);
@@ -752,8 +758,8 @@ describe('download API', () => {
         `INSERT INTO downloads (
           source_type, source_url, platform, platform_video_id, title,
           network_mode, status, failure_reason, created_at, finished_at
-        ) VALUES ('direct', 'https://vimeo.com/246813579', 'vimeo',
-                  '246813579', 'Retry', 'direct', 'failed', 'network error', ?, ?)`,
+        ) VALUES ('direct', 'https://media.example/videos/retry', 'generic',
+                  'retry', 'Retry', 'direct', 'failed', 'network error', ?, ?)`,
       )
       .run('2026-07-17T09:00:00.000Z', '2026-07-17T09:01:00.000Z');
     const id = Number(result.lastInsertRowid);
@@ -774,8 +780,8 @@ describe('download API', () => {
         `INSERT INTO downloads (
           source_type, source_url, platform, platform_video_id, title,
           network_mode, status, created_at
-        ) VALUES ('direct', 'https://vimeo.com/246813579', 'vimeo',
-                  '246813579', 'Pending', 'direct', 'pending', ?)`,
+        ) VALUES ('direct', 'https://media.example/videos/pending', 'generic',
+                  'pending', 'Pending', 'direct', 'pending', ?)`,
       )
       .run('2026-07-17T09:00:00.000Z');
     const id = Number(result.lastInsertRowid);
