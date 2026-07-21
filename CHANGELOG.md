@@ -7,6 +7,7 @@ All notable user-visible changes are documented here. The project follows Semant
 ### Added
 
 - Added a public GHCR deployment path alongside local source builds.
+- Added authorization management for one strictly validated Netscape Cookie file per YouTube, Bilibili, X, Facebook, and Douyin platform, with upload, full replacement, status, and deletion controls.
 
 ### Changed
 
@@ -15,6 +16,11 @@ All notable user-visible changes are documented here. The project follows Semant
 - Grouped optional direct-download fields behind a clearer advanced-options section.
 - Replaced free-form resolution and transcoding inputs with supported choices.
 - Removed the raw yt-dlp format expression and chapter splitting from the direct-download form.
+- Removed Vimeo from the officially supported and verified direct-download platforms without adding a domain blacklist; generic HTTPS probing and existing download records remain compatible.
+
+### Security
+
+- Treat saved Cookie files as account login credentials. They persist under `/data`, are included in `/data` backups, and are not yet used by channel synchronization, metadata probing, or media downloads.
 
 ### Fixed
 

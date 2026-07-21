@@ -138,7 +138,7 @@
   2. `rg -n "authorizations|授权管理" test/integration/pages.test.ts` → 页面路由、导航和行为断言可定位
 
 ## task-07 · 更新当前能力文档并撤销 Vimeo 官方支持承诺
-- 状态: pending
+- 状态: done
 - 依赖: task-03
 - 文件范围:
   - README.md

@@ -19,6 +19,8 @@ const FIRST_PLATFORM_VIDEO_ID = 'aB_12-cD345';
 const SECOND_PLATFORM_VIDEO_ID = 'eF_67-gH890';
 const GENERIC_VIDEO_ID = 'generic-123456789';
 const GENERIC_VIDEO_URL = `https://media.example/videos/${GENERIC_VIDEO_ID}`;
+const VIMEO_COMPATIBILITY_VIDEO_ID = '123456789';
+const VIMEO_COMPATIBILITY_VIDEO_URL = `https://vimeo.com/${VIMEO_COMPATIBILITY_VIDEO_ID}`;
 const BILIBILI_VIDEO_ID = 'BV13x41117TL';
 const BILIBILI_VIDEO_URL = `https://www.bilibili.com/video/${BILIBILI_VIDEO_ID}`;
 const X_VIDEO_ID = '2001841416071450628';
@@ -85,6 +87,18 @@ if (url === '${GENERIC_VIDEO_URL}') {
     id: '${GENERIC_VIDEO_ID}',
     title: 'Generic video',
     duration: 125.2
+  }) + '\\n');
+  process.exit(0);
+}
+if (url === '${VIMEO_COMPATIBILITY_VIDEO_URL}') {
+  if (!process.argv.includes('--no-playlist')) {
+    process.stderr.write('single-resource probe required');
+    process.exit(3);
+  }
+  process.stdout.write(JSON.stringify({
+    extractor_key: 'Vimeo',
+    id: '${VIMEO_COMPATIBILITY_VIDEO_ID}',
+    title: 'Vimeo compatibility fixture'
   }) + '\\n');
   process.exit(0);
 }
@@ -416,6 +430,36 @@ describe('download API', () => {
     ]);
     expect(database.prepare('SELECT platform, duration_seconds FROM downloads').get())
       .toEqual({ platform: 'generic', duration_seconds: 126 });
+  });
+
+  it('keeps Vimeo URLs on the generic single-resource metadata path without a domain blacklist', async () => {
+    const response = await request(
+      '/downloads/direct',
+      'POST',
+      directInput(VIMEO_COMPATIBILITY_VIDEO_URL, null),
+    );
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      download: {
+        sourceType: 'direct',
+        title: 'Vimeo compatibility fixture',
+        status: 'pending',
+      },
+    });
+    expect(database
+      .prepare('SELECT source_url, platform, platform_video_id FROM downloads')
+      .get()).toEqual({
+      source_url: VIMEO_COMPATIBILITY_VIDEO_URL,
+      platform: 'vimeo',
+      platform_video_id: VIMEO_COMPATIBILITY_VIDEO_ID,
+    });
+    expect(queued).toEqual([
+      expect.objectContaining({
+        sourceUrl: VIMEO_COMPATIBILITY_VIDEO_URL,
+        platformVideoId: VIMEO_COMPATIBILITY_VIDEO_ID,
+      }),
+    ]);
   });
 
   it.each([
