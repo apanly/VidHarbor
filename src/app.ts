@@ -85,6 +85,16 @@ const apiErrorHandler: ErrorRequestHandler = (
     return;
   }
 
+  // Do not log raw message/stack: unknown errors may contain proxy credentials,
+  // cookie paths, or other sensitive values that redaction cannot classify here.
+  console.error(
+    JSON.stringify({
+      event: 'api_internal_error',
+      method: _request.method,
+      path: _request.path,
+      errorClass: error instanceof Error ? error.name : typeof error,
+    }),
+  );
   const internalError = new BusinessError(
     'PERSISTENCE_ERROR',
     'internal server error',

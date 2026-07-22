@@ -25,6 +25,7 @@ describe('business errors', () => {
         'CHANNEL_NAME_EXISTS',
         'CHANNEL_IN_USE',
         'DOWNLOAD_ALREADY_EXISTS',
+        'DOWNLOAD_DELETE_IN_PROGRESS',
       ],
     ],
     [
@@ -33,6 +34,7 @@ describe('business errors', () => {
         'DOWNLOAD_ROOT_OUTSIDE_MOUNT',
         'DOWNLOAD_ROOT_UNAVAILABLE',
         'DOWNLOAD_ROOT_NOT_CONFIGURED',
+        'DOWNLOAD_DELETE_FAILED',
         'UNSUPPORTED_PLATFORM',
         'NOT_A_CHANNEL_URL',
         'NOT_A_VIDEO_URL',

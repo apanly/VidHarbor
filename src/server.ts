@@ -17,6 +17,7 @@ import {
   listInterruptedDownloadIds,
   recoverInterruptedDownloads,
 } from './download-worker.js';
+import { recoverDeletingDownloads } from './services/download.js';
 import { redactStderr } from './redaction.js';
 import { validateDownloadRoot } from './filesystem.js';
 import { ChannelScheduler } from './scheduler.js';
@@ -233,6 +234,7 @@ export async function startServer(
       }
     }
     recoverInterruptedDownloads(database, interruptedIds, new Date().toISOString());
+    await recoverDeletingDownloads(database, config.downloadsMountPath);
     log({ event: 'downloads_recovered' });
 
     const downloadConcurrency = loadDownloadConcurrency(database);

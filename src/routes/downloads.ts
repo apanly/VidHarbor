@@ -133,7 +133,8 @@ interface DownloadRow {
     | 'completed'
     | 'failed'
     | 'canceled'
-    | 'interrupted';
+    | 'interrupted'
+    | 'deleting';
   readonly output_path: string | null;
   readonly failure_reason: string | null;
   readonly progress_percent: number | null;
@@ -160,6 +161,7 @@ interface DownloadStatusCounts {
   failed: number;
   canceled: number;
   interrupted: number;
+  deleting: number;
 }
 
 function parseDownloadId(value: string): number {
@@ -263,7 +265,9 @@ function listDownloads(
   try {
     const conditions: string[] = [];
     const parameters: unknown[] = [];
-    if (tab === 'active') conditions.push("status IN ('pending', 'downloading', 'running')");
+    if (tab === 'active') {
+      conditions.push("status IN ('pending', 'downloading', 'running', 'deleting')");
+    }
     if (tab === 'completed') conditions.push("status = 'completed'");
     if (tab === 'failed') conditions.push("status IN ('failed', 'canceled', 'interrupted')");
     if (query !== '') {
@@ -295,6 +299,7 @@ function listDownloads(
       failed: 0,
       canceled: 0,
       interrupted: 0,
+      deleting: 0,
     };
     const countRows = database
       .prepare('SELECT status, COUNT(*) AS count FROM downloads GROUP BY status')

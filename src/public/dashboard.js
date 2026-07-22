@@ -17,7 +17,7 @@ async function load() {
   if (!notificationResponse.ok) { showError(notifications.error); return; }
   if (!downloadResponse.ok) { showError(downloads.error); return; }
   const unreadCount = notifications.unreadCount;
-  const runningCount = downloads.statusCounts.pending + downloads.statusCounts.running + downloads.statusCounts.downloading;
+  const runningCount = downloads.statusCounts.pending + downloads.statusCounts.running + downloads.statusCounts.downloading + downloads.statusCounts.deleting;
   const failedCount = downloads.statusCounts.failed + downloads.statusCounts.interrupted;
   const totals = document.createElement('div'); totals.className = 'col-12'; totals.innerHTML = `<div class="alert alert-info">未读提醒：${unreadCount}；进行中下载：${runningCount}；失败/中断下载：${failedCount}</div>`; summary.append(totals);
   if (body.items.length === 0) return;

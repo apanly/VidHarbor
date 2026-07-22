@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net';
 
 import { Router, type Request, type Response } from 'express';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
 import { BusinessError } from '../../src/errors.js';
@@ -212,17 +212,33 @@ describe('HTTP contract', () => {
   );
 
   it('maps unknown exceptions to a fixed secret-free error envelope', async () => {
-    const response = await fetch(`${baseUrl}/api/unknown-error`);
-    const responseText = await response.text();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const response = await fetch(`${baseUrl}/api/unknown-error`);
+      const responseText = await response.text();
 
-    expect(response.status).toBe(500);
-    expect(JSON.parse(responseText)).toEqual({
-      error: {
-        code: 'PERSISTENCE_ERROR',
-        message: 'internal server error',
-      },
-    });
-    expect(responseText).not.toContain('top-secret');
-    expect(responseText).not.toContain('at ');
+      expect(response.status).toBe(500);
+      expect(JSON.parse(responseText)).toEqual({
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: 'internal server error',
+        },
+      });
+      expect(responseText).not.toContain('top-secret');
+      expect(responseText).not.toContain('at ');
+      expect(consoleError).toHaveBeenCalledOnce();
+      expect(consoleError).toHaveBeenCalledWith(
+        JSON.stringify({
+          event: 'api_internal_error',
+          method: 'GET',
+          path: '/unknown-error',
+          errorClass: 'Error',
+        }),
+      );
+      expect(consoleError.mock.calls.flat().join(' ')).not.toContain('top-secret');
+      expect(consoleError.mock.calls.flat().join(' ')).not.toContain('stack');
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

@@ -16,6 +16,7 @@ const MIGRATIONS = [
   readFileSync(new URL('./migrations/005-download-size.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('./migrations/006-bilibili-channels.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('./migrations/007-channel-cookie-authorization.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('./migrations/008-download-deleting-status.sql', import.meta.url), 'utf8'),
 ] as const;
 
 function schemaEntries(database: DatabaseConnection): SchemaEntry[] {
@@ -127,6 +128,10 @@ export function migrateDatabase(database: DatabaseConnection): void {
       database.exec(MIGRATIONS[6]);
       database
         .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (7, ?)')
+        .run(appliedAt);
+      database.exec(MIGRATIONS[7]);
+      database
+        .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (8, ?)')
         .run(appliedAt);
     } else {
       const versions = database

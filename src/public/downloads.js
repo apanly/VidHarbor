@@ -19,13 +19,13 @@ let currentPage = 1;
 let currentPagination = { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 };
 let downloadEvents = null;
 let searchTimer = null;
-const labels = { pending: '等待下载', downloading: '运行中', running: '运行中', completed: '下载完成', failed: '下载失败', canceled: '已取消', interrupted: '已中断' };
-const styles = { pending: 'text-bg-secondary', downloading: 'text-bg-primary', running: 'text-bg-primary', completed: 'text-bg-success', failed: 'text-bg-danger', canceled: 'text-bg-warning', interrupted: 'text-bg-warning' };
+const labels = { pending: '等待下载', downloading: '运行中', running: '运行中', completed: '下载完成', failed: '下载失败', canceled: '已取消', interrupted: '已中断', deleting: '删除中' };
+const styles = { pending: 'text-bg-secondary', downloading: 'text-bg-primary', running: 'text-bg-primary', completed: 'text-bg-success', failed: 'text-bg-danger', canceled: 'text-bg-warning', interrupted: 'text-bg-warning', deleting: 'text-bg-secondary' };
 const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili', vimeo: 'Vimeo', twitter: 'X', facebook: 'Facebook', douyin: '抖音' };
 
 function nullableNumber(value) { return value === '' ? null : Number(value); }
 function nullableText(value) { return value === '' ? null : value; }
-function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: null, quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, splitChapters: false, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value), filenamePreset: nullableText(form.elements.filenamePreset.value) }; }
+function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: null, quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, splitChapters: false, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value) }; }
 function showError(region, error) { region.textContent = `${error.code}: ${error.message}`; region.hidden = false; }
 async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const text = await response.text(); if (response.status === 202 && text === '') return null; const result = JSON.parse(text); if (!response.ok) throw result.error; return result; }
 function displayValue(value) { return value ?? '—'; }
@@ -55,7 +55,7 @@ function setSelectedTab(tab) {
 }
 
 function updateDownloadView(statusCounts) {
-  const activeCount = statusCounts.pending + statusCounts.downloading + statusCounts.running;
+  const activeCount = statusCounts.pending + statusCounts.downloading + statusCounts.running + statusCounts.deleting;
   const failedCount = statusCounts.failed + statusCounts.canceled + statusCounts.interrupted;
   const totalCount = activeCount + statusCounts.completed + failedCount;
   document.querySelector('[data-download-count="active"]').textContent = String(activeCount);

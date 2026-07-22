@@ -34,7 +34,6 @@ const DEFAULT_ADVANCED_OPTIONS = {
   splitChapters: false,
   timeRangeStart: null,
   timeRangeEnd: null,
-  filenamePreset: null,
 } as const;
 
 function directInput(url: string, proxyId: number | null) {

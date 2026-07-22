@@ -42,7 +42,6 @@ const DEFAULT_ADVANCED_OPTIONS = {
   splitChapters: false,
   timeRangeStart: null,
   timeRangeEnd: null,
-  filenamePreset: null,
 } as const;
 
 function directInput(url: string, proxyId: number | null) {
@@ -500,6 +499,16 @@ describe('download API', () => {
         '/downloads/direct',
         { url: `https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}`, proxyId: null, quality: 'best' },
       ],
+      [
+        '/downloads/direct',
+        {
+          ...directInput(`https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}`, null),
+          advancedOptions: {
+            ...DEFAULT_ADVANCED_OPTIONS,
+            filenamePreset: null,
+          },
+        },
+      ],
       ['/downloads/direct', { url: `https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}` }],
     ];
 
@@ -760,7 +769,7 @@ describe('download API', () => {
       .toBe(false);
   });
 
-  it('restores a completed file when deleting its record fails', async () => {
+  it('keeps a durable deleting record when hard-delete fails after archive removal', async () => {
     const filename = 'restore-me.webm';
     const outputPath = join(downloadRoot, filename);
     const id = await insertCompletedDownload(filename);
@@ -776,9 +785,12 @@ describe('download API', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: 'PERSISTENCE_ERROR' },
     });
-    await expect(access(outputPath)).resolves.toBeUndefined();
-    expect(database.prepare('SELECT id FROM downloads WHERE id = ?').pluck().get(id)).toBe(id);
-    expect((await readdir(downloadRoot)).some((name) => name.startsWith('.vidharbor-delete-')))
+    // Archive is already gone; the durable deleting row remains for startup recovery.
+    await expect(access(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(
+      database.prepare('SELECT status FROM downloads WHERE id = ?').pluck().get(id),
+    ).toBe('deleting');
+    expect((await readdir(downloadRoot)).some((name) => name === '.vidharbor-delete'))
       .toBe(false);
   });
 

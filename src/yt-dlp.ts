@@ -37,7 +37,6 @@ export interface DownloadOptions extends CommonOptions {
     readonly splitChapters: boolean;
     readonly timeRangeStart: string | null;
     readonly timeRangeEnd: string | null;
-    readonly filenamePreset: string | null;
   };
 }
 

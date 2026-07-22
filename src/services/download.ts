@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rename, rm } from 'node:fs/promises';
+import { mkdir, realpath, rename, rm, rmdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import type { DatabaseConnection } from '../db/client.js';
@@ -58,7 +58,6 @@ export interface DownloadAdvancedOptions {
   readonly splitChapters: boolean;
   readonly timeRangeStart: string | null;
   readonly timeRangeEnd: string | null;
-  readonly filenamePreset: string | null;
 }
 
 interface DirectDownloadInput {
@@ -172,7 +171,6 @@ function parseAdvancedOptions(value: unknown): DownloadAdvancedOptions {
     'splitChapters',
     'timeRangeStart',
     'timeRangeEnd',
-    'filenamePreset',
   ];
   if (keys.length !== required.length || required.some((key) => !keys.includes(key))) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
@@ -199,7 +197,6 @@ function parseAdvancedOptions(value: unknown): DownloadAdvancedOptions {
     splitChapters: record.splitChapters,
     timeRangeStart: parseOptionalString(record.timeRangeStart),
     timeRangeEnd: parseOptionalString(record.timeRangeEnd),
-    filenamePreset: parseOptionalString(record.filenamePreset),
   };
 }
 
@@ -379,7 +376,7 @@ function assertNoExistingDownload(
       .prepare(
         `SELECT id FROM downloads
          WHERE platform = ? AND platform_video_id = ?
-           AND status IN ('pending', 'downloading', 'running', 'completed')
+           AND status IN ('pending', 'downloading', 'running', 'completed', 'deleting')
          LIMIT 1`,
       )
       .pluck()
@@ -732,23 +729,280 @@ export async function cancelDownload(
   }
 }
 
+const DELETE_QUARANTINE_DIRECTORY = '.vidharbor-delete';
+
+interface DeletingDownloadRow {
+  readonly id: number;
+  readonly status: string;
+  readonly output_path: string | null;
+  readonly archive_layout: string;
+}
+
+function deleteQuarantinePath(downloadRoot: string, downloadId: number): string {
+  return join(downloadRoot, DELETE_QUARANTINE_DIRECTORY, String(downloadId));
+}
+
+/** Returns true only when this caller owns the completed -> deleting transition. */
+function tryMarkDownloadDeleting(
+  database: DatabaseConnection,
+  downloadId: number,
+): boolean {
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      const result = database
+        .prepare(
+          `UPDATE downloads
+           SET status = 'deleting'
+           WHERE id = ? AND status = 'completed'`,
+        )
+        .run(downloadId);
+      database.exec('COMMIT');
+      return result.changes === 1;
+    } catch (error) {
+      try {
+        database.exec('ROLLBACK');
+      } catch {
+        // The transaction may not have started.
+      }
+      throw error;
+    }
+  } catch (error) {
+    if (error instanceof BusinessError) throw error;
+    throw persistenceError();
+  }
+}
+
+function deleteInProgressError(): BusinessError {
+  return new BusinessError(
+    'DOWNLOAD_DELETE_IN_PROGRESS',
+    'download deletion is already in progress',
+  );
+}
+
+function restoreDownloadToCompleted(
+  database: DatabaseConnection,
+  downloadId: number,
+): void {
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      const result = database
+        .prepare(
+          `UPDATE downloads
+           SET status = 'completed'
+           WHERE id = ? AND status = 'deleting'`,
+        )
+        .run(downloadId);
+      if (result.changes !== 1) {
+        throw new Error('download is not deleting');
+      }
+      database.exec('COMMIT');
+    } catch (error) {
+      try {
+        database.exec('ROLLBACK');
+      } catch {
+        // The transaction may not have started.
+      }
+      throw error;
+    }
+  } catch {
+    throw persistenceError();
+  }
+}
+
+function hardDeleteDeletingRow(
+  database: DatabaseConnection,
+  downloadId: number,
+): void {
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      const result = database
+        .prepare("DELETE FROM downloads WHERE id = ? AND status = 'deleting'")
+        .run(downloadId);
+      if (result.changes !== 1) {
+        throw new Error('download is not deleting');
+      }
+      database.exec('COMMIT');
+    } catch (error) {
+      try {
+        database.exec('ROLLBACK');
+      } catch {
+        // The transaction may not have started.
+      }
+      throw error;
+    }
+  } catch {
+    throw persistenceError();
+  }
+}
+
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'ENOENT'
+  );
+}
+
+/** true if path resolves; false only for ENOENT; any other FS error fails closed. */
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await realpath(path);
+    return true;
+  } catch (error) {
+    if (isEnoent(error)) return false;
+    throw new BusinessError(
+      'DOWNLOAD_DELETE_FAILED',
+      'download file deletion failed',
+    );
+  }
+}
+
+/**
+ * Prove the persisted main media path is still a readable non-empty regular file
+ * under the download root. Used before restoring `completed` after a failed delete.
+ */
+async function mainMediaIsIntact(
+  downloadRoot: string,
+  downloadsMountPath: string,
+  outputPath: string,
+): Promise<boolean> {
+  try {
+    const file = await validateDownloadFile(
+      downloadRoot,
+      downloadsMountPath,
+      outputPath,
+    );
+    const intact = file.size > 0;
+    await file.handle.close().catch(() => undefined);
+    return intact;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Converge a row already marked `deleting`: remove archive media, then hard-delete
+ * the row. On media failure, restore to `completed` only when the main media at
+ * the persisted output_path is still a non-empty regular file; otherwise keep
+ * `deleting` for startup recovery. SQLite transactions stay fully synchronous.
+ */
+async function finalizeDeletingDownload(
+  database: DatabaseConnection,
+  downloadsMountPath: string,
+  row: DeletingDownloadRow,
+): Promise<void> {
+  if (row.status !== 'deleting' || row.output_path === null) {
+    throw persistenceError();
+  }
+
+  const configuredRoot = loadDownloadRoot(database, downloadsMountPath);
+  const realDownloadRoot = await validateDownloadRoot(
+    configuredRoot,
+    downloadsMountPath,
+  );
+  const quarantinePath = deleteQuarantinePath(realDownloadRoot, row.id);
+  let originalArchivePath: string;
+
+  if (row.archive_layout === 'download_directory') {
+    originalArchivePath = join(realDownloadRoot, String(row.id));
+  } else if (row.archive_layout === 'legacy_file') {
+    originalArchivePath = row.output_path;
+  } else {
+    throw persistenceError();
+  }
+
+  const originalExists = await pathExists(originalArchivePath);
+  const quarantineExists = await pathExists(quarantinePath);
+
+  if (!originalExists && !quarantineExists) {
+    // Files already removed; only the persistent deleting marker remains.
+    hardDeleteDeletingRow(database, row.id);
+    return;
+  }
+
+  const quarantineParent = join(realDownloadRoot, DELETE_QUARANTINE_DIRECTORY);
+  try {
+    if (originalExists && !quarantineExists) {
+      await mkdir(quarantineParent, { recursive: true });
+      await rename(originalArchivePath, quarantinePath);
+    }
+    await rm(quarantinePath, { recursive: true, force: true });
+    // Only remove the shared parent when empty; other deletes may use it concurrently.
+    await rmdir(quarantineParent).catch(() => undefined);
+  } catch {
+    if (await pathExists(quarantinePath) && !(await pathExists(originalArchivePath))) {
+      try {
+        await rename(quarantinePath, originalArchivePath);
+      } catch {
+        // Leave status as deleting so startup can retry cleanup.
+        throw new BusinessError(
+          'DOWNLOAD_DELETE_FAILED',
+          'download file deletion failed',
+        );
+      }
+    }
+    await rmdir(quarantineParent).catch(() => undefined);
+
+    // Recursive rm is not atomic: restore completed only when main media still
+    // exists at the persisted output_path as a non-empty regular file.
+    if (
+      await mainMediaIsIntact(configuredRoot, downloadsMountPath, row.output_path)
+    ) {
+      restoreDownloadToCompleted(database, row.id);
+    }
+    throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download file deletion failed');
+  }
+
+  hardDeleteDeletingRow(database, row.id);
+}
+
+export async function recoverDeletingDownloads(
+  database: DatabaseConnection,
+  downloadsMountPath: string,
+): Promise<void> {
+  const rows = database
+    .prepare(
+      `SELECT id, status, output_path, archive_layout
+       FROM downloads
+       WHERE status = 'deleting'
+       ORDER BY id`,
+    )
+    .all() as DeletingDownloadRow[];
+  for (const row of rows) {
+    await finalizeDeletingDownload(database, downloadsMountPath, row);
+  }
+}
+
 export async function deleteDownload(
   database: DatabaseConnection,
   downloadsMountPath: string,
   downloadId: number,
 ): Promise<void> {
   validateDownloadId(downloadId);
-  let row: { status: string; output_path: string | null; archive_layout: string } | undefined;
+  let row: DeletingDownloadRow | undefined;
   try {
     row = database
-      .prepare('SELECT status, output_path, archive_layout FROM downloads WHERE id = ?')
-      .get(downloadId) as { status: string; output_path: string | null; archive_layout: string } | undefined;
+      .prepare(
+        'SELECT id, status, output_path, archive_layout FROM downloads WHERE id = ?',
+      )
+      .get(downloadId) as DeletingDownloadRow | undefined;
   } catch {
     throw persistenceError();
   }
   if (row === undefined) {
     throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
   }
+
+  if (row.status === 'deleting') {
+    // Only the request that won completed -> deleting may touch files.
+    // Startup recovery remains the sole non-HTTP owner of leftover deleting rows.
+    throw deleteInProgressError();
+  }
+
   if (!['completed', 'failed', 'canceled', 'interrupted'].includes(row.status)) {
     throw new BusinessError('VALIDATION_ERROR', 'download is not deletable');
   }
@@ -764,90 +1018,49 @@ export async function deleteDownload(
   }
   if (row.output_path === null) throw persistenceError();
 
+  // Prove the archive is still reachable before entering the durable deleting state.
   const downloadRoot = loadDownloadRoot(database, downloadsMountPath);
   const file = await validateDownloadFile(
     downloadRoot,
     downloadsMountPath,
     row.output_path,
   );
-  let archivePath = file.path;
   if (row.archive_layout === 'download_directory') {
     const expectedDirectory = join(
       await validateDownloadRoot(downloadRoot, downloadsMountPath),
       String(downloadId),
     );
     const actualDirectory = await realpath(dirname(file.path)).catch(() => undefined);
+    await file.handle.close().catch(() => undefined);
     if (actualDirectory !== expectedDirectory) {
-      await file.handle.close().catch(() => undefined);
       throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download directory is invalid');
     }
-    archivePath = actualDirectory;
-  } else if (row.archive_layout !== 'legacy_file') {
+  } else if (row.archive_layout === 'legacy_file') {
+    await file.handle.close().catch(() => undefined);
+  } else {
     await file.handle.close().catch(() => undefined);
     throw persistenceError();
   }
-  let quarantineDirectory: string;
-  try {
-    quarantineDirectory = await mkdtemp(
-      join(await validateDownloadRoot(downloadRoot, downloadsMountPath), '.vidharbor-delete-'),
-    );
-  } catch {
-    await file.handle.close().catch(() => undefined);
-    throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download file deletion failed');
-  }
-  const quarantinePath = join(quarantineDirectory, basename(archivePath));
-  const restoreFile = async () => {
-    try {
-      await rename(quarantinePath, archivePath);
-      await rm(quarantineDirectory, { recursive: true, force: true });
-    } catch {
-      throw persistenceError();
+
+  if (!tryMarkDownloadDeleting(database, downloadId)) {
+    // Another request claimed the transition or the row left completed concurrently.
+    const current = database
+      .prepare('SELECT status FROM downloads WHERE id = ?')
+      .pluck()
+      .get(downloadId) as string | undefined;
+    if (current === 'deleting') throw deleteInProgressError();
+    if (current === undefined) {
+      throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
     }
-  };
-
-  try {
-    await file.handle.close();
-    await rename(archivePath, quarantinePath);
-  } catch {
-    await file.handle.close().catch(() => undefined);
-    await rm(quarantineDirectory, { recursive: true, force: true }).catch(() => undefined);
-    throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download file deletion failed');
+    throw new BusinessError('VALIDATION_ERROR', 'download is not deletable');
   }
 
-  try {
-    database.exec('BEGIN IMMEDIATE');
-    const result = database
-      .prepare("DELETE FROM downloads WHERE id = ? AND status = 'completed'")
-      .run(downloadId);
-    if (result.changes !== 1) throw new Error('download changed during deletion');
-  } catch {
-    try {
-      database.exec('ROLLBACK');
-    } catch {
-      // The transaction may not have started.
-    }
-    await restoreFile();
-    throw persistenceError();
-  }
-
-  try {
-    await rm(quarantineDirectory, { recursive: true });
-  } catch {
-    database.exec('ROLLBACK');
-    await restoreFile();
-    throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download file deletion failed');
-  }
-
-  try {
-    database.exec('COMMIT');
-  } catch {
-    try {
-      database.exec('ROLLBACK');
-    } catch {
-      // Preserve the commit failure as the operation result.
-    }
-    throw persistenceError();
-  }
+  await finalizeDeletingDownload(database, downloadsMountPath, {
+    id: downloadId,
+    status: 'deleting',
+    output_path: row.output_path,
+    archive_layout: row.archive_layout,
+  });
 }
 
 export async function retryDownload(

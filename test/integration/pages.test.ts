@@ -530,8 +530,12 @@ describe('server-rendered pages', () => {
     expect(script).toContain("pending: '等待下载'");
     expect(script).toContain("completed: '下载完成'");
     expect(script).toContain("interrupted: '已中断'");
+    expect(script).toContain("deleting: '删除中'");
     expect(script).toContain("video.downloadStatus === null ? '尚未下载' : downloadStatusLabels[video.downloadStatus]");
     expect(script).toContain("video.downloadStatus === 'completed'");
+    expect(script).toContain(
+      "['pending', 'running', 'downloading', 'completed', 'deleting'].includes(video.downloadStatus)",
+    );
     expect(script).toContain('formatBytes(video.downloadOutputSizeBytes)');
     expect(script).toContain('formatCompletedAt(video.downloadFinishedAt)');
     expect(script).toContain('`/downloads/preview?id=${video.downloadId}`');
@@ -605,6 +609,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain("request('/api/proxies')");
     expect(html).not.toContain('name="targetSubdirectory"');
     expect(html).not.toContain('name="writeThumbnail"');
+    expect(html).not.toContain('name="filenamePreset"');
     expect(html).toContain('name="mediaType"');
     expect(html).not.toContain('name="format"');
     expect(html).toContain('name="quality"');
@@ -612,6 +617,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain('advancedOptions(form)');
     expect(script).toContain('format: null');
     expect(script).toContain('splitChapters: false');
+    expect(script).not.toContain('filenamePreset');
     expect(script).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), advancedOptions: advancedOptions(form) })");
     expect(script).toContain("let selectedTab = 'completed'");
     expect(script).toContain("facebook: 'Facebook'");

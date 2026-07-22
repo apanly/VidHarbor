@@ -8,6 +8,8 @@ All notable user-visible changes are documented here. The project follows Semant
 
 - Added a public GHCR deployment path alongside local source builds.
 - Added authorization management for one strictly validated Netscape Cookie file per YouTube, Bilibili, X, Facebook, and Douyin platform, with upload, full replacement, status, and deletion controls.
+- Added durable download status `deleting` for completed-archive removal, with startup recovery and HTTP `DOWNLOAD_DELETE_IN_PROGRESS` (409) when another delete already owns the row.
+- Documented the unreleased download-delete state machine and direct-download field contract in `docs/designs/unreleased/download-delete-and-direct-options.md`.
 
 ### Changed
 
@@ -16,6 +18,8 @@ All notable user-visible changes are documented here. The project follows Semant
 - Grouped optional direct-download fields behind a clearer advanced-options section.
 - Replaced free-form resolution and transcoding inputs with supported choices.
 - Removed the raw yt-dlp format expression and chapter splitting from the direct-download form.
+- Removed the direct-download `filenamePreset` field from the UI and API; main media filenames keep using the resource ID.
+- Included `deleting` in the download “active” list/SSE group and channel-detail “删除中” presentation.
 - Removed Vimeo from the officially supported and verified direct-download platforms without adding a domain blacklist; generic HTTPS probing and existing download records remain compatible.
 
 ### Security
@@ -26,6 +30,7 @@ All notable user-visible changes are documented here. The project follows Semant
 
 - Fixed the published AMD64 image containing ARM64 binaries because the Node base image was pinned to a single-platform digest.
 - Fixed interrupted scheduled checks remaining active after restart and permanently blocking channel deletion.
+- Fixed completed-download deletion so failed recursive cleanup restores `completed` only when the persisted main media path is still a non-empty regular file; otherwise the row stays `deleting` for recovery.
 
 ## 0.2.0 - 2026-07-20
 

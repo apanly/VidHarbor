@@ -18,6 +18,7 @@ const downloadStatusLabels = {
   failed: '下载失败',
   canceled: '已取消',
   interrupted: '已中断',
+  deleting: '删除中',
 };
 
 function showError(region, error) {
@@ -87,7 +88,7 @@ function renderVideo(video) {
   checkbox.name = 'videoIds';
   checkbox.value = String(video.id);
   checkbox.ariaLabel = `选择 ${video.title}`;
-  checkbox.disabled = ['pending', 'running', 'downloading', 'completed'].includes(video.downloadStatus);
+  checkbox.disabled = ['pending', 'running', 'downloading', 'completed', 'deleting'].includes(video.downloadStatus);
   checkbox.addEventListener('change', updateSelection);
   selectionCell.append(checkbox);
 
