@@ -589,6 +589,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('<strong>高级选项</strong>');
     expect(html).toContain('起始时间和结束时间需要同时填写');
     expect(html).toContain('>转码格式</label>');
+    expect(html).toContain('<div class="col-12 col-sm-6"><label class="form-label" for="direct-quality">');
+    expect(html).toContain('<div class="col-12 col-sm-6"><label class="form-label" for="direct-codec">');
     expect(html).toContain('id="direct-quality" name="quality"><option value="">不限制</option>');
     expect(html).toContain('4320p（8K）');
     expect(html).toContain('id="direct-codec" name="codec"><option value="">不转码</option>');
