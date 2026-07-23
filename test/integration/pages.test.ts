@@ -454,7 +454,7 @@ describe('server-rendered pages', () => {
     expect(channelsHtml).toContain('data-bs-target="#channel-modal"');
     expect(channelsHtml).toContain('id="channel-modal"');
     expect(channelsHtml).toContain('id="channel-modal-title"');
-    expect(channelsHtml).toContain('id="channel-form"');
+    expect(channelsHtml).toContain('<form id="channel-form" class="modal-content">');
     expect(channelsHtml).toContain('支持 YouTube 频道和 Bilibili UP 主空间');
     expect(channelsScript).toContain("bilibili: 'Bilibili'");
     expect(channelsScript).toContain('openChannelCreateModal()');
@@ -479,7 +479,6 @@ describe('server-rendered pages', () => {
     expect(paginationScript).toContain('container.hidden = value.totalItems === 0');
     expect(channelsScript).toContain('formatChinaTimestamp(channel.lastCheck.nextAt)');
     expect(channelsHtml).not.toContain('<table');
-    expect(channelsHtml).toContain('class="form-stack"');
     expect(channelsHtml).toContain('name="authorizationPlatform"');
     expect(channelsHtml).toContain('仅可选择与频道相同平台的授权');
     expect(channelsScript).toContain("request('/api/authorizations/cookies')");
