@@ -338,11 +338,8 @@ body {
 }
 
 .channel-video-toolbar {
-  display: grid;
   grid-template-columns: minmax(11rem, 0.72fr) minmax(12rem, 1fr) auto;
   gap: 0.85rem;
-  align-items: end;
-  margin-bottom: 1rem;
   padding: 1rem;
   border: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
   border-radius: 1.1rem;
@@ -359,7 +356,6 @@ body {
 }
 
 .channel-selection-action {
-  display: grid;
   gap: 0.35rem;
   justify-items: end;
 }
@@ -1217,7 +1213,6 @@ body {
   }
 
   .channel-video-toolbar {
-    position: static;
     grid-template-columns: 1fr;
   }
 

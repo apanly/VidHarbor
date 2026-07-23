@@ -521,7 +521,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('data-channel-tab="checks">检查记录</button>');
     expect(html).toContain('data-channel-panel="videos"');
     expect(html).toContain('data-channel-panel="checks" hidden');
-    expect(html).toMatch(/class="channel-proxy-field"[\s\S]*class="channel-filter-field"[\s\S]*class="channel-selection-action"/);
+    expect(html).toContain('class="channel-video-toolbar d-grid align-items-end mb-3"');
+    expect(html).toMatch(/class="channel-proxy-field"[\s\S]*class="channel-filter-field"[\s\S]*class="channel-selection-action d-grid"/);
     expect(html).toContain('id="video-list"');
     expect(html).toContain('id="check-list"');
     expect(html).toContain('class="table channel-detail-table channel-check-table align-middle mb-0"');
