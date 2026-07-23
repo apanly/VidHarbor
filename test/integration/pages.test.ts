@@ -1009,12 +1009,12 @@ describe('server-rendered pages', () => {
     expect(dashboardScript).not.toContain('requestedPage');
     expect(dashboardScript).not.toContain('当前没有发现更新的频道。');
     expect(dashboardScript).toContain('if (body.items.length === 0) return;');
-    expect(html).toContain('<h2 id="active-tasks-title">活动任务</h2>');
-    expect(html).toContain('<h2 id="terminal-tasks-title">最近已结束任务</h2>');
+    expect(html).toContain('<h2 class="task-section-title mb-0" id="active-tasks-title">活动任务</h2>');
+    expect(html).toContain('<h2 class="task-section-title mb-0" id="terminal-tasks-title">最近已结束任务</h2>');
     expect(html.match(/<table class="table yt-dlp-tasks-table align-middle mb-0">/g)).toHaveLength(2);
     expect(html.match(/<th scope="col">任务 ID<\/th><th scope="col">任务类型<\/th><th scope="col">状态<\/th><th scope="col">创建时间<\/th><th scope="col">开始时间<\/th><th scope="col">结束时间<\/th><th scope="col">失败原因<\/th>/g)).toHaveLength(2);
-    expect(html).toContain('id="active-task-empty" class="yt-dlp-tasks-empty" role="status" hidden>当前没有排队或运行中的任务。</div>');
-    expect(html).toContain('id="terminal-task-empty" class="yt-dlp-tasks-empty" role="status" hidden>当前没有已结束的任务。</div>');
+    expect(html).toContain('id="active-task-empty" class="yt-dlp-tasks-empty p-5 px-3 border-top text-body-secondary text-center" role="status" hidden>当前没有排队或运行中的任务。</div>');
+    expect(html).toContain('id="terminal-task-empty" class="yt-dlp-tasks-empty p-5 px-3 border-top text-body-secondary text-center" role="status" hidden>当前没有已结束的任务。</div>');
     expect(html).toContain('<script type="module" src="/public/yt-dlp-tasks.js"></script>');
 
     expect(script.match(/fetch\('\/api\/yt-dlp\/tasks'/g)).toHaveLength(1);
@@ -1200,12 +1200,15 @@ describe('server-rendered pages', () => {
   });
 
   it('keeps the task table reachable on narrow desktops and readable on mobile', async () => {
+    const html = await getPage('/');
     const styles = await readFile(
       new URL('../../src/styles/main.scss', import.meta.url),
       'utf8',
     );
 
-    expect(styles).toMatch(/\.yt-dlp-tasks-table-shell\s*\{[^}]*overflow-x: auto;[^}]*overflow-y: hidden;/s);
+    expect(html.match(/class="yt-dlp-tasks-table-shell table-responsive border rounded-4"/g)).toHaveLength(2);
+    expect(styles).toMatch(/\.yt-dlp-tasks-table-shell\s*\{[^}]*overflow-y: hidden;/s);
+    expect(styles).not.toMatch(/\.yt-dlp-tasks-table-shell\s*\{[^}]*overflow-x:/s);
     expect(styles).toMatch(/\.yt-dlp-tasks-table\s*\{[^}]*min-width: 68rem;/s);
     expect(styles).toMatch(/\.yt-dlp-task-failure\s*\{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/s);
     expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.yt-dlp-tasks-table thead\s*\{[^}]*display: none;/);

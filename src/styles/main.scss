@@ -1548,29 +1548,20 @@ body {
   text-overflow: ellipsis;
 }
 
-.yt-dlp-tasks-section {
-  margin-top: 1.5rem;
+.task-section-heading {
+  gap: 0.65rem !important;
+  margin-bottom: 0.75rem !important;
 }
 
-.yt-dlp-tasks-section-heading {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  margin-bottom: 0.75rem;
-}
-
-.yt-dlp-tasks-section-heading h2 {
-  margin: 0;
+.task-section-title {
   color: #273449;
   font-size: 1.15rem;
   font-weight: 850;
 }
 
 .yt-dlp-tasks-table-shell {
-  overflow-x: auto;
   overflow-y: hidden;
-  border: bootstrap.$border-width solid rgba(15, 23, 42, 0.1);
-  border-radius: 1rem;
+  border-color: rgba(15, 23, 42, 0.1) !important;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 0.8rem 2rem rgba(15, 23, 42, 0.06);
 }
@@ -1605,14 +1596,9 @@ body {
 }
 
 .yt-dlp-tasks-empty {
-  padding: 3rem 1rem;
-  border-top: bootstrap.$border-width dashed #cbd5e1;
-  color: #64748b;
-  text-align: center;
-}
-
-.yt-dlp-tasks-empty[hidden] {
-  display: none;
+  border-top-color: #cbd5e1 !important;
+  border-top-style: dashed !important;
+  color: #64748b !important;
 }
 
 @media (max-width: 991.98px) {

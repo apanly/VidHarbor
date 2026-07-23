@@ -2,30 +2,30 @@
       <h1 class="mb-4">总览</h1>
       <div id="page-error" class="alert alert-danger" hidden></div>
       <div id="channel-summary" class="row g-3" aria-live="polite"></div>
-      <section class="yt-dlp-tasks-section" aria-labelledby="active-tasks-title">
-        <div class="yt-dlp-tasks-section-heading">
-          <h2 id="active-tasks-title">活动任务</h2>
+      <section class="mt-4" aria-labelledby="active-tasks-title">
+        <div class="task-section-heading d-flex align-items-center gap-2 mb-2">
+          <h2 class="task-section-title mb-0" id="active-tasks-title">活动任务</h2>
           <span id="active-task-count" class="badge rounded-pill text-bg-primary">0</span>
         </div>
-        <div class="yt-dlp-tasks-table-shell table-responsive">
+        <div class="yt-dlp-tasks-table-shell table-responsive border rounded-4">
           <table class="table yt-dlp-tasks-table align-middle mb-0">
             <thead><tr><th scope="col">任务 ID</th><th scope="col">任务类型</th><th scope="col">状态</th><th scope="col">创建时间</th><th scope="col">开始时间</th><th scope="col">结束时间</th><th scope="col">失败原因</th></tr></thead>
             <tbody id="active-task-list"></tbody>
           </table>
-          <div id="active-task-empty" class="yt-dlp-tasks-empty" role="status" hidden>当前没有排队或运行中的任务。</div>
+          <div id="active-task-empty" class="yt-dlp-tasks-empty p-5 px-3 border-top text-body-secondary text-center" role="status" hidden>当前没有排队或运行中的任务。</div>
         </div>
       </section>
-      <section class="yt-dlp-tasks-section" aria-labelledby="terminal-tasks-title">
-        <div class="yt-dlp-tasks-section-heading">
-          <h2 id="terminal-tasks-title">最近已结束任务</h2>
+      <section class="mt-4" aria-labelledby="terminal-tasks-title">
+        <div class="task-section-heading d-flex align-items-center gap-2 mb-2">
+          <h2 class="task-section-title mb-0" id="terminal-tasks-title">最近已结束任务</h2>
           <span id="terminal-task-count" class="badge rounded-pill text-bg-secondary">0</span>
         </div>
-        <div class="yt-dlp-tasks-table-shell table-responsive">
+        <div class="yt-dlp-tasks-table-shell table-responsive border rounded-4">
           <table class="table yt-dlp-tasks-table align-middle mb-0">
             <thead><tr><th scope="col">任务 ID</th><th scope="col">任务类型</th><th scope="col">状态</th><th scope="col">创建时间</th><th scope="col">开始时间</th><th scope="col">结束时间</th><th scope="col">失败原因</th></tr></thead>
             <tbody id="terminal-task-list"></tbody>
           </table>
-          <div id="terminal-task-empty" class="yt-dlp-tasks-empty" role="status" hidden>当前没有已结束的任务。</div>
+          <div id="terminal-task-empty" class="yt-dlp-tasks-empty p-5 px-3 border-top text-body-secondary text-center" role="status" hidden>当前没有已结束的任务。</div>
         </div>
       </section>
     </main>
