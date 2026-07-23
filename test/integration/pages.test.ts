@@ -512,6 +512,8 @@ describe('server-rendered pages', () => {
     const script = await getPublicScript('channel-detail.js');
 
     expect(html).toContain('id="download-form"');
+    expect(html).toContain('class="channel-detail-hero position-relative overflow-hidden mb-4"');
+    expect(html).toContain('class="channel-detail-heading d-flex flex-column flex-md-row align-items-start align-items-md-end justify-content-between gap-4"');
     expect(html).toContain('role="tablist" aria-label="频道详情"');
     expect(html).toContain('class="channel-detail-tabs nav nav-pills d-flex mb-3"');
     expect(html).toContain('class="channel-detail-tab nav-link active"');
