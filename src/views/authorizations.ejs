@@ -42,13 +42,12 @@
 
       <div class="modal fade" id="authorization-modal" tabindex="-1" aria-labelledby="authorization-modal-title" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-dialog-centered">
-          <div class="modal-content">
-            <form id="authorization-form" class="authorization-modal-form">
+            <form id="authorization-form" class="modal-content authorization-modal-form">
               <div class="modal-header">
                 <h2 class="modal-title h5" id="authorization-modal-title">新增授权</h2>
                 <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
               </div>
-              <div class="modal-body">
+              <div class="modal-body d-grid gap-3">
                 <div>
                   <label class="form-label" for="authorization-platform">平台</label>
                   <select class="form-select" id="authorization-platform" name="platform" required></select>
@@ -64,7 +63,6 @@
                 <button class="btn btn-primary" type="submit" data-authorization-submit>新增授权</button>
               </div>
             </form>
-          </div>
         </div>
       </div>
     </main>

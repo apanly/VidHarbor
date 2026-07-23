@@ -426,7 +426,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('<tbody id="authorization-list"></tbody>');
     expect(html).toContain('id="authorization-modal"');
     expect(html).toContain('data-bs-backdrop="static"');
-    expect(html).toContain('id="authorization-form"');
+    expect(html).toContain('<form id="authorization-form" class="modal-content authorization-modal-form">');
+    expect(html).toContain('class="modal-body d-grid gap-3"');
     expect(html).toContain('id="authorization-platform" name="platform"');
     expect(html.match(/name="cookieFile"/g)).toHaveLength(1);
     expect(html).toContain('删除会立即移除文件且无法恢复');
