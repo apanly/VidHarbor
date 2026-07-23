@@ -892,7 +892,10 @@ describe('server-rendered pages', () => {
     const html = await getPage('/downloads/preview?id=1');
     const script = await getPublicScript('download-preview.js');
 
-    expect(html).toContain('<body class="preview-page">');
+    expect(html).toContain('<body class="preview-page overflow-hidden">');
+    expect(html).toContain('<main class="download-preview position-relative w-100 h-100">');
+    expect(html).toContain('class="download-preview-player d-block w-100 h-100"');
+    expect(html).toContain('class="download-preview-error position-absolute m-0 text-center"');
     expect(html).toContain('id="preview-player"');
     expect(html).toContain('id="preview-error"');
     expect(html).toContain('controls preload="metadata" hidden');
@@ -1311,9 +1314,9 @@ describe('server-rendered pages', () => {
     expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-controls\s*\{[^}]*flex-direction: column;/);
     expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-card-metrics\s*\{[^}]*grid-template-columns: 1fr;/);
     expect(styles).not.toMatch(/\.download-detail-value\s*\{[^}]*text-overflow: ellipsis;/s);
-    expect(styles).toMatch(/\.preview-page\s*\{[^}]*width: 100dvw;[^}]*height: 100dvh;[^}]*overflow: hidden;[^}]*background:/s);
-    expect(styles).toMatch(/\.download-preview\s*\{[^}]*width: 100%;[^}]*height: 100%;/s);
-    expect(styles).toMatch(/\.download-preview-player\s*\{[^}]*width: 100%;[^}]*height: 100%;[^}]*object-fit: contain;[^}]*background:/s);
+    expect(styles).toMatch(/\.preview-page\s*\{[^}]*width: 100dvw;[^}]*height: 100dvh;[^}]*background:/s);
+    expect(styles).not.toContain('.download-preview {');
+    expect(styles).toMatch(/\.download-preview-player\s*\{[^}]*object-fit: contain;[^}]*background:/s);
     expect(styles).not.toContain('.download-preview-toolbar');
     expect(styles).not.toContain('.download-preview-actions');
     expect(styles).toContain('.download-preview-error');

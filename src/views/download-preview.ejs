@@ -9,10 +9,10 @@
     <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
     <link rel="stylesheet" href="/public/main.css">
   </head>
-  <body class="preview-page">
-    <main class="download-preview">
-      <video id="preview-player" class="download-preview-player" controls preload="metadata" hidden></video>
-      <p id="preview-error" class="download-preview-error" hidden></p>
+  <body class="preview-page overflow-hidden">
+    <main class="download-preview position-relative w-100 h-100">
+      <video id="preview-player" class="download-preview-player d-block w-100 h-100" controls preload="metadata" hidden></video>
+      <p id="preview-error" class="download-preview-error position-absolute m-0 text-center" hidden></p>
     </main>
     <script src="/public/download-preview.js"></script>
   </body>
