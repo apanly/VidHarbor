@@ -316,16 +316,14 @@ body {
 }
 
 .channel-detail-tabs {
-  display: flex;
   gap: 0.35rem;
   width: fit-content;
-  margin-bottom: 1rem;
   padding: 0.3rem;
   border-radius: 0.95rem;
   background: #e5ebf3;
 }
 
-.channel-detail-tab {
+.channel-detail-tabs .channel-detail-tab {
   min-width: 7rem;
   padding: 0.65rem 1rem;
   border: 0;
@@ -335,7 +333,7 @@ body {
   font-weight: 800;
 }
 
-.channel-detail-tab.is-active {
+.channel-detail-tabs .channel-detail-tab.active {
   color: #fff;
   background: #172033;
   box-shadow: 0 0.45rem 1rem rgba(15, 23, 42, 0.18);
@@ -1247,7 +1245,7 @@ body {
     width: 100%;
   }
 
-  .channel-detail-tab {
+  .channel-detail-tabs .channel-detail-tab {
     flex: 1 1 0;
     min-width: 0;
   }

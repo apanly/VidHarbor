@@ -513,6 +513,8 @@ describe('server-rendered pages', () => {
 
     expect(html).toContain('id="download-form"');
     expect(html).toContain('role="tablist" aria-label="频道详情"');
+    expect(html).toContain('class="channel-detail-tabs nav nav-pills d-flex mb-3"');
+    expect(html).toContain('class="channel-detail-tab nav-link active"');
     expect(html).toContain('data-channel-tab="videos">视频列表</button>');
     expect(html).toContain('data-channel-tab="checks">检查记录</button>');
     expect(html).toContain('data-channel-panel="videos"');
@@ -525,6 +527,8 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('返回频道');
     expect(html).not.toContain('channel-back-link');
     expect(html).toContain('data-channel-id="7"');
+    expect(script).toContain("button.classList.toggle('active', active)");
+    expect(script).not.toContain("button.classList.toggle('is-active', active)");
     expect(script).toContain("const row = document.createElement('tr')");
     expect(script).toContain("image.referrerPolicy = 'no-referrer'");
     expect(script).toContain('setChannelTab(button.dataset.channelTab)');

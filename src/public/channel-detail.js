@@ -71,7 +71,7 @@ function updateSelection() {
 function setChannelTab(tab) {
   for (const button of document.querySelectorAll('[data-channel-tab]')) {
     const active = button.dataset.channelTab === tab;
-    button.classList.toggle('is-active', active);
+    button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   }
   for (const panel of document.querySelectorAll('[data-channel-panel]')) {
