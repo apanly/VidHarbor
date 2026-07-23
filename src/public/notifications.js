@@ -20,7 +20,7 @@ async function load() {
   for (const notification of notifications.items) {
     const row = document.createElement('tr');
     const videoCell = document.createElement('td'); videoCell.className = 'notification-video-cell';
-    const videoLink = document.createElement('a'); videoLink.href = notification.video.url; videoLink.target = '_blank'; videoLink.rel = 'noreferrer'; videoLink.textContent = notification.video.title; videoCell.append(videoLink);
+    const videoLink = document.createElement('a'); videoLink.className = 'd-block'; videoLink.href = notification.video.url; videoLink.target = '_blank'; videoLink.rel = 'noreferrer'; videoLink.textContent = notification.video.title; videoCell.append(videoLink);
     const channelCell = document.createElement('td');
     const channelLink = document.createElement('a'); channelLink.href = `/channels/${notification.channel.id}`; channelLink.textContent = notification.channel.customName; channelCell.append(channelLink);
     const publishedCell = document.createElement('td'); publishedCell.textContent = notification.video.publishedDate;

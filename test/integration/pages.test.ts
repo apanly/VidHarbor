@@ -579,6 +579,8 @@ describe('server-rendered pages', () => {
     expect(script).toContain("row.append(videoCell, channelCell, publishedCell, createdCell, stateCell, actionCell)");
     expect(script).toContain('`/channels/${notification.channel.id}`');
     expect(script).toContain('notification.video.url');
+    expect(script).toContain("videoLink.className = 'd-block'");
+    expect(html).toContain('id="notification-empty-state" class="channel-table-empty p-5 text-center"');
     expect(script).toContain('notification.video.title');
     expect(script).toContain('notification.video.publishedDate');
     expect(script).toContain('formatChinaTimestamp(notification.createdAt)');
