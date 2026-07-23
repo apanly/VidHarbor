@@ -1043,14 +1043,6 @@ body {
   transform: translate(-50%, -50%);
 }
 
-.authorization-page-heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
 .authorization-page-kicker {
   margin-bottom: 0.35rem;
   color: #0f766e;
@@ -1074,7 +1066,6 @@ body {
 }
 
 .authorization-integration-warning {
-  display: grid;
   gap: 0.35rem;
   margin-bottom: 1.5rem;
 }
@@ -1100,11 +1091,6 @@ body {
   box-shadow: 0 0.8rem 2rem rgba(15, 23, 42, 0.06);
 }
 
-.authorization-list-card {
-  margin-bottom: 1.5rem;
-  overflow: hidden;
-}
-
 .authorization-table {
   min-width: 42rem;
   margin: 0;
@@ -1122,7 +1108,6 @@ body {
 
 .authorization-status {
   padding: 0.28rem 0.65rem;
-  border-radius: 999px;
   color: #08775f;
   background: #dcfce7;
   font-size: 0.76rem;
@@ -1135,16 +1120,12 @@ body {
 }
 
 .authorization-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
   gap: 0.6rem;
 }
 
 .authorization-empty-state {
   padding: 3rem 1.25rem !important;
   color: #64748b !important;
-  text-align: center;
 }
 
 .authorization-modal-form .modal-body {
@@ -1266,10 +1247,6 @@ body {
 
   .download-card-metrics {
     grid-template-columns: 1fr;
-  }
-
-  .authorization-actions {
-    flex-wrap: nowrap;
   }
 
 }
@@ -1481,11 +1458,6 @@ body {
 
   .database-workspace {
     grid-template-columns: 1fr;
-  }
-
-  .authorization-page-heading {
-    align-items: stretch;
-    flex-direction: column;
   }
 
   .authorization-page-heading .btn {

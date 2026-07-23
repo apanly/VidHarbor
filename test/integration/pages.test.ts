@@ -407,13 +407,17 @@ describe('server-rendered pages', () => {
     });
     expect(upload.status).toBe(200);
 
-    const html = await getPage('/authorizations');
+    const [html, script] = await Promise.all([
+      getPage('/authorizations'),
+      getPublicScript('authorizations.js'),
+    ]);
     expect(html).toContain('<title>授权管理 · VidHarbor</title>');
     expect(html).toContain('<link rel="icon" href="/public/favicon.svg" type="image/svg+xml">');
     expect(html).toContain('<link rel="icon" href="/public/favicon.ico" sizes="any">');
     expect(html).toContain('<link rel="apple-touch-icon" href="/public/apple-touch-icon.png">');
     expect(html).toContain('class="sidebar-link active" href="/authorizations">授权管理</a>');
     expect(html).toContain('data-authorization-create>新增授权</button>');
+    expect(html).toContain('class="authorization-page-heading d-flex flex-column flex-lg-row align-items-stretch align-items-lg-end justify-content-between gap-3 mb-4"');
     expect(html).toContain('<table class="table align-middle authorization-table">');
     expect(html).toContain('<th scope="col">平台</th>');
     expect(html).toContain('<th scope="col">状态</th>');
@@ -442,6 +446,8 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('预览 Cookie');
     expect(html).not.toContain('下载 Cookie');
     expect(html).not.toMatch(/<a[^>]+\bdownload(?:\s|=|>)/);
+    expect(script).toContain("statusBadge.className = 'authorization-status rounded-pill'");
+    expect(script).toContain("actions.className = 'authorization-actions d-flex align-items-center flex-nowrap flex-sm-wrap'");
   });
 
   it('renders add and edit forms in dialogs with single-column fields', async () => {
@@ -1323,13 +1329,14 @@ describe('server-rendered pages', () => {
   });
 
   it('keeps authorization table and create action usable on mobile widths', async () => {
+    const html = await getPage('/authorizations');
     const styles = await readFile(
       new URL('../../src/styles/main.scss', import.meta.url),
       'utf8',
     );
 
     expect(styles).toMatch(/\.authorization-table\s*\{[^}]*min-width: 42rem;/s);
-    expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.authorization-page-heading\s*\{[^}]*flex-direction: column;/);
+    expect(html).toContain('authorization-page-heading d-flex flex-column flex-lg-row');
     expect(styles).toMatch(/@media \(max-width: 991\.98px\)[\s\S]*\.authorization-page-heading \.btn\s*\{[^}]*width: 100%;/);
   });
 

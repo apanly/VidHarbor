@@ -126,7 +126,7 @@ function renderList() {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
     cell.colSpan = 4;
-    cell.className = 'authorization-empty-state';
+    cell.className = 'authorization-empty-state text-center';
     cell.textContent = '尚未添加授权。';
     row.append(cell);
     list.append(row);
@@ -141,7 +141,7 @@ function renderList() {
 
     const status = document.createElement('td');
     const statusBadge = document.createElement('span');
-    statusBadge.className = 'authorization-status';
+    statusBadge.className = 'authorization-status rounded-pill';
     statusBadge.textContent = '已配置';
     status.append(statusBadge);
 
@@ -153,7 +153,7 @@ function renderList() {
 
     const actionsCell = document.createElement('td');
     const actions = document.createElement('div');
-    actions.className = 'authorization-actions';
+    actions.className = 'authorization-actions d-flex align-items-center flex-nowrap flex-sm-wrap';
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.className = 'btn btn-sm btn-outline-primary';

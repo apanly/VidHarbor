@@ -1,5 +1,5 @@
 <%- include('partials/header') %>
-      <div class="authorization-page-heading">
+      <div class="authorization-page-heading d-flex flex-column flex-lg-row align-items-stretch align-items-lg-end justify-content-between gap-3 mb-4">
         <div>
           <p class="authorization-page-kicker">COOKIE CREDENTIALS</p>
           <h1>授权管理</h1>
@@ -10,12 +10,12 @@
 
       <div id="authorization-page-error" class="alert alert-danger" role="alert" hidden></div>
 
-      <div class="alert alert-warning authorization-integration-warning" role="alert">
+      <div class="alert alert-warning authorization-integration-warning d-grid" role="alert">
         <strong>使用范围</strong>
         <p class="mb-0">频道可选择同平台授权用于首次同步、手动检查和定时检查；直接下载、媒体下载及未选择授权的频道不会使用 Cookie。</p>
       </div>
 
-      <section class="authorization-list-card" aria-labelledby="authorization-list-title">
+      <section class="authorization-list-card overflow-hidden mb-4" aria-labelledby="authorization-list-title">
         <div class="authorization-section-heading">
           <h2 id="authorization-list-title">已配置授权</h2>
           <p>编辑会完整替换原文件；删除会立即移除文件且无法恢复。</p>
