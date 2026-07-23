@@ -94,9 +94,9 @@ function renderVideo(video) {
 
   const videoCell = document.createElement('td');
   const identity = document.createElement('div');
-  identity.className = 'channel-video-identity';
+  identity.className = 'channel-video-identity d-flex align-items-center gap-3';
   const visual = document.createElement('div');
-  visual.className = 'channel-video-thumbnail';
+  visual.className = 'channel-video-thumbnail d-grid overflow-hidden rounded-3';
   if (video.thumbnailUrl !== null) {
     const image = document.createElement('img');
     image.src = video.thumbnailUrl;
@@ -121,7 +121,7 @@ function renderVideo(video) {
   durationCell.textContent = formatDuration(video.durationSeconds);
   const stateCell = document.createElement('td');
   const downloadSummary = document.createElement('div');
-  downloadSummary.className = 'channel-download-summary';
+  downloadSummary.className = 'channel-download-summary d-grid';
   const state = document.createElement('span');
   state.className = 'badge text-bg-light border';
   state.textContent = video.downloadStatus === null ? '尚未下载' : downloadStatusLabels[video.downloadStatus];
@@ -130,7 +130,7 @@ function renderVideo(video) {
     const metadata = document.createElement('small');
     metadata.textContent = `${formatBytes(video.downloadOutputSizeBytes)} · ${formatCompletedAt(video.downloadFinishedAt)}`;
     const actions = document.createElement('div');
-    actions.className = 'channel-download-links';
+    actions.className = 'channel-download-links d-flex gap-3';
     const preview = document.createElement('a');
     preview.href = `/downloads/preview?id=${video.downloadId}`;
     preview.target = '_blank';
