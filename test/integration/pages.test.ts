@@ -586,6 +586,8 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('class="direct-form-grid"');
     expect(html).toContain('class="card direct-advanced-options border rounded-4 bg-white shadow-sm"');
     expect(html).toContain('class="d-flex align-items-start align-items-sm-center justify-content-between gap-3 py-3"');
+    expect(html).toContain('class="modal-body d-grid gap-3"');
+    expect(html).toContain('class="direct-advanced-content d-grid border-top"');
     expect(html).toContain('<strong>高级选项</strong>');
     expect(html).toContain('起始时间和结束时间需要同时填写');
     expect(html).toContain('>转码格式</label>');

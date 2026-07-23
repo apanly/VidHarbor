@@ -552,8 +552,6 @@ body {
 }
 
 .direct-download-form .modal-body {
-  display: grid;
-  gap: 1rem;
   background: #f7f9fc;
 }
 
@@ -661,10 +659,10 @@ body {
 }
 
 .direct-advanced-content {
-  display: grid;
+  --bs-border-color: rgba(15, 23, 42, 0.08);
+
   gap: 1.35rem;
   padding: 0 1.25rem 1.25rem;
-  border-top: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
 }
 
 .direct-advanced-content section {
