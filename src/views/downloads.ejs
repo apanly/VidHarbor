@@ -37,13 +37,13 @@
                 <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
               </div>
               <div class="modal-body">
-                <section class="direct-form-section" aria-labelledby="direct-source-title">
-                  <div class="direct-form-section-heading">
-                    <div><p>必填</p><h3 id="direct-source-title">下载来源</h3></div>
-                    <span>粘贴一个公开单视频地址</span>
+                <section class="card direct-form-section border rounded-4 bg-white shadow-sm" aria-labelledby="direct-source-title">
+                  <div class="direct-form-section-heading d-flex flex-column flex-sm-row align-items-start align-items-sm-end justify-content-between gap-1 gap-sm-3">
+                    <div><p class="mb-0 text-uppercase">必填</p><h3 class="mb-0" id="direct-source-title">下载来源</h3></div>
+                    <span class="small text-secondary">粘贴一个公开单视频地址</span>
                   </div>
-                  <div class="direct-form-grid">
-                    <div class="direct-field-full">
+                  <div class="row g-3">
+                    <div class="col-12">
                       <label class="form-label" for="direct-url">视频地址</label>
                       <input class="form-control" id="direct-url" type="url" name="url" placeholder="https://" required>
                       <div class="form-text">支持公开单视频 HTTPS 地址，不展开频道主页、列表或合集。</div>
@@ -52,11 +52,11 @@
                         <p>当前官方范围包括 YouTube、Bilibili、X、Facebook 公开单视频或 Reel，以及抖音公开单视频；其他 HTTPS URL 仍按通用单资源契约探测，但不属于官方支持或验证范围。Bilibili 用 <code>?p=序号</code> 选择分 P，X 一帖多视频用 <code>/video/序号</code> 选择。</p>
                       </details>
                     </div>
-                    <div>
+                    <div class="col-12 col-sm-6">
                       <label class="form-label" for="direct-proxy">网络路径</label>
                       <select class="form-select" id="direct-proxy" name="proxyId"><option value="">直连</option></select>
                     </div>
-                    <div>
+                    <div class="col-12 col-sm-6">
                       <label class="form-label" for="direct-media-type">媒体类型</label>
                       <select class="form-select" id="direct-media-type" name="mediaType"><option value="video">视频</option><option value="audio">音频</option></select>
                     </div>

@@ -570,10 +570,6 @@ body {
 }
 
 .direct-form-section-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
   margin-bottom: 1.15rem;
 }
 
@@ -603,10 +599,6 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
-}
-
-.direct-field-full {
-  grid-column: 1 / -1;
 }
 
 .direct-download-form .form-label {
@@ -1306,12 +1298,6 @@ body {
   .direct-form-grid,
   .direct-option-grid {
     grid-template-columns: 1fr;
-  }
-
-  .direct-form-section-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 0.25rem;
   }
 
   .direct-advanced-options > summary {

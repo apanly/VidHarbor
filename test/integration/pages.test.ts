@@ -580,6 +580,9 @@ describe('server-rendered pages', () => {
     expect(html).toContain('id="direct-download-modal"');
     expect(html).toContain('class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"');
     expect(html).toContain('<form id="direct-download-form" class="modal-content form-stack direct-download-form">');
+    expect(html).toContain('class="card direct-form-section border rounded-4 bg-white shadow-sm"');
+    expect(html).toContain('class="row g-3"');
+    expect(html).toContain('class="col-12 col-sm-6"');
     expect(html).toContain('class="direct-form-grid"');
     expect(html).toContain('class="direct-advanced-options"');
     expect(html).toContain('<strong>高级选项</strong>');
