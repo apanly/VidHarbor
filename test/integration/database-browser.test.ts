@@ -85,7 +85,9 @@ describe('database browser', () => {
 
     expect(response.status).toBe(200);
     expect(html).toContain('<h1>数据库</h1>');
-    expect(html).toContain('id="database-query-form"');
+    expect(html).toContain('class="database-workspace d-grid overflow-hidden"');
+    expect(html).toContain('id="database-query-form" class="database-query-form d-grid gap-3 p-3"');
+    expect(html).toContain('id="database-result" class="database-result p-3 overflow-auto"');
     expect(html).toContain('class="sidebar-link active" href="/database">数据库管理</a>');
     expect(html).toContain('<script type="module" src="/public/database.js"></script>');
   });

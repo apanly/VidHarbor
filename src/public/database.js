@@ -26,13 +26,13 @@ function renderResult(columns, rows) {
   result.textContent = '';
 
   const summary = document.createElement('p');
-  summary.className = 'database-result-summary';
+  summary.className = 'database-result-summary mb-3';
   summary.textContent = `共 ${rows.length} 行 · ${columns.length} 列`;
   result.append(summary);
 
   if (rows.length === 0) {
     const empty = document.createElement('div');
-    empty.className = 'database-result-empty';
+    empty.className = 'database-result-empty text-center';
     empty.textContent = '无数据';
     result.append(empty);
     return;
