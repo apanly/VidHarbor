@@ -594,8 +594,7 @@ body {
   font-size: 0.78rem;
 }
 
-.direct-form-grid,
-.direct-option-grid {
+.direct-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
@@ -683,9 +682,6 @@ body {
 }
 
 .direct-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
   min-width: 0;
   padding: 0.9rem;
   border: bootstrap.$border-width solid #dbe3ed;
@@ -694,17 +690,11 @@ body {
   background: #f8fafc;
 }
 
-.direct-option:only-child {
-  grid-column: 1 / -1;
-}
-
 .direct-option .form-check-input {
-  flex: 0 0 auto;
   margin: 0.2rem 0 0;
 }
 
 .direct-option span {
-  display: grid;
   gap: 0.15rem;
 }
 
@@ -1288,8 +1278,7 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .direct-form-grid,
-  .direct-option-grid {
+  .direct-form-grid {
     grid-template-columns: 1fr;
   }
 

@@ -591,6 +591,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('>转码格式</label>');
     expect(html).toContain('<div class="col-12 col-sm-6"><label class="form-label" for="direct-quality">');
     expect(html).toContain('<div class="col-12 col-sm-6"><label class="form-label" for="direct-codec">');
+    expect(html).toContain('class="direct-option d-flex align-items-start gap-3"');
+    expect(html).toContain('class="form-check-input flex-shrink-0" type="checkbox" name="writeSubtitles"');
     expect(html).toContain('id="direct-quality" name="quality"><option value="">不限制</option>');
     expect(html).toContain('4320p（8K）');
     expect(html).toContain('id="direct-codec" name="codec"><option value="">不转码</option>');
