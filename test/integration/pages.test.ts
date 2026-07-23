@@ -530,6 +530,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain("visual.className = 'channel-video-thumbnail d-grid overflow-hidden rounded-3'");
     expect(script).toContain("downloadSummary.className = 'channel-download-summary d-grid'");
     expect(script).toContain("actions.className = 'channel-download-links d-flex gap-3'");
+    expect(script).toContain("selectionCell.className = 'channel-select-column text-center'");
     expect(html).toContain('class="table channel-detail-table channel-check-table align-middle mb-0"');
     expect(html.match(/<table/g)).toHaveLength(2);
     expect(html).not.toContain('返回频道');

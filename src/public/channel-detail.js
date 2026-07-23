@@ -81,7 +81,7 @@ function setChannelTab(tab) {
 function renderVideo(video) {
   const row = document.createElement('tr');
   const selectionCell = document.createElement('td');
-  selectionCell.className = 'channel-select-column';
+  selectionCell.className = 'channel-select-column text-center';
   const checkbox = document.createElement('input');
   checkbox.className = 'form-check-input';
   checkbox.type = 'checkbox';
