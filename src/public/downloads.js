@@ -31,7 +31,7 @@ async function request(path, method = 'GET', body) { const response = await fetc
 function displayValue(value) { return value ?? '—'; }
 function textElement(tag, className, value) { const node = document.createElement(tag); node.className = className; node.textContent = displayValue(value); return node; }
 function fieldElement(tag, className, fieldName) { const node = textElement(tag, className, null); node.dataset.downloadField = fieldName; return node; }
-function detail(label, fieldName, className = '') { const node = document.createElement('div'); node.className = `download-detail ${className}`.trim(); node.append(textElement('span', 'download-detail-label', label), fieldElement('span', 'download-detail-value', fieldName)); return node; }
+function detail(label, fieldName, className = '') { const node = document.createElement('div'); node.className = `download-detail d-grid ${className}`.trim(); node.append(textElement('span', 'download-detail-label', label), fieldElement('span', 'download-detail-value', fieldName)); return node; }
 function formatTimestamp(value) { return value === null ? '—' : formatChinaTimestamp(value); }
 function formatDuration(value) { if (value === null) return '—'; const hours = Math.floor(value / 3600); const minutes = Math.floor((value % 3600) / 60); const seconds = value % 60; return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':'); }
 function downloadElapsedSeconds(startedAt, finishedAt) { if (startedAt === null || finishedAt === null) return null; return Math.floor((Date.parse(finishedAt) - Date.parse(startedAt)) / 1000); }
@@ -48,7 +48,7 @@ function setSelectedTab(tab) {
   selectedTab = tab;
   for (const button of document.querySelectorAll('[data-download-tab]')) {
     const active = button.dataset.downloadTab === tab;
-    button.classList.toggle('is-active', active);
+    button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   }
   void refreshDownloads(1);
@@ -107,20 +107,20 @@ function renderActions(article, download) {
 }
 
 function createDownloadCard(download) {
-  const article = document.createElement('article'); article.className = 'download-card'; article.dataset.downloadId = String(download.id);
-  const header = document.createElement('header'); header.className = 'download-card-header';
+  const article = document.createElement('article'); article.className = 'download-card border rounded-4'; article.dataset.downloadId = String(download.id);
+  const header = document.createElement('header'); header.className = 'download-card-header d-flex flex-column flex-sm-row align-items-start justify-content-between gap-3';
   const identity = document.createElement('div'); identity.className = 'download-card-identity';
-  const thumbnail = document.createElement('img'); thumbnail.className = 'download-card-thumbnail'; thumbnail.alt = ''; thumbnail.referrerPolicy = 'no-referrer'; thumbnail.hidden = true;
-  const title = fieldElement('h3', 'download-card-title', 'title');
-  const meta = document.createElement('div'); meta.className = 'download-card-meta';
+  const thumbnail = document.createElement('img'); thumbnail.className = 'download-card-thumbnail object-fit-cover'; thumbnail.alt = ''; thumbnail.referrerPolicy = 'no-referrer'; thumbnail.hidden = true;
+  const title = fieldElement('h3', 'download-card-title h6 mb-0', 'title');
+  const meta = document.createElement('div'); meta.className = 'download-card-meta d-flex flex-wrap gap-2 mt-2';
   const source = fieldElement('span', 'badge download-source', 'sourceType');
   const platform = fieldElement('span', 'badge download-platform', 'platform');
   const badge = document.createElement('span'); badge.className = 'badge'; badge.dataset.downloadStatus = '';
   meta.append(source, platform, badge); identity.append(thumbnail, title, meta);
-  const actions = document.createElement('div'); actions.className = 'download-card-actions'; actions.dataset.downloadActions = '';
+  const actions = document.createElement('div'); actions.className = 'download-card-actions d-flex flex-wrap gap-2 flex-shrink-0'; actions.dataset.downloadActions = '';
   header.append(identity, actions);
 
-  const metrics = document.createElement('section'); metrics.className = 'download-card-metrics';
+  const metrics = document.createElement('section'); metrics.className = 'download-card-metrics d-grid gap-3 mt-3 border-top';
   if (download.status === 'completed') {
     metrics.append(detail('总时长', 'durationSeconds'), detail('文件大小', 'outputSizeBytes'), detail('总下载耗时', 'downloadElapsedSeconds'), detail('完成时间', 'finishedAt'));
     article.append(header, metrics, detail('存储路径', 'outputPath', 'download-card-storage'));
@@ -129,7 +129,7 @@ function createDownloadCard(download) {
     metrics.append(detail('进度', 'progressPercent'), detail('速度', 'speedText'), detail('ETA', 'etaSeconds'), detail('网络路径', 'networkMode'), detail('开始时间', 'startedAt'));
   } else {
     metrics.append(detail('网络路径', 'networkMode'), detail('结束时间', 'finishedAt'));
-    const failure = detail('失败原因', 'failureReason', 'download-card-failure');
+    const failure = detail('失败原因', 'failureReason', 'download-card-failure border-top');
     article.append(header, metrics, failure);
     return article;
   }

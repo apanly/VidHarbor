@@ -680,12 +680,13 @@ describe('server-rendered pages', () => {
     const html = await getPage('/downloads');
     const script = await getPublicScript('downloads.js');
 
-    expect(html).toContain('id="download-list" class="download-list"');
-    expect(script).toContain("article.className = 'download-card'");
-    expect(script).toContain("header.className = 'download-card-header'");
-    expect(script).toContain("metrics.className = 'download-card-metrics'");
-    expect(script).toContain("failure = detail('失败原因', 'failureReason', 'download-card-failure')");
-    expect(script).toContain("meta.className = 'download-card-meta'");
+    expect(html).toContain('id="download-list" class="download-list d-grid gap-3 mt-3"');
+    expect(script).toContain("article.className = 'download-card border rounded-4'");
+    expect(script).toContain("header.className = 'download-card-header d-flex flex-column flex-sm-row align-items-start justify-content-between gap-3'");
+    expect(script).toContain("metrics.className = 'download-card-metrics d-grid gap-3 mt-3 border-top'");
+    expect(script).toContain("failure = detail('失败原因', 'failureReason', 'download-card-failure border-top')");
+    expect(script).toContain("meta.className = 'download-card-meta d-flex flex-wrap gap-2 mt-2'");
+    expect(script).toContain("actions.className = 'download-card-actions d-flex flex-wrap gap-2 flex-shrink-0'");
     expect(script).toContain("const source = fieldElement('span', 'badge download-source'");
     expect(script).toContain("const platform = fieldElement('span', 'badge download-platform'");
     expect(html).not.toContain('<thead>');
@@ -816,12 +817,15 @@ describe('server-rendered pages', () => {
 
     expect(html).toContain('id="download-search" type="search" placeholder="搜索下载标题"');
     expect(html).toContain('role="tablist" aria-label="下载状态"');
-    expect(html).toMatch(/class="download-tabs"[\s\S]*class="download-search"/);
-    expect(html).toContain('class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active"');
-    expect(html).toContain('class="download-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed"');
-    expect(html).toContain('class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed"');
+    expect(html).toContain('class="download-tabs nav nav-pills d-flex flex-nowrap gap-1 flex-shrink-0"');
+    expect(html).toContain('class="download-search position-relative"');
+    expect(html).toContain('class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active"');
+    expect(html).toContain('class="download-tab nav-link active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed"');
+    expect(html).toContain('class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed"');
     expect(script).toContain("let selectedTab = 'completed'");
-    expect(html).toContain('id="download-empty-state"');
+    expect(script).toContain("button.classList.toggle('active', active)");
+    expect(html).toContain('id="download-empty-state" class="download-empty-state position-relative overflow-hidden text-center mt-3"');
+    expect(html).toContain('class="download-empty-mark d-inline-grid"');
     expect(html).toContain('data-empty-title');
     expect(html).toContain('data-empty-description');
     expect(html).toContain('data-empty-action');
@@ -1263,10 +1267,10 @@ describe('server-rendered pages', () => {
     expect(styles).toContain('.download-platform {');
     expect(styles).toContain('.download-controls {');
     expect(styles).toContain('.download-tabs {');
-    expect(styles).toMatch(/\.download-tabs\s*\{[^}]*grid-template-columns: repeat\(3, max-content\);/s);
+    expect(styles).not.toMatch(/\.download-tabs\s*\{[^}]*grid-template-columns:/s);
     expect(styles).toContain('.download-empty-state {');
     expect(styles).toContain('@media (max-width: 575.98px)');
-    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-card-header\s*\{[^}]*flex-direction: column;/);
+    expect(styles).not.toContain('.download-card-header {');
     expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-controls\s*\{[^}]*flex-direction: column;/);
     expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-card-metrics\s*\{[^}]*grid-template-columns: 1fr;/);
     expect(styles).not.toMatch(/\.download-detail-value\s*\{[^}]*text-overflow: ellipsis;/s);

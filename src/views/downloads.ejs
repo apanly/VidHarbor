@@ -9,24 +9,24 @@
       </div>
       <section class="download-workspace">
         <div id="page-error" class="alert alert-danger" hidden></div>
-        <div class="download-controls">
-          <div class="download-tabs" role="tablist" aria-label="下载状态">
-            <button class="download-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed">已完成 <span data-download-count="completed">0</span></button>
-            <button class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active">下载中 <span data-download-count="active">0</span></button>
-            <button class="download-tab" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed">失败 <span data-download-count="failed">0</span></button>
+        <div class="download-controls d-flex align-items-center justify-content-between gap-3">
+          <div class="download-tabs nav nav-pills d-flex flex-nowrap gap-1 flex-shrink-0" role="tablist" aria-label="下载状态">
+            <button class="download-tab nav-link active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed">已完成 <span class="badge rounded-pill" data-download-count="completed">0</span></button>
+            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active">下载中 <span class="badge rounded-pill" data-download-count="active">0</span></button>
+            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed">失败 <span class="badge rounded-pill" data-download-count="failed">0</span></button>
           </div>
-          <div class="download-search">
+          <div class="download-search position-relative">
             <label class="visually-hidden" for="download-search">搜索下载标题</label>
             <input class="form-control" id="download-search" type="search" placeholder="搜索下载标题" autocomplete="off">
           </div>
         </div>
-        <div id="download-empty-state" class="download-empty-state" role="status" hidden>
-          <span class="download-empty-mark" aria-hidden="true">VH</span>
-          <h2 data-empty-title></h2>
+        <div id="download-empty-state" class="download-empty-state position-relative overflow-hidden text-center mt-3" role="status" hidden>
+          <span class="download-empty-mark d-inline-grid" aria-hidden="true">VH</span>
+          <h2 class="mb-0" data-empty-title></h2>
           <p data-empty-description></p>
           <button class="btn btn-outline-primary" type="button" data-empty-action></button>
         </div>
-        <div id="download-list" class="download-list" aria-live="polite"></div>
+        <div id="download-list" class="download-list d-grid gap-3 mt-3" aria-live="polite"></div>
         <nav id="download-pagination" class="list-pagination" aria-label="下载分页" hidden></nav>
       </section>
       <div class="modal fade" id="direct-download-modal" tabindex="-1" aria-labelledby="direct-download-title" aria-hidden="true" data-bs-backdrop="static">

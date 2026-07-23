@@ -773,10 +773,6 @@ body {
 }
 
 .download-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
   padding: 0.7rem;
   border: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
   border-radius: 1.1rem;
@@ -786,7 +782,6 @@ body {
 }
 
 .download-search {
-  position: relative;
   flex: 1 1 24rem;
   min-width: 10rem;
 }
@@ -832,19 +827,14 @@ body {
 }
 
 .download-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, max-content);
-  flex: 0 0 auto;
-  gap: 0.25rem;
   padding: 0.28rem;
   border-radius: 0.85rem;
   background: #e9eef5;
 }
 
-.download-tab {
+.download-tabs .download-tab {
   min-height: 2.45rem;
   padding: 0.45rem 0.85rem;
-  border: 0;
   border-radius: 0.65rem;
   color: #526177;
   background: transparent;
@@ -860,32 +850,30 @@ body {
   margin-left: 0.3rem;
   padding: 0 0.3rem;
   place-items: center;
-  border-radius: 999px;
+  border-radius: 999px !important;
   color: #64748b;
   background: rgba(255, 255, 255, 0.72);
   font-size: 0.72rem;
+  font-weight: inherit;
+  line-height: 1.5;
 }
 
-.download-tab.is-active {
+.download-tabs .download-tab.active {
   color: #fff;
   background: #172033;
   box-shadow: 0 0.45rem 1rem rgba(15, 23, 42, 0.18);
 }
 
-.download-tab.is-active span {
+.download-tabs .download-tab.active span {
   color: #172033;
   background: #8affc1;
 }
 
 .download-empty-state {
-  position: relative;
-  overflow: hidden;
   min-height: 22rem;
-  margin-top: 1rem;
   padding: 3rem 1.5rem;
   border: bootstrap.$border-width dashed rgba(15, 23, 42, 0.16);
   border-radius: 1.25rem;
-  text-align: center;
   background:
     radial-gradient(circle at 50% 0, rgba(114, 230, 255, 0.18), transparent 16rem),
     rgba(255, 255, 255, 0.62);
@@ -896,7 +884,6 @@ body {
 }
 
 .download-empty-mark {
-  display: inline-grid;
   width: 4rem;
   height: 4rem;
   margin-bottom: 1.25rem;
@@ -912,7 +899,6 @@ body {
 }
 
 .download-empty-state h2 {
-  margin: 0;
   color: #172033;
   font-size: 1.35rem;
   font-weight: 850;
@@ -922,12 +908,6 @@ body {
   max-width: 30rem;
   margin: 0.65rem auto 1.35rem;
   color: #64748b;
-}
-
-.download-list {
-  display: grid;
-  gap: 1rem;
-  margin-top: 1rem;
 }
 
 .list-pagination {
@@ -1033,17 +1013,9 @@ body {
 .download-card {
   min-width: 0;
   padding: 1.25rem;
-  border: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
-  border-radius: 1rem;
+  border-color: rgba(15, 23, 42, 0.08) !important;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 0.75rem 2rem rgba(15, 23, 42, 0.06);
-}
-
-.download-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
 }
 
 .download-card-identity {
@@ -1057,32 +1029,15 @@ body {
   aspect-ratio: 16 / 9;
   margin-right: 0.9rem;
   border-radius: 0.65rem;
-  object-fit: cover;
   background: #e2e8f0;
 }
 
 .download-card-title {
-  margin: 0;
   color: #172033;
   font-size: 1rem;
   font-weight: 750;
   line-height: 1.5;
   overflow-wrap: break-word;
-}
-
-.download-card-meta,
-.download-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.download-card-meta {
-  margin-top: 0.5rem;
-}
-
-.download-card-actions {
-  flex: 0 0 auto;
 }
 
 .download-source {
@@ -1096,22 +1051,16 @@ body {
 }
 
 .download-card-metrics {
-  display: grid;
-  gap: 1rem;
   min-width: 0;
-}
-
-.download-card-metrics {
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-  margin-top: 1rem;
   padding: 0.9rem 0;
-  border-top: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
+  border-top-color: rgba(15, 23, 42, 0.08) !important;
 }
 
 .download-card-failure {
   margin-top: 0.9rem;
   padding-top: 0.9rem;
-  border-top: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
+  border-top-color: rgba(15, 23, 42, 0.08) !important;
 }
 
 .download-card-storage {
@@ -1123,7 +1072,6 @@ body {
 }
 
 .download-detail {
-  display: grid;
   gap: 0.2rem;
   min-width: 0;
 }
@@ -1398,7 +1346,11 @@ body {
   }
 
   .download-tabs {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .download-tabs .download-tab {
+    flex: 1 1 0;
   }
 
   .download-empty-state {
@@ -1415,10 +1367,6 @@ body {
     flex-basis: 100%;
     margin: 0.25rem 0 0;
     text-align: center;
-  }
-
-  .download-card-header {
-    flex-direction: column;
   }
 
   .download-card-identity {
