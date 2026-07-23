@@ -4,10 +4,10 @@
         <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#channel-modal" data-channel-create>新增频道</button>
       </div>
       <section>
-        <div id="channel-empty-state" class="channel-empty-state" aria-labelledby="channel-empty-title" hidden>
-          <div class="channel-empty-mark" aria-hidden="true"><span>+</span></div>
+        <div id="channel-empty-state" class="channel-empty-state position-relative overflow-hidden text-center" aria-labelledby="channel-empty-title" hidden>
+          <div class="channel-empty-mark position-relative d-grid rounded-circle" aria-hidden="true"><span>+</span></div>
           <p class="channel-empty-kicker">频道订阅</p>
-          <h2 id="channel-empty-title">从一个频道开始</h2>
+          <h2 class="mb-0" id="channel-empty-title">从一个频道开始</h2>
           <p class="channel-empty-description">添加 YouTube 频道或 Bilibili UP 主空间，首次同步后即可集中查看视频，并按计划发现更新。</p>
           <button class="btn btn-primary" type="button" data-channel-empty-create>添加第一个频道</button>
         </div>

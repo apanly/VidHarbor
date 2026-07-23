@@ -460,7 +460,9 @@ describe('server-rendered pages', () => {
     expect(channelsScript).toContain('openChannelCreateModal()');
     expect(channelsScript).toContain('openChannelEditModal(channel)');
     expect(channelsHtml).toContain('>新增频道</button>');
-    expect(channelsHtml).toContain('id="channel-empty-state" class="channel-empty-state"');
+    expect(channelsHtml).toContain('id="channel-empty-state" class="channel-empty-state position-relative overflow-hidden text-center"');
+    expect(channelsHtml).toContain('class="channel-empty-mark position-relative d-grid rounded-circle"');
+    expect(channelsHtml).toContain('class="mb-0" id="channel-empty-title"');
     expect(channelsHtml).toContain('从一个频道开始');
     expect(channelsHtml).toContain('data-channel-empty-create>添加第一个频道</button>');
     expect(channelsScript).toContain("document.querySelector('[data-channel-empty-create]')");
