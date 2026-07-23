@@ -291,9 +291,6 @@ describe('server lifecycle', () => {
     const config = await createConfig();
     const database = openDatabase(config.databasePath);
     migrateDatabase(database);
-    database
-      .prepare('UPDATE settings SET download_root = ? WHERE id = 1')
-      .run(config.downloadsMountPath);
     const interrupted = database
       .prepare(
         `INSERT INTO downloads (
@@ -345,9 +342,6 @@ describe('server lifecycle', () => {
     const config = await createConfig();
     const database = openDatabase(config.databasePath);
     migrateDatabase(database);
-    database
-      .prepare('UPDATE settings SET download_root = ? WHERE id = 1')
-      .run(config.downloadsMountPath);
     database.exec(`
       INSERT INTO downloads (
         source_type, source_url, platform, platform_video_id, title,
@@ -376,9 +370,6 @@ describe('server lifecycle', () => {
     const config = await createConfig();
     const database = openDatabase(config.databasePath);
     migrateDatabase(database);
-    database
-      .prepare('UPDATE settings SET download_root = ? WHERE id = 1')
-      .run(config.downloadsMountPath);
     database.exec(`
       INSERT INTO downloads (
         id, source_type, source_url, platform, platform_video_id, title,
@@ -419,44 +410,6 @@ describe('server lifecycle', () => {
     ).resolves.toEqual([]);
   });
 
-  it('rejects startup cleanup when the configured root escapes the mount', async () => {
-    const config = await createConfig();
-    const outsideRoot = join(config.downloadsMountPath, '..', 'outside');
-    const configuredRoot = join(config.downloadsMountPath, 'configured');
-    await mkdir(join(outsideRoot, '.vidharbor-tmp', '1'), { recursive: true });
-    await writeFile(
-      join(outsideRoot, '.vidharbor-tmp', '1', 'preserve.txt'),
-      'preserve',
-    );
-    await symlink(outsideRoot, configuredRoot);
-    const database = openDatabase(config.databasePath);
-    migrateDatabase(database);
-    database
-      .prepare('UPDATE settings SET download_root = ? WHERE id = 1')
-      .run(configuredRoot);
-    database.exec(`
-      INSERT INTO downloads (
-        id, source_type, source_url, platform, platform_video_id, title,
-        network_mode, status, created_at
-      ) VALUES (
-        1, 'direct', 'https://www.youtube.com/watch?v=abcdefghijk', 'youtube',
-        'abcdefghijk', 'Pending', 'direct', 'pending',
-        '2026-07-17T10:00:00.000Z'
-      );
-    `);
-    database.close();
-
-    const outcome = await startServer(config, () => undefined).catch(
-      (error: unknown) => error,
-    );
-    if (!(outcome instanceof Error)) runningServers.push(outcome);
-
-    expect(outcome).toBeInstanceOf(Error);
-    await expect(
-      readdir(join(outsideRoot, '.vidharbor-tmp', '1')),
-    ).resolves.toEqual(['preserve.txt']);
-  });
-
   it('rejects startup cleanup when the temporary root escapes the mount', async () => {
     const config = await createConfig();
     const outsideRoot = join(config.downloadsMountPath, '..', 'outside-tmp');
@@ -465,9 +418,6 @@ describe('server lifecycle', () => {
     await symlink(outsideRoot, join(config.downloadsMountPath, '.vidharbor-tmp'));
     const database = openDatabase(config.databasePath);
     migrateDatabase(database);
-    database
-      .prepare('UPDATE settings SET download_root = ? WHERE id = 1')
-      .run(config.downloadsMountPath);
     database.exec(`
       INSERT INTO downloads (
         id, source_type, source_url, platform, platform_video_id, title,
@@ -496,12 +446,10 @@ describe('server lifecycle', () => {
     const database = openDatabase(config.databasePath);
     migrateDatabase(database);
     const proxyUrl = 'http://alice:secret@proxy.example:8080';
-    const downloadRoot = join(config.downloadsMountPath, 'alice:secret');
-    await mkdir(downloadRoot);
-    await writeFile(join(downloadRoot, '.vidharbor-tmp'), 'not a directory');
-    database
-      .prepare('UPDATE settings SET download_root = ? WHERE id = 1')
-      .run(downloadRoot);
+    await writeFile(
+      join(config.downloadsMountPath, '.vidharbor-tmp'),
+      'not a directory',
+    );
     database
       .prepare(
         `INSERT INTO proxies (name, proxy_url, created_at, updated_at)
@@ -901,9 +849,6 @@ setInterval(() => {}, 1000);
     const database = openDatabase(config.databasePath);
     migrateDatabase(database);
     const proxyUrl = 'http://alice:secret@proxy.example:8080';
-    database
-      .prepare('UPDATE settings SET download_root = ? WHERE id = 1')
-      .run(config.downloadsMountPath);
     const proxy = database
       .prepare(
         `INSERT INTO proxies (name, proxy_url, created_at, updated_at)

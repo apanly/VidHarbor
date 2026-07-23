@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VidHarbor 一分钟快速上手</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #f5f1e8;
+        --muted: #aab5b1;
+        --night: #08120f;
+        --panel: rgba(15, 31, 26, 0.82);
+        --line: rgba(224, 239, 232, 0.15);
+        --mint: #8ff0bd;
+        --amber: #f0b35f;
+        --danger: #ff8e72;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        overflow: hidden;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 15% 15%, rgba(52, 122, 91, 0.24), transparent 30rem),
+          radial-gradient(circle at 90% 80%, rgba(207, 130, 47, 0.15), transparent 34rem),
+          var(--night);
+        font-family: "Avenir Next", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .deck {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        isolation: isolate;
+      }
+
+      .deck::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        opacity: 0.22;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+        background-size: 3rem 3rem;
+        content: "";
+        mask-image: linear-gradient(to bottom, black, transparent 85%);
+      }
+
+      .slide {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: minmax(20rem, 0.84fr) minmax(30rem, 1.36fr);
+        gap: clamp(2rem, 5vw, 6rem);
+        align-items: center;
+        padding: clamp(4rem, 7vw, 7rem) clamp(3rem, 7vw, 8rem) clamp(6rem, 8vw, 7.5rem);
+        visibility: hidden;
+        opacity: 0;
+        transform: translateY(1rem);
+        transition: opacity 300ms ease, transform 450ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 300ms;
+      }
+
+      .slide.is-active {
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .slide--cover,
+      .slide--end {
+        grid-template-columns: 1fr;
+        text-align: center;
+      }
+
+      .slide-copy {
+        position: relative;
+        z-index: 2;
+      }
+
+      .kicker {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin: 0 0 1.2rem;
+        color: var(--mint);
+        font-size: clamp(0.72rem, 1.1vw, 0.92rem);
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .kicker::before {
+        width: 2.8rem;
+        height: 1px;
+        background: currentColor;
+        content: "";
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-weight: 800;
+        letter-spacing: -0.045em;
+        text-wrap: balance;
+      }
+
+      h1 {
+        font-size: clamp(3.25rem, 6.5vw, 6.75rem);
+        line-height: 1;
+      }
+
+      h2 {
+        max-width: 12ch;
+        font-size: clamp(2.5rem, 4.25vw, 4.75rem);
+        line-height: 1.08;
+      }
+
+      .lead {
+        max-width: 38rem;
+        margin: 2rem 0 0;
+        color: var(--muted);
+        font-size: clamp(1rem, 1.5vw, 1.35rem);
+        line-height: 1.8;
+      }
+
+      .slide--cover .lead,
+      .slide--end .lead {
+        margin-right: auto;
+        margin-left: auto;
+      }
+
+      .cover-mark {
+        display: inline-grid;
+        width: clamp(4.5rem, 8vw, 7rem);
+        aspect-ratio: 1;
+        margin-bottom: 2rem;
+        place-items: center;
+        border: 1px solid rgba(143, 240, 189, 0.46);
+        border-radius: 32%;
+        color: #0b2419;
+        background: linear-gradient(135deg, var(--mint), #62cbe5);
+        box-shadow: 0 2rem 5rem rgba(74, 218, 152, 0.22);
+        font-size: clamp(1.2rem, 2vw, 1.8rem);
+        font-weight: 900;
+        transform: rotate(-5deg);
+      }
+
+      .accent {
+        color: var(--mint);
+      }
+
+      .visual {
+        position: relative;
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: clamp(1.25rem, 2vw, 2.25rem);
+        background: rgba(15, 31, 26, 0.72);
+        box-shadow: 0 2.5rem 7rem rgba(0, 0, 0, 0.38);
+      }
+
+      .visual::before {
+        display: block;
+        height: 2.4rem;
+        border-bottom: 1px solid var(--line);
+        background:
+          radial-gradient(circle at 1.25rem 50%, #ff766d 0 0.25rem, transparent 0.28rem),
+          radial-gradient(circle at 2.15rem 50%, #efbd58 0 0.25rem, transparent 0.28rem),
+          radial-gradient(circle at 3.05rem 50%, #74d27e 0 0.25rem, transparent 0.28rem),
+          rgba(6, 16, 13, 0.88);
+        content: "";
+      }
+
+      .visual img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        object-position: top left;
+      }
+
+      .terminal {
+        min-height: 28rem;
+        padding: clamp(1.5rem, 3vw, 3rem);
+        color: #dbe9e2;
+        background: #09110f;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: clamp(0.8rem, 1.25vw, 1.12rem);
+        line-height: 2;
+      }
+
+      .terminal p {
+        margin: 0;
+      }
+
+      .terminal .prompt {
+        color: var(--mint);
+      }
+
+      .terminal .result {
+        display: inline-block;
+        margin-top: 1.4rem;
+        padding: 0.2rem 0.7rem;
+        border-radius: 999px;
+        color: #0e2a1e;
+        background: var(--mint);
+        font-weight: 900;
+      }
+
+      .url-card {
+        display: grid;
+        min-height: 30rem;
+        place-items: center;
+        padding: 3rem;
+        background:
+          radial-gradient(circle at 50% 45%, rgba(143, 240, 189, 0.12), transparent 15rem),
+          #09110f;
+      }
+
+      .address {
+        width: min(100%, 36rem);
+        padding: 1.15rem 1.4rem;
+        border: 1px solid rgba(143, 240, 189, 0.38);
+        border-radius: 1rem;
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.06);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: clamp(1rem, 2vw, 1.45rem);
+        text-align: center;
+        box-shadow: 0 0 3rem rgba(143, 240, 189, 0.08);
+      }
+
+      .warning {
+        position: absolute;
+        right: 1.25rem;
+        bottom: 1.25rem;
+        padding: 0.6rem 0.9rem;
+        border: 1px solid rgba(240, 179, 95, 0.36);
+        border-radius: 999px;
+        color: #f6c47e;
+        background: rgba(17, 20, 13, 0.9);
+        font-size: clamp(0.62rem, 0.9vw, 0.78rem);
+        font-weight: 800;
+      }
+
+      .action-list {
+        display: grid;
+        gap: 0.9rem;
+        margin: 2rem 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .action-list li {
+        display: grid;
+        grid-template-columns: 2rem 1fr;
+        gap: 0.7rem;
+        align-items: start;
+        color: #d4ded9;
+        font-size: clamp(0.86rem, 1.2vw, 1.05rem);
+        line-height: 1.55;
+      }
+
+      .action-list span {
+        display: grid;
+        width: 1.7rem;
+        aspect-ratio: 1;
+        place-items: center;
+        border-radius: 50%;
+        color: #0a1a14;
+        background: var(--mint);
+        font-size: 0.72rem;
+        font-weight: 900;
+      }
+
+      .narration {
+        margin-top: 2rem;
+        padding: 1.15rem 1.3rem;
+        border-left: 2px solid var(--amber);
+        color: #c3cec9;
+        background: rgba(240, 179, 95, 0.07);
+        font-family: "Baskerville", "Songti SC", "STSong", serif;
+        font-size: clamp(0.9rem, 1.25vw, 1.1rem);
+        line-height: 1.8;
+      }
+
+      .narration::before {
+        display: block;
+        margin-bottom: 0.35rem;
+        color: var(--amber);
+        font-family: "Avenir Next", sans-serif;
+        font-size: 0.66rem;
+        font-weight: 900;
+        letter-spacing: 0.18em;
+        content: "旁白";
+      }
+
+      .download-form {
+        padding: clamp(1.5rem, 3vw, 3rem);
+        background: #f5f7f5;
+      }
+
+      .field {
+        margin-bottom: 1rem;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 0.4rem;
+        color: #53635c;
+        font-size: 0.72rem;
+        font-weight: 850;
+      }
+
+      .input,
+      .select {
+        width: 100%;
+        padding: 0.9rem 1rem;
+        border: 1px solid #ced8d3;
+        border-radius: 0.75rem;
+        color: #183027;
+        background: #fff;
+        font-size: clamp(0.75rem, 1.1vw, 0.95rem);
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+      }
+
+      .primary-action {
+        display: inline-block;
+        margin-top: 0.5rem;
+        padding: 0.9rem 1.3rem;
+        border-radius: 0.75rem;
+        color: #082016;
+        background: #70dfa5;
+        font-weight: 900;
+      }
+
+      .frame-label {
+        position: absolute;
+        top: 3.7rem;
+        left: 1.25rem;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 999px;
+        color: #fff;
+        background: rgba(8, 18, 15, 0.76);
+        font-size: 0.7rem;
+        font-weight: 850;
+        backdrop-filter: blur(8px);
+      }
+
+      .end-lockup {
+        display: grid;
+        gap: 1.4rem;
+        justify-items: center;
+      }
+
+      .end-steps {
+        display: flex;
+        align-items: center;
+        gap: clamp(0.7rem, 2vw, 1.5rem);
+        color: var(--mint);
+        font-size: clamp(1rem, 2vw, 1.6rem);
+        font-weight: 800;
+        letter-spacing: 0.05em;
+      }
+
+      .end-steps i {
+        width: 0.32rem;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: var(--amber);
+      }
+
+      .repo {
+        color: var(--muted);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: clamp(0.85rem, 1.35vw, 1.15rem);
+      }
+
+      .legal {
+        margin-top: 2rem;
+        color: #efbd87;
+        font-size: clamp(0.75rem, 1vw, 0.9rem);
+      }
+
+      .chrome {
+        position: fixed;
+        right: clamp(1rem, 3vw, 2.5rem);
+        bottom: clamp(1rem, 2.5vw, 2rem);
+        left: clamp(1rem, 3vw, 2.5rem);
+        z-index: 10;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 1rem;
+        align-items: center;
+      }
+
+      .progress-track {
+        height: 2px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      .progress-bar {
+        width: 12.5%;
+        height: 100%;
+        background: linear-gradient(90deg, var(--mint), var(--amber));
+        transition: width 350ms ease;
+      }
+
+      .controls {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .control {
+        display: grid;
+        width: 2.6rem;
+        aspect-ratio: 1;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        color: var(--ink);
+        background: rgba(13, 29, 24, 0.76);
+        cursor: pointer;
+        backdrop-filter: blur(10px);
+      }
+
+      .control:hover,
+      .control:focus-visible {
+        border-color: var(--mint);
+        color: var(--mint);
+        outline: none;
+      }
+
+      .counter {
+        justify-self: end;
+        color: var(--muted);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.75rem;
+      }
+
+      .timecode {
+        position: fixed;
+        top: clamp(1rem, 2.5vw, 2rem);
+        right: clamp(1rem, 3vw, 2.5rem);
+        z-index: 10;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--mint);
+        background: rgba(13, 29, 24, 0.76);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.7rem;
+        font-weight: 800;
+        backdrop-filter: blur(10px);
+      }
+
+      @media (max-width: 860px) {
+        body {
+          overflow: auto;
+        }
+
+        .deck {
+          height: auto;
+          min-height: 100vh;
+        }
+
+        .slide {
+          position: relative;
+          display: none;
+          min-height: 100vh;
+          grid-template-columns: 1fr;
+          gap: 2rem;
+          padding: 5.5rem 1.25rem 7rem;
+        }
+
+        .slide.is-active {
+          display: grid;
+        }
+
+        h2 {
+          max-width: 12ch;
+        }
+
+        .visual {
+          align-self: start;
+        }
+
+        .terminal,
+        .url-card {
+          min-height: 20rem;
+        }
+
+        .chrome {
+          grid-template-columns: 1fr auto;
+        }
+
+        .progress-track {
+          grid-column: 1 / -1;
+          grid-row: 2;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .slide,
+        .progress-bar {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="deck" aria-label="VidHarbor 一分钟快速上手讲解">
+      <section class="slide slide--cover is-active" data-time="00:00–00:04">
+        <div class="slide-copy">
+          <span class="cover-mark" aria-hidden="true">VH</span>
+          <p class="kicker">VidHarbor / 60 seconds</p>
+          <h1>一分钟 <span class="accent">快速上手</span></h1>
+          <p class="lead">从容器启动，到完成第一条视频下载。只讲最短路径。</p>
+          <div class="narration">VidHarbor 是一个部署在可信内网中的本地视频管理和下载工具。下面用一分钟完成部署和第一条视频下载。</div>
+        </div>
+      </section>
+
+      <section class="slide" data-time="00:04–00:16">
+        <div class="slide-copy">
+          <p class="kicker">Step 01 / Deploy</p>
+          <h2>四行命令，<span class="accent">启动服务</span></h2>
+          <ul class="action-list">
+            <li><span>1</span>准备独立目录</li>
+            <li><span>2</span>获取官方 Compose 配置</li>
+            <li><span>3</span>启动并等待容器健康</li>
+          </ul>
+          <div class="narration">首先准备一个目录，下载官方 Compose 配置，然后启动容器。Docker 会根据机器自动选择 AMD64 或 ARM64 镜像。</div>
+        </div>
+        <div class="visual">
+          <div class="terminal" aria-label="部署命令">
+            <p><span class="prompt">$</span> mkdir vidharbor</p>
+            <p><span class="prompt">$</span> cd vidharbor</p>
+            <p><span class="prompt">$</span> curl --fail --location \</p>
+            <p>&nbsp;&nbsp;https://raw.githubusercontent.com/apanly/VidHarbor/main/compose.image.yaml \</p>
+            <p>&nbsp;&nbsp;--output compose.yaml</p>
+            <p><span class="prompt">$</span> docker compose up -d</p>
+            <p><span class="prompt">$</span> docker compose ps</p>
+            <span class="result">healthy</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-time="00:16–00:24">
+        <div class="slide-copy">
+          <p class="kicker">Step 02 / Open</p>
+          <h2>打开你的 <span class="accent">本地港口</span></h2>
+          <p class="lead">容器健康后，在浏览器进入本机的 3002 端口。</p>
+          <div class="narration">容器健康后，在浏览器打开 localhost 3002 端口。</div>
+        </div>
+        <div class="visual">
+          <div class="url-card"><div class="address">http://localhost:3002</div></div>
+          <span class="warning">仅部署在可信内网，请勿直接暴露到公网</span>
+        </div>
+      </section>
+
+      <section class="slide" data-time="00:24–00:32">
+        <div class="slide-copy">
+          <p class="kicker">Step 03 / Configure</p>
+          <h2>确认配置，<span class="accent">即可开始</span></h2>
+          <ul class="action-list">
+            <li><span>1</span>确认下载根目录为只读的 <code>/downloads</code></li>
+            <li><span>2</span>按机器性能选择下载并发数</li>
+          </ul>
+          <div class="narration">首次使用先确认下载根目录，并按机器性能设置下载并发数。下载根目录由部署配置固定，不能在页面修改。</div>
+        </div>
+        <div class="visual">
+          <img src="../screenshots/settings.webp" alt="VidHarbor 配置管理页面">
+          <span class="frame-label">配置管理</span>
+        </div>
+      </section>
+
+      <section class="slide" data-time="00:32–00:44">
+        <div class="slide-copy">
+          <p class="kicker">Step 04 / Create</p>
+          <h2>粘贴地址，<span class="accent">开始</span>下载</h2>
+          <ul class="action-list">
+            <li><span>1</span>下载 → 新建直下载</li>
+            <li><span>2</span>粘贴有权保存的公开单视频地址</li>
+            <li><span>3</span>保持直连与视频类型，可选最高分辨率</li>
+          </ul>
+          <div class="narration">进入下载页面，粘贴一个公开单视频地址。默认配置可以直接使用，也可以选择最高分辨率，然后创建下载任务。</div>
+        </div>
+        <div class="visual">
+          <div class="download-form" aria-label="新建直下载表单示意">
+            <div class="field">
+              <label>公开单视频地址</label>
+              <div class="input">https://www.youtube.com/watch?v=...</div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label>网络路径</label><div class="select">直连</div></div>
+              <div class="field"><label>媒体类型</label><div class="select">视频</div></div>
+            </div>
+            <div class="field"><label>分辨率</label><div class="select">最高分辨率</div></div>
+            <span class="primary-action">开始下载</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-time="00:44–00:52">
+        <div class="slide-copy">
+          <p class="kicker">Step 05 / Track</p>
+          <h2>进度，<span class="accent">清清楚楚</span></h2>
+          <p class="lead">在“下载中”查看实时进度、下载速度、预计剩余时间、网络路径与开始时间。</p>
+          <div class="narration">下载中可以实时查看进度、速度和预计剩余时间。</div>
+        </div>
+        <div class="visual">
+          <img src="../screenshots/downloads.webp" alt="VidHarbor 下载管理页面">
+          <span class="frame-label">下载中 · 实时状态</span>
+        </div>
+      </section>
+
+      <section class="slide" data-time="00:52–01:00">
+        <div class="slide-copy">
+          <p class="kicker">Step 06 / Done</p>
+          <h2>下载完成，<span class="accent">即刻可用</span></h2>
+          <ul class="action-list">
+            <li><span>✓</span>查看标题、时长与文件大小</li>
+            <li><span>✓</span>确认总耗时与存储路径</li>
+            <li><span>✓</span>直接预览或保存文件</li>
+          </ul>
+          <div class="narration">完成后可以查看文件大小、总下载耗时和存储路径，也可以直接预览或保存文件。下载内容会持久化保存在 downloads 目录中。</div>
+        </div>
+        <div class="visual">
+          <img src="../screenshots/downloads.webp" alt="VidHarbor 已完成下载列表">
+          <span class="frame-label">已完成 · 文件已持久化</span>
+        </div>
+      </section>
+
+      <section class="slide slide--end" data-time="01:00">
+        <div class="end-lockup">
+          <span class="cover-mark" aria-hidden="true">VH</span>
+          <h1>VidHarbor</h1>
+          <div class="end-steps"><span>部署</span><i></i><span>粘贴</span><i></i><span>下载</span></div>
+          <div class="repo">github.com/apanly/VidHarbor</div>
+          <div class="legal">请只下载自己有权保存的内容</div>
+        </div>
+      </section>
+    </main>
+
+    <div id="timecode" class="timecode" aria-live="polite">00:00–00:04</div>
+    <div class="chrome" aria-label="演示控制">
+      <div class="progress-track"><div id="progress" class="progress-bar"></div></div>
+      <div class="controls">
+        <button id="previous" class="control" type="button" aria-label="上一页">←</button>
+        <button id="fullscreen" class="control" type="button" aria-label="全屏">⛶</button>
+        <button id="next" class="control" type="button" aria-label="下一页">→</button>
+      </div>
+      <div id="counter" class="counter" aria-live="polite">01 / 08</div>
+    </div>
+
+    <script>
+      const slides = [...document.querySelectorAll('.slide')];
+      const progress = document.querySelector('#progress');
+      const counter = document.querySelector('#counter');
+      const timecode = document.querySelector('#timecode');
+      let current = 0;
+
+      function showSlide(index) {
+        current = Math.max(0, Math.min(index, slides.length - 1));
+        slides.forEach((slide, slideIndex) => {
+          slide.classList.toggle('is-active', slideIndex === current);
+          slide.setAttribute('aria-hidden', String(slideIndex !== current));
+        });
+        progress.style.width = `${((current + 1) / slides.length) * 100}%`;
+        counter.textContent = `${String(current + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+        timecode.textContent = slides[current].dataset.time;
+        window.location.hash = String(current + 1);
+      }
+
+      document.querySelector('#previous').addEventListener('click', () => showSlide(current - 1));
+      document.querySelector('#next').addEventListener('click', () => showSlide(current + 1));
+      document.querySelector('#fullscreen').addEventListener('click', () => {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen();
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (['ArrowRight', 'PageDown', ' '].includes(event.key)) showSlide(current + 1);
+        if (['ArrowLeft', 'PageUp'].includes(event.key)) showSlide(current - 1);
+        if (event.key === 'Home') showSlide(0);
+        if (event.key === 'End') showSlide(slides.length - 1);
+      });
+
+      const hashIndex = Number.parseInt(window.location.hash.slice(1), 10) - 1;
+      showSlide(Number.isNaN(hashIndex) ? 0 : hashIndex);
+    </script>
+  </body>
+</html>

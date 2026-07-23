@@ -204,7 +204,6 @@ afterEach(async () => {
 describe('offline v0.1 end-to-end contract', () => {
   it('persists configuration, syncs without historical alerts, alerts on updates, archives a selected video, isolates failure, and survives restart', async () => {
     await updateSettings(database, downloadRoot, {
-      downloadRoot,
       globalCheckIntervalMinutes: 60,
       downloadConcurrency: 1,
     });

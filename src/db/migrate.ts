@@ -100,9 +100,8 @@ export function migrateDatabase(database: DatabaseConnection): void {
       database
         .prepare(
           `INSERT INTO settings (
-            id, download_root, global_check_interval_minutes,
-            download_concurrency, updated_at
-          ) VALUES (1, NULL, 60, 1, ?)`,
+            id, global_check_interval_minutes, download_concurrency, updated_at
+          ) VALUES (1, 60, 1, ?)`,
         )
         .run(appliedAt);
       database.exec(MIGRATIONS[1]);

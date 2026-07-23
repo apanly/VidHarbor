@@ -218,14 +218,11 @@ async function request(
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-download-api-'));
   mountPath = join(sandbox, 'downloads');
-  downloadRoot = join(mountPath, 'library');
+  downloadRoot = mountPath;
   await mkdir(downloadRoot, { recursive: true });
   await installFakeYtDlp();
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
-  database
-    .prepare('UPDATE settings SET download_root = ?, updated_at = ? WHERE id = 1')
-    .run(downloadRoot, '2026-07-17T08:00:00.000Z');
   queued = [];
   runtimeErrors = [];
   taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);

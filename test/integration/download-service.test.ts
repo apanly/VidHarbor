@@ -98,12 +98,6 @@ process.exit(3);
   await chmod(executablePath, 0o755);
 }
 
-function configureRoot(path: string | null = downloadRoot): void {
-  database
-    .prepare('UPDATE settings SET download_root = ?, updated_at = ? WHERE id = 1')
-    .run(path, NOW.toISOString());
-}
-
 function insertProxy(name = 'office'): number {
   const result = database
     .prepare(
@@ -183,7 +177,6 @@ beforeEach(async () => {
   await installFakeYtDlp();
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
-  configureRoot();
   queued = [];
   queue = {
     enqueue: (download) => queued.push(download),
@@ -658,29 +651,14 @@ describe('download creation service', () => {
     expect(queued).toEqual([]);
   });
 
-  it('uses the downloads mount path when no download root is configured', async () => {
+  it('uses the downloads mount path as the download root', async () => {
     const channelId = insertChannel(null);
     const videoId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
-    configureRoot(null);
 
     await createChannelDownloads(database, downloadRoot, [videoId], queue, NOW);
 
     expect(queued).toHaveLength(1);
     expect(queued[0]?.downloadRoot).toBe(await realpath(downloadRoot));
-  });
-
-  it('rejects unavailable configured download roots before creating records', async () => {
-    const channelId = insertChannel(null);
-    const videoId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
-    configureRoot(join(sandbox, 'missing'));
-
-    await expectBusinessError(
-      createChannelDownloads(database, downloadRoot, [videoId], queue, NOW),
-      'DOWNLOAD_ROOT_UNAVAILABLE',
-    );
-
-    expect(downloadRows()).toEqual([]);
-    expect(queued).toEqual([]);
   });
 
   it('blocks active, completed, and target-file duplicates but permits explicit recreation after failure', async () => {
@@ -836,32 +814,4 @@ describe('download creation service', () => {
     expect(queued).toHaveLength(1);
   });
 
-  it('enqueues the validated download root snapshot when settings change during insertion', async () => {
-    const changedRoot = join(downloadRoot, 'changed-after-prepare');
-    await mkdir(changedRoot);
-    const channelId = insertChannel(null);
-    const videoId = insertVideo(
-      channelId,
-      FIRST_VIDEO_ID,
-      'First title',
-      '2026-07-16',
-    );
-    database.exec(`
-      CREATE TRIGGER change_download_root AFTER INSERT ON downloads
-      BEGIN
-        UPDATE settings
-        SET download_root = '${changedRoot.replaceAll("'", "''")}'
-        WHERE id = 1;
-      END
-    `);
-
-    await createChannelDownloads(database, downloadRoot, [videoId], queue, NOW);
-
-    const validatedRoot = await realpath(downloadRoot);
-    expect(queued).toEqual([
-      expect.objectContaining({
-        downloadRoot: validatedRoot,
-      }),
-    ]);
-  });
 });

@@ -59,6 +59,6 @@ async function load() {
     actions.append(edit, remove); actionsCell.append(actions); row.append(actionsCell); list.append(row);
   }
 }
-document.querySelector('#settings-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = event.currentTarget; try { await request('/api/settings', 'PUT', { downloadRoot: form.elements.downloadRoot.value, globalCheckIntervalMinutes: Number(form.elements.globalCheckIntervalMinutes.value), downloadConcurrency: Number(form.elements.downloadConcurrency.value) }); location.reload(); } catch (error) { showError(form, error); } });
+document.querySelector('#settings-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = event.currentTarget; try { await request('/api/settings', 'PUT', { globalCheckIntervalMinutes: Number(form.elements.globalCheckIntervalMinutes.value), downloadConcurrency: Number(form.elements.downloadConcurrency.value) }); location.reload(); } catch (error) { showError(form, error); } });
 proxyForm.addEventListener('submit', async (event) => { event.preventDefault(); try { if (proxyMode.kind === 'create') { await request('/api/proxies', 'POST', proxyPayload(proxyForm)); } else { await request(`/api/proxies/${proxyMode.id}`, 'PATCH', proxyPayload(proxyForm)); } location.reload(); } catch (error) { showError(proxyForm, error); } });
 load().catch((error) => showError(document.querySelector('#settings-form'), error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));

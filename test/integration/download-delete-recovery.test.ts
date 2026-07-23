@@ -141,9 +141,6 @@ beforeEach(async () => {
   await mkdir(downloadRoot);
   database = openDatabase(join(sandbox, 'vidharbor.db'));
   migrateDatabase(database);
-  database
-    .prepare('UPDATE settings SET download_root = ?, updated_at = ? WHERE id = 1')
-    .run(downloadRoot, NOW);
 });
 
 afterEach(async () => {

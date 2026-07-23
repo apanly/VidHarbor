@@ -1,6 +1,5 @@
 import type { DatabaseConnection } from '../db/client.js';
 import { BusinessError } from '../errors.js';
-import { validateDownloadRoot } from '../filesystem.js';
 
 export interface Settings {
   readonly downloadRoot: string;
@@ -9,13 +8,11 @@ export interface Settings {
 }
 
 interface SettingsRow {
-  download_root: string | null;
   global_check_interval_minutes: number | null;
   download_concurrency: number;
 }
 
 interface SettingsInput {
-  downloadRoot: string;
   globalCheckIntervalMinutes: number;
   downloadConcurrency: number;
 }
@@ -31,8 +28,7 @@ function parseSettingsInput(input: unknown): SettingsInput {
 
   const keys = Object.keys(input);
   if (
-    keys.length !== 3 ||
-    !keys.includes('downloadRoot') ||
+    keys.length !== 2 ||
     !keys.includes('globalCheckIntervalMinutes') ||
     !keys.includes('downloadConcurrency')
   ) {
@@ -41,7 +37,6 @@ function parseSettingsInput(input: unknown): SettingsInput {
 
   const record = input as Record<string, unknown>;
   if (
-    typeof record.downloadRoot !== 'string' ||
     !Number.isSafeInteger(record.globalCheckIntervalMinutes) ||
     (record.globalCheckIntervalMinutes as number) < 1 ||
     !Number.isSafeInteger(record.downloadConcurrency) ||
@@ -51,7 +46,6 @@ function parseSettingsInput(input: unknown): SettingsInput {
   }
 
   return {
-    downloadRoot: record.downloadRoot,
     globalCheckIntervalMinutes: record.globalCheckIntervalMinutes as number,
     downloadConcurrency: record.downloadConcurrency as number,
   };
@@ -59,7 +53,7 @@ function parseSettingsInput(input: unknown): SettingsInput {
 
 function toSettings(row: SettingsRow, downloadsMountPath: string): Settings {
   return {
-    downloadRoot: row.download_root ?? downloadsMountPath,
+    downloadRoot: downloadsMountPath,
     globalCheckIntervalMinutes: row.global_check_interval_minutes,
     downloadConcurrency: row.download_concurrency,
   };
@@ -72,8 +66,7 @@ export function getSettings(
   try {
     const row = database
       .prepare(
-        `SELECT download_root, global_check_interval_minutes,
-                download_concurrency
+        `SELECT global_check_interval_minutes, download_concurrency
          FROM settings
          WHERE id = 1`,
       )
@@ -94,21 +87,16 @@ export async function updateSettings(
   input: unknown,
 ): Promise<Settings> {
   const settings = parseSettingsInput(input);
-  const downloadRoot = await validateDownloadRoot(
-    settings.downloadRoot,
-    downloadsMountPath,
-  );
 
   try {
     const result = database
       .prepare(
         `UPDATE settings
-         SET download_root = ?, global_check_interval_minutes = ?,
-             download_concurrency = ?, updated_at = ?
+         SET global_check_interval_minutes = ?, download_concurrency = ?,
+             updated_at = ?
          WHERE id = 1`,
       )
       .run(
-        downloadRoot,
         settings.globalCheckIntervalMinutes,
         settings.downloadConcurrency,
         new Date().toISOString(),
@@ -121,7 +109,7 @@ export async function updateSettings(
   }
 
   return {
-    downloadRoot,
+    downloadRoot: downloadsMountPath,
     globalCheckIntervalMinutes: settings.globalCheckIntervalMinutes,
     downloadConcurrency: settings.downloadConcurrency,
   };

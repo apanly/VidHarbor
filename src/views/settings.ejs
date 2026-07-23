@@ -3,7 +3,7 @@
       <section class="card my-4"><div class="card-body">
         <h2 class="h4">全局设置</h2>
         <form id="settings-form">
-          <div class="mb-3"><label class="form-label" for="downloadRoot">下载根目录</label><input class="form-control" id="downloadRoot" name="downloadRoot" required></div>
+          <div class="mb-3"><label class="form-label" for="downloadRoot">下载根目录</label><input class="form-control" id="downloadRoot" readonly aria-describedby="downloadRootHelp"><div class="form-text" id="downloadRootHelp">由部署配置固定，不能在此修改。</div></div>
           <div class="mb-3"><label class="form-label" for="globalCheckIntervalMinutes">全局检查间隔（分钟）</label><input class="form-control" type="number" min="1" step="1" id="globalCheckIntervalMinutes" name="globalCheckIntervalMinutes" required></div>
           <div class="mb-3"><label class="form-label" for="downloadConcurrency">下载并发数</label><input class="form-control" type="number" min="1" step="1" id="downloadConcurrency" name="downloadConcurrency" required></div>
           <div class="alert alert-danger" data-form-error hidden></div><button class="btn btn-primary" type="submit">保存设置</button>

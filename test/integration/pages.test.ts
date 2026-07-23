@@ -373,7 +373,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('Facebook 公开单视频或 Reel');
     expect(html).toContain('抖音公开单视频地址可提交');
     expect(html).toContain('space.bilibili.com/&lt;数字UID&gt;');
-    expect(html).toContain('&lt;下载根目录&gt;/&lt;下载ID&gt;/');
+    expect(html).toContain('&lt;下载挂载目录&gt;/&lt;下载ID&gt;/');
     expect(html).toContain('主媒体文件成功并通过校验，任务就算成功');
     expect(html).toContain('当前不提供');
     expect(html).toContain('class="sidebar-link sidebar-guide-link active" href="/guide">系统说明</a>');
@@ -644,6 +644,16 @@ describe('server-rendered pages', () => {
     expect(html).toContain('tbody id="proxy-list"');
     expect(script).toContain('proxy.maskedPassword');
     expect(html).not.toContain('id="proxy-create-form" class="row g-3');
+  });
+
+  it('displays the fixed download root without submitting it as settings input', async () => {
+    const html = await getPage('/settings');
+    const script = await getPublicScript('settings.js');
+
+    expect(html).toContain('id="downloadRoot" readonly');
+    expect(html).toContain('由部署配置固定，不能在此修改。');
+    expect(script).toContain("document.querySelector('#downloadRoot').value = settings.downloadRoot");
+    expect(script).not.toContain('downloadRoot: form.elements.downloadRoot.value');
   });
 
   it('submits structured proxy fields and renders only masked proxy passwords', async () => {

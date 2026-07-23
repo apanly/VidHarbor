@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +15,6 @@ import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 let sandbox: string;
 let mountPath: string;
-let downloadRoot: string;
 let database: DatabaseConnection;
 let baseUrl: string;
 let stopServer: (() => Promise<void>) | undefined;
@@ -24,8 +23,7 @@ let taskManager: YtDlpTaskManager;
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-settings-proxy-api-'));
   mountPath = join(sandbox, 'downloads');
-  downloadRoot = join(mountPath, 'library');
-  await mkdir(downloadRoot, { recursive: true });
+  await mkdir(mountPath, { recursive: true });
 
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
@@ -106,38 +104,34 @@ describe('settings API', () => {
     });
 
     const updateResponse = await request('/settings', 'PUT', {
-      downloadRoot,
       globalCheckIntervalMinutes: 60,
       downloadConcurrency: 2,
     });
     expect(updateResponse.status).toBe(200);
     await expect(updateResponse.json()).resolves.toEqual({
-      downloadRoot: await realpath(downloadRoot),
+      downloadRoot: mountPath,
       globalCheckIntervalMinutes: 60,
       downloadConcurrency: 2,
     });
   });
 
   it.each([
-    (root: string) => ({ downloadRoot: root }),
-    (root: string) => ({
-      downloadRoot: root,
+    () => ({ globalCheckIntervalMinutes: 30 }),
+    () => ({
       globalCheckIntervalMinutes: 30,
       downloadConcurrency: 1,
       extra: true,
     }),
-    (root: string) => ({
-      download_root: root,
+    () => ({
+      downloadRoot: mountPath,
       globalCheckIntervalMinutes: 30,
       downloadConcurrency: 1,
     }),
-    (root: string) => ({
-      downloadRoot: root,
+    () => ({
       globalCheckIntervalMinutes: 1.5,
       downloadConcurrency: 1,
     }),
-    (root: string) => ({
-      downloadRoot: root,
+    () => ({
       globalCheckIntervalMinutes: 30,
       downloadConcurrency: 0,
     }),
@@ -145,7 +139,7 @@ describe('settings API', () => {
     const response = await request(
       '/settings',
       'PUT',
-      createBody(downloadRoot),
+      createBody(),
     );
 
     expect(response.status).toBe(400);
@@ -154,27 +148,7 @@ describe('settings API', () => {
     });
   });
 
-  it('maps download-root and persistence failures', async () => {
-    const outsideResponse = await request('/settings', 'PUT', {
-      downloadRoot: sandbox,
-      globalCheckIntervalMinutes: 30,
-      downloadConcurrency: 1,
-    });
-    expect(outsideResponse.status).toBe(422);
-    await expect(outsideResponse.json()).resolves.toMatchObject({
-      error: { code: 'DOWNLOAD_ROOT_OUTSIDE_MOUNT' },
-    });
-
-    const unavailableResponse = await request('/settings', 'PUT', {
-      downloadRoot: join(mountPath, 'missing'),
-      globalCheckIntervalMinutes: 30,
-      downloadConcurrency: 1,
-    });
-    expect(unavailableResponse.status).toBe(422);
-    await expect(unavailableResponse.json()).resolves.toMatchObject({
-      error: { code: 'DOWNLOAD_ROOT_UNAVAILABLE' },
-    });
-
+  it('maps persistence failures', async () => {
     database.close();
     const persistenceResponse = await request('/settings');
     expect(persistenceResponse.status).toBe(500);

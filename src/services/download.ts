@@ -281,27 +281,6 @@ function parseDirectVideoMetadata(value: unknown): {
   };
 }
 
-function loadDownloadRoot(
-  database: DatabaseConnection,
-  downloadsMountPath: string,
-): string {
-  try {
-    const downloadRoot = database
-      .prepare('SELECT download_root FROM settings WHERE id = 1')
-      .pluck()
-      .get() as string | null | undefined;
-    if (downloadRoot === undefined) {
-      throw new Error('settings row is missing');
-    }
-    return downloadRoot ?? downloadsMountPath;
-  } catch (error) {
-    if (error instanceof BusinessError) {
-      throw error;
-    }
-    throw persistenceError();
-  }
-}
-
 function loadProxy(
   database: DatabaseConnection,
   proxyId: number | null,
@@ -403,7 +382,7 @@ async function prepareChannelDownloads(
 ): Promise<readonly PreparedDownload[]> {
   validateVideoIds(videoIds);
   const downloadRoot = await validateDownloadRoot(
-    loadDownloadRoot(database, downloadsMountPath),
+    downloadsMountPath,
     downloadsMountPath,
   );
   const rows = loadChannelVideos(database, videoIds);
@@ -580,7 +559,7 @@ export async function createDirectDownload(
 ): Promise<Download> {
   const directInput = parseDirectInput(input);
   const downloadRoot = await validateDownloadRoot(
-    loadDownloadRoot(database, downloadsMountPath),
+    downloadsMountPath,
     downloadsMountPath,
   );
   const proxy = loadProxy(database, directInput.proxyId);
@@ -660,7 +639,7 @@ export async function getDownloadFile(
   }
 
   const file = await validateDownloadFile(
-    loadDownloadRoot(database, downloadsMountPath),
+    downloadsMountPath,
     downloadsMountPath,
     row.output_path,
   );
@@ -687,7 +666,7 @@ export async function getDownloadThumbnail(
     throw new BusinessError('DOWNLOAD_FILE_UNAVAILABLE', 'download thumbnail unavailable');
   }
   const file = await validateDownloadFile(
-    loadDownloadRoot(database, downloadsMountPath),
+    downloadsMountPath,
     downloadsMountPath,
     path,
   );
@@ -899,7 +878,7 @@ async function finalizeDeletingDownload(
     throw persistenceError();
   }
 
-  const configuredRoot = loadDownloadRoot(database, downloadsMountPath);
+  const configuredRoot = downloadsMountPath;
   const realDownloadRoot = await validateDownloadRoot(
     configuredRoot,
     downloadsMountPath,
@@ -1019,7 +998,7 @@ export async function deleteDownload(
   if (row.output_path === null) throw persistenceError();
 
   // Prove the archive is still reachable before entering the durable deleting state.
-  const downloadRoot = loadDownloadRoot(database, downloadsMountPath);
+  const downloadRoot = downloadsMountPath;
   const file = await validateDownloadFile(
     downloadRoot,
     downloadsMountPath,
@@ -1093,7 +1072,7 @@ export async function retryDownload(
       throw new BusinessError('VALIDATION_ERROR', 'download is not retryable');
     }
     const downloadRoot = await validateDownloadRoot(
-      loadDownloadRoot(database, downloadsMountPath),
+      downloadsMountPath,
       downloadsMountPath,
     );
     const updated = database

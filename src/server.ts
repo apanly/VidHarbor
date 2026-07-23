@@ -59,20 +59,6 @@ function defaultLogger(record: LifecycleLogRecord): void {
   console.log(JSON.stringify(record));
 }
 
-function loadConfiguredDownloadRoot(
-  database: DatabaseConnection,
-  downloadsMountPath: string,
-): string {
-  const downloadRoot = database
-    .prepare('SELECT download_root FROM settings WHERE id = 1')
-    .pluck()
-    .get();
-  if (downloadRoot !== null && typeof downloadRoot !== 'string') {
-    throw new Error('settings download root is invalid');
-  }
-  return downloadRoot ?? downloadsMountPath;
-}
-
 function loadDownloadConcurrency(database: DatabaseConnection): number {
   const downloadConcurrency = database
     .prepare('SELECT download_concurrency FROM settings WHERE id = 1')
@@ -213,9 +199,8 @@ export async function startServer(
     const interruptedIds = listInterruptedDownloadIds(database);
     const cleanupIds = listDownloadIds(database);
     if (cleanupIds.length > 0) {
-      const downloadRoot = loadConfiguredDownloadRoot(database, config.downloadsMountPath);
       const realDownloadRoot = await validateDownloadRoot(
-        downloadRoot,
+        config.downloadsMountPath,
         config.downloadsMountPath,
       );
       const cleanupFailures = await cleanupInterruptedDownloadDirectories(

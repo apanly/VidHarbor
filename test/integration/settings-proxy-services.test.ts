@@ -1,4 +1,4 @@
-import { access, mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,14 +20,12 @@ import {
 
 let sandbox: string;
 let mountPath: string;
-let downloadRoot: string;
 let database: DatabaseConnection;
 
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-settings-proxy-'));
   mountPath = join(sandbox, 'downloads');
-  downloadRoot = join(mountPath, 'library');
-  await mkdir(downloadRoot, { recursive: true });
+  await mkdir(mountPath, { recursive: true });
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
 });
@@ -54,8 +52,6 @@ function expectBusinessError(
 
 describe('settings service', () => {
   it('reads and updates only the singleton settings row', async () => {
-    const realDownloadRoot = await realpath(downloadRoot);
-
     expect(getSettings(database, mountPath)).toEqual({
       downloadRoot: mountPath,
       globalCheckIntervalMinutes: 60,
@@ -64,18 +60,17 @@ describe('settings service', () => {
 
     await expect(
       updateSettings(database, mountPath, {
-        downloadRoot,
         globalCheckIntervalMinutes: 60,
         downloadConcurrency: 2,
       }),
     ).resolves.toEqual({
-      downloadRoot: realDownloadRoot,
+      downloadRoot: mountPath,
       globalCheckIntervalMinutes: 60,
       downloadConcurrency: 2,
     });
 
     expect(getSettings(database, mountPath)).toEqual({
-      downloadRoot: realDownloadRoot,
+      downloadRoot: mountPath,
       globalCheckIntervalMinutes: 60,
       downloadConcurrency: 2,
     });
@@ -85,70 +80,34 @@ describe('settings service', () => {
   });
 
   it.each([
-    (root: string) => ({
-      downloadRoot: root,
+    () => ({
       globalCheckIntervalMinutes: 1,
       downloadConcurrency: 1,
       extra: true,
     }),
-    (root: string) => ({ downloadRoot: root }),
-    (root: string) => ({
-      downloadRoot: root,
+    () => ({ globalCheckIntervalMinutes: 1 }),
+    () => ({
+      downloadRoot: mountPath,
+      globalCheckIntervalMinutes: 1,
+      downloadConcurrency: 1,
+    }),
+    () => ({
       globalCheckIntervalMinutes: 0,
       downloadConcurrency: 1,
     }),
-    (root: string) => ({
-      downloadRoot: root,
+    () => ({
       globalCheckIntervalMinutes: 1.5,
       downloadConcurrency: 1,
     }),
-    (root: string) => ({
-      downloadRoot: root,
+    () => ({
       globalCheckIntervalMinutes: 1,
       downloadConcurrency: 0,
     }),
-    () => ({ downloadRoot: 42, globalCheckIntervalMinutes: 1, downloadConcurrency: 1 }),
   ])('rejects the non-contract settings input %#', async (createInput) => {
     await expectBusinessError(
-      updateSettings(database, mountPath, createInput(downloadRoot)),
+      updateSettings(database, mountPath, createInput()),
       'VALIDATION_ERROR',
     );
-  });
-
-  it('rejects relative and outside-mount download roots', async () => {
-    await expectBusinessError(
-      updateSettings(database, mountPath, {
-        downloadRoot: 'downloads/library',
-        globalCheckIntervalMinutes: 30,
-        downloadConcurrency: 1,
-      }),
-      'VALIDATION_ERROR',
-    );
-
-    const outsideRoot = join(sandbox, 'outside');
-    await mkdir(outsideRoot);
-    await expectBusinessError(
-      updateSettings(database, mountPath, {
-        downloadRoot: outsideRoot,
-        globalCheckIntervalMinutes: 30,
-        downloadConcurrency: 1,
-      }),
-      'DOWNLOAD_ROOT_OUTSIDE_MOUNT',
-    );
-  });
-
-  it('does not create a missing download root', async () => {
-    const missingRoot = join(mountPath, 'missing');
-
-    await expectBusinessError(
-      updateSettings(database, mountPath, {
-        downloadRoot: missingRoot,
-        globalCheckIntervalMinutes: 30,
-        downloadConcurrency: 1,
-      }),
-      'DOWNLOAD_ROOT_UNAVAILABLE',
-    );
-    await expect(access(missingRoot)).rejects.toThrow();
   });
 });
 
@@ -383,7 +342,6 @@ describe('persistence error boundary', () => {
     expectBusinessError(() => getSettings(database, mountPath), 'PERSISTENCE_ERROR');
     await expectBusinessError(
       updateSettings(database, mountPath, {
-        downloadRoot,
         globalCheckIntervalMinutes: 60,
         downloadConcurrency: 1,
       }),

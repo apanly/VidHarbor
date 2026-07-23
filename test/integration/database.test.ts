@@ -56,14 +56,13 @@ describe('SQLite database', () => {
       expect(
         database
           .prepare(
-            `SELECT id, download_root, global_check_interval_minutes,
-                    download_concurrency, updated_at
+            `SELECT id, global_check_interval_minutes, download_concurrency,
+                    updated_at
              FROM settings`,
           )
           .get(),
       ).toMatchObject({
         id: 1,
-        download_root: null,
         global_check_interval_minutes: 60,
         download_concurrency: 1,
         updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
@@ -166,9 +165,8 @@ describe('SQLite database', () => {
       database
         .prepare(
           `INSERT INTO settings (
-            id, download_root, global_check_interval_minutes,
-            download_concurrency, updated_at
-          ) VALUES (1, NULL, 60, 1, ?)`,
+            id, global_check_interval_minutes, download_concurrency, updated_at
+          ) VALUES (1, 60, 1, ?)`,
         )
         .run(timestamp);
       const channelId = Number(database
@@ -235,9 +233,8 @@ describe('SQLite database', () => {
       database
         .prepare(
           `INSERT INTO settings (
-            id, download_root, global_check_interval_minutes,
-            download_concurrency, updated_at
-          ) VALUES (1, NULL, 60, 1, ?)`,
+            id, global_check_interval_minutes, download_concurrency, updated_at
+          ) VALUES (1, 60, 1, ?)`,
         )
         .run(timestamp);
       database.exec(migrationTwo);
