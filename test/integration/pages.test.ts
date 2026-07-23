@@ -486,6 +486,7 @@ describe('server-rendered pages', () => {
     expect(channelsScript).toContain('confirm(`确认删除频道「${channel.customName}」？`)');
     expect(channelsScript).toContain("request(`/api/channels/${channel.id}`, 'DELETE')");
     expect(paginationScript).toContain('container.hidden = value.totalItems === 0');
+    expect(paginationScript).toContain("pages.className = 'pagination-pages d-flex align-items-center'");
     expect(channelsScript).toContain('formatChinaTimestamp(channel.lastCheck.nextAt)');
     expect(channelsHtml).not.toContain('<table');
     expect(channelsHtml).toContain('name="authorizationPlatform"');
@@ -602,6 +603,9 @@ describe('server-rendered pages', () => {
     const html = await getPage('/downloads');
 
     expect(html).toContain('data-bs-target="#direct-download-modal"');
+    expect(html).toContain('class="download-page-heading d-flex flex-column flex-sm-row align-items-stretch align-items-sm-end justify-content-between mb-4"');
+    expect(html).toContain('class="download-controls d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center justify-content-between gap-3"');
+    expect(html).toContain('class="badge rounded-pill d-inline-grid" data-download-count="completed"');
     expect(html).toContain('id="direct-download-modal"');
     expect(html).toContain('class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"');
     expect(html).toContain('<form id="direct-download-form" class="modal-content form-stack direct-download-form">');
@@ -1297,6 +1301,7 @@ describe('server-rendered pages', () => {
   });
 
   it('keeps download cards readable across desktop and mobile widths', async () => {
+    const html = await getPage('/downloads');
     const styles = await readFile(
       new URL('../../src/styles/main.scss', import.meta.url),
       'utf8',
@@ -1313,7 +1318,7 @@ describe('server-rendered pages', () => {
     expect(styles).toContain('.download-empty-state {');
     expect(styles).toContain('@media (max-width: 575.98px)');
     expect(styles).not.toContain('.download-card-header {');
-    expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-controls\s*\{[^}]*flex-direction: column;/);
+    expect(html).toContain('download-controls d-flex flex-column flex-sm-row');
     expect(styles).toMatch(/@media \(max-width: 575\.98px\)[\s\S]*\.download-card-metrics\s*\{[^}]*grid-template-columns: 1fr;/);
     expect(styles).not.toMatch(/\.download-detail-value\s*\{[^}]*text-overflow: ellipsis;/s);
     expect(styles).toMatch(/\.preview-page\s*\{[^}]*width: 100dvw;[^}]*height: 100dvh;[^}]*background:/s);

@@ -647,11 +647,7 @@ body {
 }
 
 .download-page-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
   gap: 2rem;
-  margin-bottom: 1.5rem;
 }
 
 .download-page-heading h1 {
@@ -751,7 +747,6 @@ body {
 }
 
 .download-tab span {
-  display: inline-grid;
   min-width: 1.35rem;
   height: 1.35rem;
   margin-left: 0.3rem;
@@ -898,8 +893,6 @@ body {
 }
 
 .pagination-pages {
-  display: flex;
-  align-items: center;
   gap: 0.35rem;
 }
 
@@ -1165,18 +1158,11 @@ body {
   }
 
   .download-page-heading {
-    align-items: stretch;
-    flex-direction: column;
     gap: 1rem;
   }
 
   .download-page-heading .btn {
     width: 100%;
-  }
-
-  .download-controls {
-    align-items: stretch;
-    flex-direction: column;
   }
 
   .download-search {

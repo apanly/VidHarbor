@@ -1,5 +1,5 @@
 <%- include('partials/header') %>
-      <div class="download-page-heading">
+      <div class="download-page-heading d-flex flex-column flex-sm-row align-items-stretch align-items-sm-end justify-content-between mb-4">
         <div>
           <p class="download-page-kicker">DOWNLOAD LIBRARY</p>
           <h1>下载</h1>
@@ -9,11 +9,11 @@
       </div>
       <section class="download-workspace">
         <div id="page-error" class="alert alert-danger" hidden></div>
-        <div class="download-controls d-flex align-items-center justify-content-between gap-3">
+        <div class="download-controls d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center justify-content-between gap-3">
           <div class="download-tabs nav nav-pills d-flex flex-nowrap gap-1 flex-shrink-0" role="tablist" aria-label="下载状态">
-            <button class="download-tab nav-link active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed">已完成 <span class="badge rounded-pill" data-download-count="completed">0</span></button>
-            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active">下载中 <span class="badge rounded-pill" data-download-count="active">0</span></button>
-            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed">失败 <span class="badge rounded-pill" data-download-count="failed">0</span></button>
+            <button class="download-tab nav-link active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed">已完成 <span class="badge rounded-pill d-inline-grid" data-download-count="completed">0</span></button>
+            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active">下载中 <span class="badge rounded-pill d-inline-grid" data-download-count="active">0</span></button>
+            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed">失败 <span class="badge rounded-pill d-inline-grid" data-download-count="failed">0</span></button>
           </div>
           <div class="download-search position-relative">
             <label class="visually-hidden" for="download-search">搜索下载标题</label>

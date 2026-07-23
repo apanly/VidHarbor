@@ -3,7 +3,7 @@ export function renderPagination(container, value, onPage) {
   container.hidden = value.totalItems === 0;
   if (container.hidden) return;
   const previous = document.createElement('button'); previous.type = 'button'; previous.className = 'btn btn-sm btn-outline-secondary'; previous.textContent = '上一页'; previous.disabled = value.page === 1; previous.addEventListener('click', () => onPage(value.page - 1));
-  const pages = document.createElement('div'); pages.className = 'pagination-pages';
+  const pages = document.createElement('div'); pages.className = 'pagination-pages d-flex align-items-center';
   const candidates = new Set([1, value.totalPages, value.page - 1, value.page, value.page + 1].filter((page) => page >= 1 && page <= value.totalPages));
   let lastPage = 0;
   for (const page of [...candidates].sort((left, right) => left - right)) {
