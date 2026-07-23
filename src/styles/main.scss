@@ -495,26 +495,16 @@ body {
 }
 
 .proxy-modal-form .modal-body {
-  display: grid;
   gap: 1.25rem;
 }
 
 .proxy-modal-form .form-label {
-  display: block;
-  margin-bottom: 0.5rem;
   color: #334155;
   font-weight: 800;
 }
 
-.proxy-modal-form .proxy-field-full,
-.proxy-modal-form .proxy-field-pair {
+.proxy-modal-form .proxy-field-full {
   min-width: 0;
-}
-
-.proxy-modal-form .proxy-field-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
 }
 
 .direct-download-form .modal-body {
@@ -1219,10 +1209,6 @@ body {
 }
 
 @media (max-width: 575.98px) {
-  .proxy-modal-form .proxy-field-pair {
-    grid-template-columns: 1fr;
-  }
-
   .direct-advanced-badge {
     display: none;
   }

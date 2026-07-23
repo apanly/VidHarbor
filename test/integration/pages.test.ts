@@ -500,11 +500,11 @@ describe('server-rendered pages', () => {
     expect(settingsHtml).toContain('id="proxy-form"');
     expect(settingsScript).toContain('openProxyCreateModal()');
     expect(settingsScript).toContain('openProxyEditModal(proxy)');
-    expect(settingsHtml).toContain('class="proxy-modal-form"');
+    expect(settingsHtml).toContain('<form id="proxy-form" class="modal-content proxy-modal-form">');
     expect(settingsHtml).not.toContain('data-proxy-edit-modal-root');
     expect(settingsHtml).not.toContain('buildProxyEditModal');
     expect(settingsHtml).not.toContain('proxy-create-modal');
-    expect(settingsHtml).not.toContain('id="proxy-create-form" class="row g-3');
+    expect(settingsHtml).not.toContain('id="proxy-create-form"');
   });
 
   it('submits only explicitly selected channel videos', async () => {
@@ -659,9 +659,11 @@ describe('server-rendered pages', () => {
     const html = await getPage('/settings');
     const script = await getPublicScript('settings.js');
 
-    expect(html).toContain('class="proxy-modal-form"');
+    expect(html).toContain('class="modal-content proxy-modal-form"');
     expect(html).toContain('class="proxy-field-full"');
-    expect(html).toContain('class="proxy-field-pair"');
+    expect(html).not.toContain('class="proxy-field-pair"');
+    expect(html).toContain('class="row g-3"');
+    expect(html).toContain('class="col-12 col-sm-6"');
     expect(html).toContain('id="proxy-protocol"');
     expect(html).toContain('id="proxy-host"');
     expect(html).toContain('id="proxy-port"');
@@ -671,7 +673,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('<th>名称</th><th>协议</th><th>主机</th><th>端口</th><th>用户名</th><th>密码</th><th>操作</th>');
     expect(html).toContain('tbody id="proxy-list"');
     expect(script).toContain('proxy.maskedPassword');
-    expect(html).not.toContain('id="proxy-create-form" class="row g-3');
+    expect(html).not.toContain('id="proxy-create-form"');
   });
 
   it('displays the fixed download root without submitting it as settings input', async () => {
