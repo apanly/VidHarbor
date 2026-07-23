@@ -377,6 +377,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('主媒体文件成功并通过校验，任务就算成功');
     expect(html).toContain('当前不提供');
     expect(html).toContain('class="sidebar-link sidebar-guide-link active" href="/guide">系统说明</a>');
+    expect(html).toContain('class="guide-layout d-grid align-items-start"');
+    expect(html).toContain('id="guide-toc" class="guide-toc d-grid"');
     expect(html).toContain('id="guide-content" class="guide-markdown"');
     expect(html).toContain('<script src="/public/guide.js"></script>');
     expect(script).toContain("document.querySelectorAll('#guide-content h2')");
