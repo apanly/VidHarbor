@@ -583,7 +583,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('class="card direct-form-section border rounded-4 bg-white shadow-sm"');
     expect(html).toContain('class="row g-3"');
     expect(html).toContain('class="col-12 col-sm-6"');
-    expect(html).toContain('class="direct-form-grid"');
+    expect(html).not.toContain('class="direct-form-grid"');
     expect(html).toContain('class="card direct-advanced-options border rounded-4 bg-white shadow-sm"');
     expect(html).toContain('class="d-flex align-items-start align-items-sm-center justify-content-between gap-3 py-3"');
     expect(html).toContain('<strong>高级选项</strong>');
@@ -593,6 +593,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('<div class="col-12 col-sm-6"><label class="form-label" for="direct-codec">');
     expect(html).toContain('class="direct-option d-flex align-items-start gap-3"');
     expect(html).toContain('class="form-check-input flex-shrink-0" type="checkbox" name="writeSubtitles"');
+    expect(html).toContain('<div class="col-12 col-sm-6"><label class="form-label" for="direct-time-start">');
+    expect(html).toContain('<div class="col-12 col-sm-6"><label class="form-label" for="direct-time-end">');
     expect(html).toContain('id="direct-quality" name="quality"><option value="">不限制</option>');
     expect(html).toContain('4320p（8K）');
     expect(html).toContain('id="direct-codec" name="codec"><option value="">不转码</option>');
