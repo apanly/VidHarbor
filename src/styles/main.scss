@@ -626,11 +626,7 @@ body {
 }
 
 .direct-advanced-options > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.25rem;
+  padding-inline: 1.25rem;
   cursor: pointer;
   list-style: none;
 }
@@ -651,7 +647,6 @@ body {
 }
 
 .direct-advanced-options > summary > span:first-child {
-  display: grid;
   gap: 0.15rem;
 }
 
@@ -665,9 +660,7 @@ body {
 }
 
 .direct-advanced-badge {
-  margin-left: auto;
   padding: 0.25rem 0.55rem;
-  border-radius: 999px;
   color: #087f72;
   background: #e2fff1;
   font-size: 0.72rem;
@@ -1298,10 +1291,6 @@ body {
   .direct-form-grid,
   .direct-option-grid {
     grid-template-columns: 1fr;
-  }
-
-  .direct-advanced-options > summary {
-    align-items: flex-start;
   }
 
   .direct-advanced-badge {
