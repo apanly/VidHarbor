@@ -339,8 +339,8 @@ describe('server-rendered pages', () => {
     const html = await getPage(path);
 
     expect(html).toContain(marker);
-    expect(html).toContain('class="app-shell"');
-    expect(html).toContain('class="sidebar-nav"');
+    expect(html).toContain('class="app-shell d-flex"');
+    expect(html).toContain('class="sidebar-nav d-flex flex-column"');
     expect(html).toContain('data-bs-toggle="offcanvas"');
     expect(html).toContain('href="/">总览</a>');
     expect(html).toContain('href="/settings">配置管理</a>');
@@ -376,7 +376,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('&lt;下载挂载目录&gt;/&lt;下载ID&gt;/');
     expect(html).toContain('主媒体文件成功并通过校验，任务就算成功');
     expect(html).toContain('当前不提供');
-    expect(html).toContain('class="sidebar-link sidebar-guide-link active" href="/guide">系统说明</a>');
+    expect(html).toContain('class="sidebar-link sidebar-guide-link d-block active" href="/guide">系统说明</a>');
     expect(html).toContain('class="guide-layout d-grid align-items-start"');
     expect(html).toContain('id="guide-toc" class="guide-toc d-grid"');
     expect(html).toContain('id="guide-content" class="guide-markdown"');
@@ -417,7 +417,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('<link rel="icon" href="/public/favicon.svg" type="image/svg+xml">');
     expect(html).toContain('<link rel="icon" href="/public/favicon.ico" sizes="any">');
     expect(html).toContain('<link rel="apple-touch-icon" href="/public/apple-touch-icon.png">');
-    expect(html).toContain('class="sidebar-link active" href="/authorizations">授权管理</a>');
+    expect(html).toContain('class="sidebar-link d-block active" href="/authorizations">授权管理</a>');
     expect(html).toContain('data-authorization-create>新增授权</button>');
     expect(html).toContain('class="authorization-page-heading d-flex flex-column flex-lg-row align-items-stretch align-items-lg-end justify-content-between gap-3 mb-4"');
     expect(html).toContain('<table class="table align-middle authorization-table">');
@@ -907,9 +907,9 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('preview-original');
     expect(script).toContain('浏览器无法播放此文件，请返回下载页面下载后查看');
     expect(script).toContain("error.code === 'DOWNLOAD_NOT_FOUND' ? '下载记录不存在' : '无法加载下载记录'");
-    expect(html).not.toContain('class="app-shell"');
-    expect(html).not.toContain('class="app-sidebar"');
-    expect(html).not.toContain('class="app-topbar"');
+    expect(html).not.toContain('class="app-shell d-flex"');
+    expect(html).not.toContain('class="app-sidebar d-flex');
+    expect(html).not.toContain('class="app-topbar d-flex');
     expect(html).not.toContain('deployment-warning');
     expect(html).not.toContain('可信内网');
     expect(html).not.toContain('class="app-footer"');

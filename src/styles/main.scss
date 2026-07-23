@@ -9,18 +9,14 @@ body {
 
 .app-shell {
   min-height: 100vh;
-  display: flex;
 }
 
 .app-sidebar {
-  display: flex;
-  flex-direction: column;
   width: 17rem;
   flex: 0 0 17rem;
   min-height: 100vh;
   position: sticky;
   top: 0;
-  align-self: flex-start;
   padding: 1.5rem 1rem;
   color: #e8eef8;
   background:
@@ -30,9 +26,6 @@ body {
 }
 
 .sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
   padding: 0.25rem 0.5rem 1.5rem;
   color: #fff;
   font-size: 1.35rem;
@@ -42,7 +35,6 @@ body {
 }
 
 .brand-mark {
-  display: inline-grid;
   width: 2.35rem;
   height: 2.35rem;
   place-items: center;
@@ -55,9 +47,7 @@ body {
 }
 
 .sidebar-nav {
-  display: flex;
   flex: 1 1 auto;
-  flex-direction: column;
   gap: 0.4rem;
 }
 
@@ -66,7 +56,6 @@ body {
 }
 
 .sidebar-link {
-  display: block;
   padding: 0.85rem 1rem;
   border-radius: 1rem;
   color: rgba(232, 238, 248, 0.72);
@@ -94,8 +83,6 @@ body {
 }
 
 .app-topbar {
-  display: none;
-  align-items: center;
   padding: 1rem 2rem;
   background: rgba(255, 255, 255, 0.86);
   border-bottom: bootstrap.$border-width solid rgba(15, 23, 42, 0.08);
@@ -1230,10 +1217,6 @@ body {
 
 }
 
-.sidebar-backdrop {
-  display: none;
-}
-
 [data-form-error]:empty {
   display: none;
 }
@@ -1378,10 +1361,6 @@ body {
 }
 
 @media (max-width: 991.98px) {
-  .app-topbar {
-    display: flex;
-  }
-
   .app-sidebar {
     position: fixed;
     left: 0;
@@ -1396,7 +1375,6 @@ body {
   .sidebar-backdrop {
     position: fixed;
     inset: 0;
-    display: block;
     border: 0;
     opacity: 0;
     pointer-events: none;
