@@ -1,5 +1,7 @@
 # VidHarbor
 
+中文 | [English](README.en.md)
+
 VidHarbor 是部署在可信内网中的单用户视频管理工具，用来关注 YouTube 和 Bilibili 频道、发现新视频、接收站内提醒，并将用户明确选择的视频归档到本地。
 
 项目的关键特征是：单用户、无登录、本地存储、由用户决定下载内容。
