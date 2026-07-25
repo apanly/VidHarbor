@@ -22,7 +22,9 @@ const downloadStatusLabels = {
 };
 
 function showError(region, error) {
-  region.textContent = `${error.code}: ${error.message}`;
+  region.textContent = error instanceof Error
+    ? `前端错误：${error.message}`
+    : `${error.code}: ${error.message}`;
   region.hidden = false;
 }
 function channelProxyId() {
@@ -242,4 +244,4 @@ form.addEventListener('submit', async (event) => {
     showError(form.querySelector('[data-form-error]'), error);
   }
 });
-load().catch((error) => showError(pageError, error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+load().catch((error) => showError(pageError, error));

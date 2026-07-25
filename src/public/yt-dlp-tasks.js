@@ -99,6 +99,4 @@ async function load() {
   renderGroup(terminalTasks.slice(0, terminalTaskLimit), 'terminal-task-list', 'terminal-task-empty', 'terminal-task-count');
 }
 
-load().catch((error) => showError(error instanceof Error || error?.code
-  ? error
-  : new Error('无法连接服务端')));
+load().catch(showError);

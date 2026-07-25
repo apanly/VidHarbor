@@ -26,7 +26,7 @@ const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili', vimeo: 'Vimeo
 function nullableNumber(value) { return value === '' ? null : Number(value); }
 function nullableText(value) { return value === '' ? null : value; }
 function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: null, quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, splitChapters: false, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value) }; }
-function showError(region, error) { region.textContent = `${error.code}: ${error.message}`; region.hidden = false; }
+function showError(region, error) { region.textContent = error instanceof Error ? `前端错误：${error.message}` : `${error.code}: ${error.message}`; region.hidden = false; }
 async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const text = await response.text(); if (response.status === 202 && text === '') return null; const result = JSON.parse(text); if (!response.ok) throw result.error; return result; }
 function displayValue(value) { return value ?? '—'; }
 function textElement(tag, className, value) { const node = document.createElement(tag); node.className = className; node.textContent = displayValue(value); return node; }
@@ -226,4 +226,4 @@ emptyAction.addEventListener('click', () => {
   directDownloadModal.show();
 });
 form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
-load().catch((error) => showError(pageError, error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+load().catch((error) => showError(pageError, error));

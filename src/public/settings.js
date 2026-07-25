@@ -4,7 +4,7 @@ const proxyModal = bootstrap.Modal.getOrCreateInstance(proxyModalElement);
 const proxyModalTitle = document.querySelector('#proxy-modal-title');
 const proxySubmit = document.querySelector('[data-proxy-submit]');
 let proxyMode = { kind: 'create' };
-function showError(form, error) { const region = form.querySelector('[data-form-error]'); region.textContent = `${error.code}: ${error.message}`; region.hidden = false; }
+function showError(form, error) { const region = form.querySelector('[data-form-error]'); region.textContent = error instanceof Error ? `前端错误：${error.message}` : `${error.code}: ${error.message}`; region.hidden = false; }
 function clearError(form) { const region = form.querySelector('[data-form-error]'); region.textContent = ''; region.hidden = true; }
 function optionalText(value) { return value === '' ? null : value; }
 function proxyPayload(form) { return { name: form.elements.name.value, protocol: form.elements.protocol.value, host: form.elements.host.value, port: Number(form.elements.port.value), username: optionalText(form.elements.username.value), password: optionalText(form.elements.password.value) }; }
@@ -61,4 +61,4 @@ async function load() {
 }
 document.querySelector('#settings-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = event.currentTarget; try { await request('/api/settings', 'PUT', { globalCheckIntervalMinutes: Number(form.elements.globalCheckIntervalMinutes.value), downloadConcurrency: Number(form.elements.downloadConcurrency.value) }); location.reload(); } catch (error) { showError(form, error); } });
 proxyForm.addEventListener('submit', async (event) => { event.preventDefault(); try { if (proxyMode.kind === 'create') { await request('/api/proxies', 'POST', proxyPayload(proxyForm)); } else { await request(`/api/proxies/${proxyMode.id}`, 'PATCH', proxyPayload(proxyForm)); } location.reload(); } catch (error) { showError(proxyForm, error); } });
-load().catch((error) => showError(document.querySelector('#settings-form'), error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+load().catch((error) => showError(document.querySelector('#settings-form'), error));

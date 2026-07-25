@@ -6,7 +6,7 @@ const list = document.querySelector('#notification-list');
 const emptyState = document.querySelector('#notification-empty-state');
 const requestedPage = Number(new URLSearchParams(location.search).get('page') ?? '1');
 
-function showError(error) { errorRegion.textContent = `${error.code}: ${error.message}`; errorRegion.hidden = false; }
+function showError(error) { errorRegion.textContent = error instanceof Error ? `前端错误：${error.message}` : `${error.code}: ${error.message}`; errorRegion.hidden = false; }
 async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); const result = await response.json(); if (!response.ok) throw result.error; return result; }
 
 async function load() {
@@ -34,4 +34,4 @@ async function load() {
   renderPagination(document.querySelector('#notification-pagination'), notifications.pagination, (page) => { location.search = `?page=${page}`; });
 }
 
-load().catch((error) => showError(error.code ? error : { code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+load().catch(showError);

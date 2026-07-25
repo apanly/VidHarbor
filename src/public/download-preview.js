@@ -15,4 +15,4 @@ function renderPreview(download, rawId, media, page, region) {
 async function load() { const rawId = new URLSearchParams(location.search).get('id'); const id = parseDownloadId(rawId); if (id === null) { showPreviewError(errorRegion, '下载记录参数无效'); return; } const response = await request(`/api/downloads/${id}`); renderPreview(response.download, rawId, player, document, errorRegion); }
 
 player.addEventListener('error', () => showPreviewError(errorRegion, '浏览器无法播放此文件，请返回下载页面下载后查看'));
-load().catch((error) => showPreviewError(errorRegion, error.code === 'DOWNLOAD_NOT_FOUND' ? '下载记录不存在' : '无法加载下载记录'));
+load().catch((error) => showPreviewError(errorRegion, error instanceof Error ? `前端错误：${error.message}` : error.code === 'DOWNLOAD_NOT_FOUND' ? '下载记录不存在' : `${error.code}: ${error.message}`));

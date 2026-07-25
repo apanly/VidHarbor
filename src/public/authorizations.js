@@ -23,8 +23,8 @@ let configurations = new Map();
 let mode = { kind: 'create' };
 
 function errorMessage(error) {
-  return error?.code === undefined
-    ? 'NETWORK_ERROR: 无法连接服务端'
+  return error instanceof Error
+    ? `前端错误：${error.message}`
     : `${error.code}: ${error.message}`;
 }
 

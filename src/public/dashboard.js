@@ -4,7 +4,9 @@ const labels = { success: '检查成功', no_updates: '没有更新', failed: '�
 const styles = { success: 'text-bg-success', no_updates: 'text-bg-secondary', failed: 'text-bg-danger' };
 
 function showError(error) {
-  errorRegion.textContent = `${error.code}: ${error.message}`;
+  errorRegion.textContent = error instanceof Error
+    ? `前端错误：${error.message}`
+    : `${error.code}: ${error.message}`;
   errorRegion.hidden = false;
 }
 
@@ -52,4 +54,4 @@ async function load() {
   }
 }
 
-load().catch(() => showError({ code: 'NETWORK_ERROR', message: '无法连接服务端' }));
+load().catch(showError);
