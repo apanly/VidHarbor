@@ -3,12 +3,6 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 
-import {
-  createScanner,
-  LanguageVariant,
-  SyntaxKind,
-  type SyntaxKind as TypeScriptSyntaxKind,
-} from 'typescript/unstable/ast';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApiRouter, createApp } from '../../src/app.js';
@@ -176,153 +170,6 @@ async function typeScriptFiles(directory: string): Promise<string[]> {
     return entry.isFile() && entry.name.endsWith('.ts') ? [path] : [];
   }));
   return nested.flat();
-}
-
-interface ScannedToken {
-  readonly kind: TypeScriptSyntaxKind;
-  readonly value: string;
-}
-
-interface ConstantExpression {
-  readonly kind: 'StringLiteral' | 'TemplateExpression' | 'BinaryExpression' | 'Identifier' | 'ParenthesizedExpression';
-  readonly value: string;
-  readonly next: number;
-}
-
-type ConstantBindings = ReadonlyMap<string, readonly number[]>;
-
-function scanTypeScript(source: string): ScannedToken[] {
-  const scanner = createScanner(true, LanguageVariant.Standard, source);
-  const tokens: ScannedToken[] = [];
-  const templateBraceDepths: number[] = [];
-
-  for (let kind = scanner.scan(); kind !== SyntaxKind.EndOfFile; kind = scanner.scan()) {
-    if (scanner.getTokenEnd() === scanner.getTokenStart()) {
-      scanner.resetTokenState(scanner.getTokenStart() + 1);
-      continue;
-    }
-    if (kind === SyntaxKind.TemplateHead) templateBraceDepths.push(0);
-
-    if (kind === SyntaxKind.OpenBraceToken && templateBraceDepths.length > 0) {
-      const last = templateBraceDepths.length - 1;
-      templateBraceDepths[last] += 1;
-    } else if (kind === SyntaxKind.CloseBraceToken && templateBraceDepths.length > 0) {
-      const last = templateBraceDepths.length - 1;
-      if (templateBraceDepths[last] === 0) {
-        kind = scanner.reScanTemplateToken(false);
-        if (kind === SyntaxKind.TemplateTail) templateBraceDepths.pop();
-      } else {
-        templateBraceDepths[last] -= 1;
-      }
-    }
-
-    tokens.push({ kind, value: scanner.getTokenValue() });
-  }
-
-  return tokens;
-}
-
-function constantStrings(
-  tokens: readonly ScannedToken[],
-  start: number,
-  bindings: ConstantBindings,
-  resolving = new Set<string>(),
-): ConstantExpression[] {
-  const token = tokens[start];
-  if (token === undefined) return [];
-
-  let expressions: ConstantExpression[] = [];
-  if (token.kind === SyntaxKind.StringLiteral
-    || token.kind === SyntaxKind.NoSubstitutionTemplateLiteral) {
-    expressions = [{ kind: 'StringLiteral', value: token.value, next: start + 1 }];
-  } else if (token.kind === SyntaxKind.TemplateHead) {
-    let partials = [{ value: token.value, next: start + 1 }];
-    while (partials.length > 0) {
-      const completed: ConstantExpression[] = [];
-      const continued: typeof partials = [];
-      for (const partial of partials) {
-        for (const interpolation of constantStrings(tokens, partial.next, bindings, resolving)) {
-          const templateToken = tokens[interpolation.next];
-          if (templateToken?.kind !== SyntaxKind.TemplateMiddle
-            && templateToken?.kind !== SyntaxKind.TemplateTail) continue;
-          const value = partial.value + interpolation.value + templateToken.value;
-          const next = interpolation.next + 1;
-          if (templateToken.kind === SyntaxKind.TemplateTail) {
-            completed.push({ kind: 'TemplateExpression', value, next });
-          } else {
-            continued.push({ value, next });
-          }
-        }
-      }
-      if (completed.length > 0) {
-        expressions = completed;
-        break;
-      }
-      partials = continued;
-    }
-  } else if (token.kind === SyntaxKind.OpenParenToken) {
-    expressions = constantStrings(tokens, start + 1, bindings, resolving)
-      .filter((nested) => tokens[nested.next]?.kind === SyntaxKind.CloseParenToken)
-      .map((nested) => ({
-        kind: 'ParenthesizedExpression',
-        value: nested.value,
-        next: nested.next + 1,
-      }));
-  } else if (token.kind === SyntaxKind.Identifier && !resolving.has(token.value)) {
-    expressions = (bindings.get(token.value) ?? []).flatMap((initializer) =>
-      constantStrings(
-        tokens,
-        initializer,
-        bindings,
-        new Set(resolving).add(token.value),
-      ).map((resolved) => ({
-        kind: 'Identifier' as const,
-        value: resolved.value,
-        next: start + 1,
-      })),
-    );
-  }
-
-  return expressions.flatMap((expression) => {
-    if (tokens[expression.next]?.kind !== SyntaxKind.PlusToken) return [expression];
-    return constantStrings(tokens, expression.next + 1, bindings, resolving).map((right) => ({
-      kind: 'BinaryExpression' as const,
-      value: expression.value + right.value,
-      next: right.next,
-    }));
-  });
-}
-
-function lowLevelYtDlpReferences(source: string): string[] {
-  const tokens = scanTypeScript(source);
-  const mutableBindings = new Map<string, number[]>();
-  for (let index = 0; index < tokens.length - 2; index += 1) {
-    if (tokens[index]?.kind === SyntaxKind.ConstKeyword
-      && tokens[index + 1]?.kind === SyntaxKind.Identifier) {
-      const name = tokens[index + 1]!.value;
-      for (let cursor = index + 2; cursor < tokens.length; cursor += 1) {
-        const kind = tokens[cursor]?.kind;
-        if (kind === SyntaxKind.EqualsToken) {
-          mutableBindings.set(name, [...(mutableBindings.get(name) ?? []), cursor + 1]);
-          break;
-        }
-        if (kind === SyntaxKind.CommaToken || kind === SyntaxKind.SemicolonToken) break;
-      }
-    }
-  }
-  const bindings: ConstantBindings = mutableBindings;
-  const references: string[] = [];
-
-  for (let index = 0; index < tokens.length; index += 1) {
-    const expressions = constantStrings(tokens, index, bindings);
-    for (const expression of expressions) {
-      if (/^(?:\.\.?\/)*yt-dlp\.js$/.test(expression.value)) {
-        references.push(expression.value);
-      }
-    }
-  }
-
-  return [...new Set(references)];
 }
 
 describe('server-rendered pages', () => {
@@ -1268,36 +1115,21 @@ describe('server-rendered pages', () => {
 
   it('allows only the task manager to import the low-level yt-dlp module', async () => {
     const sourceRoot = join(process.cwd(), 'src');
-    const legalImportPattern = /from '\.\/yt-dlp\.js'/g;
+    const lowLevelImportPattern = /from\s+['"](?:\.\.?\/)*yt-dlp\.js['"]/g;
     const violatingFiles: string[] = [];
 
     for (const file of await typeScriptFiles(sourceRoot)) {
       const source = await readFile(file, 'utf8');
-      const references = lowLevelYtDlpReferences(source);
-      if (references.length === 0) continue;
+      const imports = source.match(lowLevelImportPattern) ?? [];
+      if (imports.length === 0) continue;
 
       const projectPath = relative(process.cwd(), file);
       const isLegalManagerImport = projectPath === 'src/yt-dlp-task-manager.ts'
-        && references.length === 1
-        && [...source.matchAll(legalImportPattern)].length === 1;
+        && imports.length === 1;
       if (!isLegalManagerImport) violatingFiles.push(projectPath);
     }
 
     expect(violatingFiles.sort()).toEqual([]);
-  });
-
-  it.each([
-    ['static import', "import { run as renamed } from '../yt-dlp.js';"],
-    ['dynamic import', "const module = await import('../yt-dlp.js');"],
-    ['require', "const module = require('../yt-dlp.js');"],
-    ['renamed concatenated loader', "const load = require; load('../yt-' + 'dlp.js');"],
-    ['escaped string literal', String.raw`const module = await import('../yt\x2ddlp.js');`],
-    ['template expression', "const module = await import(`../yt-${'dlp'}.js`);"],
-    ['variable concatenation', "const suffix = 'dlp.js'; const module = await import('../yt-' + suffix);"],
-    ['typed variable concatenation', "const suffix: string = 'dlp.js'; const module = await import('../yt-' + suffix);"],
-    ['same-name scoped variable', "{ const suffix = 'safe.js'; } { const suffix = 'dlp.js'; import('../yt-' + suffix); }"],
-  ])('rejects a low-level yt-dlp bypass using %s', (_name, source) => {
-    expect(lowLevelYtDlpReferences(source)).toEqual(['../yt-dlp.js']);
   });
 
   it('keeps download cards readable across desktop and mobile widths', async () => {

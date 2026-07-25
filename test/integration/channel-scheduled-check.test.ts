@@ -8,7 +8,7 @@ import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { BusinessError } from '../../src/errors.js';
 import { checkScheduledChannel } from '../../src/services/channel.js';
-import { listNotifications } from '../../src/services/notification.js';
+import { listNotificationsPage } from '../../src/services/notification.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const FIRST_STARTED_AT = new Date('2026-07-17T08:30:00.000Z');
@@ -315,7 +315,7 @@ describe('scheduled channel checks', () => {
       last_check_error: null,
     });
 
-    expect(listNotifications(database)).toEqual([
+    expect(listNotificationsPage(database, 1).items).toEqual([
       {
         id: 2,
         createdAt: expect.any(String),

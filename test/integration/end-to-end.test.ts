@@ -15,12 +15,12 @@ import {
 import {
   checkChannel,
   initialSyncChannel,
-  listChannels,
-  listChannelVideos,
+  listChannelsPage,
+  listChannelVideosPage,
   saveChannel,
 } from '../../src/services/channel.js';
 import { createChannelDownloads, type QueuedDownload } from '../../src/services/download.js';
-import { listNotifications } from '../../src/services/notification.js';
+import { listNotificationsPage } from '../../src/services/notification.js';
 import { updateSettings } from '../../src/services/settings.js';
 import { fetchChannelEntries } from '../../src/yt-dlp.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
@@ -219,7 +219,7 @@ describe('offline v0.1 end-to-end contract', () => {
       STARTED_AT,
     );
     expect(created.historicalVideoCount).toBe(2);
-    expect(listNotifications(database)).toEqual([]);
+    expect(listNotificationsPage(database, 1).items).toEqual([]);
 
     await writeFile(statePath, 'updated');
     await expect(
@@ -229,10 +229,10 @@ describe('offline v0.1 end-to-end contract', () => {
       'channel_initial_sync',
       'channel_manual_check',
     ]);
-    const notification = listNotifications(database)[0];
+    const notification = listNotificationsPage(database, 1).items[0];
     expect(notification?.video.title).toBe('New video');
 
-    const videos = listChannelVideos(database, created.channel.id);
+    const videos = listChannelVideosPage(database, created.channel.id, 1, '').items;
     const selectedIds = videos
       .filter((video) => ['New video', 'FFmpeg failure video'].includes(video.title))
       .map((video) => video.id);
@@ -260,8 +260,8 @@ describe('offline v0.1 end-to-end contract', () => {
 
     database.close();
     database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
-    expect(listChannels(database)).toHaveLength(1);
-    expect(listChannelVideos(database, created.channel.id)).toEqual(
+    expect(listChannelsPage(database, 1).items).toHaveLength(1);
+    expect(listChannelVideosPage(database, created.channel.id, 1, '').items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           title: 'New video',
@@ -281,7 +281,7 @@ describe('offline v0.1 end-to-end contract', () => {
         }),
       ]),
     );
-    expect(listNotifications(database)).toHaveLength(1);
+    expect(listNotificationsPage(database, 1).items).toHaveLength(1);
   });
 
   it('fails closed for malformed or unsupported channel results', async () => {

@@ -35,44 +35,6 @@ interface NotificationRow {
   readonly source_url: string;
 }
 
-export function listNotifications(
-  database: DatabaseConnection,
-): Notification[] {
-  try {
-    const rows = database
-      .prepare(
-        `SELECT n.id, n.created_at, c.id AS channel_id,
-                c.custom_name, n.read_at, v.id AS video_id, v.title,
-                v.published_date, v.source_url
-         FROM notifications n
-         JOIN videos v ON v.id = n.video_id
-         JOIN channels c ON c.id = v.channel_id
-         ORDER BY n.created_at DESC, n.id DESC`,
-      )
-      .all() as NotificationRow[];
-    return rows.map((row) => ({
-      id: row.id,
-      createdAt: row.created_at,
-      readAt: row.read_at,
-      channel: {
-        id: row.channel_id,
-        customName: row.custom_name,
-      },
-      video: {
-        id: row.video_id,
-        title: row.title,
-        publishedDate: row.published_date,
-        url: row.source_url,
-      },
-    }));
-  } catch {
-    throw new BusinessError(
-      'PERSISTENCE_ERROR',
-      'notification persistence failed',
-    );
-  }
-}
-
 export function listNotificationsPage(
   database: DatabaseConnection,
   page: number,

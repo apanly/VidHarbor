@@ -1322,20 +1322,6 @@ export function checkScheduledChannel(
   }).result;
 }
 
-export function listChannels(database: DatabaseConnection): Channel[] {
-  try {
-    const rows = database
-      .prepare(`${CHANNEL_SELECT} ORDER BY c.id DESC`)
-      .all() as ChannelRow[];
-    return rows.map(toChannel);
-  } catch (error) {
-    if (error instanceof BusinessError) {
-      throw error;
-    }
-    throw persistenceError();
-  }
-}
-
 export function listChannelsPage(
   database: DatabaseConnection,
   page: number,
@@ -1553,54 +1539,6 @@ function assertChannelExists(
     .get(channelId);
   if (id === undefined) {
     throw new BusinessError('CHANNEL_NOT_FOUND', 'channel not found');
-  }
-}
-
-export function listChannelVideos(
-  database: DatabaseConnection,
-  channelId: number,
-): ChannelVideo[] {
-  validateChannelId(channelId);
-  try {
-    assertChannelExists(database, channelId);
-    const rows = database
-      .prepare(
-        `SELECT v.id, v.title, v.published_date, v.source_url,
-                v.duration_seconds, v.thumbnail_url,
-                d.id AS download_id, d.status AS download_status,
-                d.finished_at AS download_finished_at,
-                d.output_size_bytes AS download_output_size_bytes,
-                d.failure_reason AS download_failure_reason
-         FROM videos v
-         LEFT JOIN downloads d ON d.id = (
-           SELECT latest.id
-           FROM downloads latest
-           WHERE latest.video_id = v.id
-           ORDER BY latest.created_at DESC, latest.id DESC
-           LIMIT 1
-         )
-         WHERE v.channel_id = ?
-         ORDER BY v.published_date DESC, v.id DESC`,
-      )
-      .all(channelId) as ChannelVideoRow[];
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      publishedDate: row.published_date,
-      url: row.source_url,
-      durationSeconds: row.duration_seconds,
-      thumbnailUrl: row.thumbnail_url,
-      downloadId: row.download_id,
-      downloadStatus: row.download_status,
-      downloadFinishedAt: row.download_finished_at,
-      downloadOutputSizeBytes: row.download_output_size_bytes,
-      downloadFailureReason: row.download_failure_reason,
-    }));
-  } catch (error) {
-    if (error instanceof BusinessError) {
-      throw error;
-    }
-    throw persistenceError();
   }
 }
 
