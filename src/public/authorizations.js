@@ -24,7 +24,7 @@ let mode = { kind: 'create' };
 
 function errorMessage(error) {
   return error instanceof Error
-    ? `前端错误：${error.message}`
+    ? `${error.name}: ${error.message}`
     : `${error.code}: ${error.message}`;
 }
 

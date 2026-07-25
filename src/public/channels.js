@@ -16,7 +16,7 @@ const requestedPage = Number(new URLSearchParams(location.search).get('page') ??
 const checkResultLabels = { success: '有更新', no_updates: '无更新', failed: '失败' };
 const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili' };
 function nullableNumber(value) { return value === '' ? null : Number(value); }
-function showError(form, error) { const region = form.querySelector('[data-form-error]'); region.textContent = error instanceof Error ? `前端错误：${error.message}` : `${error.code}: ${error.message}`; region.hidden = false; }
+function showError(form, error) { const region = form.querySelector('[data-form-error]'); region.textContent = error instanceof Error ? `${error.name}: ${error.message}` : `${error.code}: ${error.message}`; region.hidden = false; }
 function clearError(form) { const region = form.querySelector('[data-form-error]'); region.textContent = ''; region.hidden = true; }
 async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const result = await response.json(); if (!response.ok) throw result.error; return result; }
 function setProxyOptions(select, proxies, selectedId) { select.replaceChildren(new Option('直连', '')); for (const proxy of proxies) { const option = new Option(proxy.name, String(proxy.id)); option.selected = proxy.id === selectedId; select.append(option); } }

@@ -23,7 +23,7 @@ const downloadStatusLabels = {
 
 function showError(region, error) {
   region.textContent = error instanceof Error
-    ? `前端错误：${error.message}`
+    ? `${error.name}: ${error.message}`
     : `${error.code}: ${error.message}`;
   region.hidden = false;
 }

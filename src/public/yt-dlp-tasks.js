@@ -74,7 +74,7 @@ function renderGroup(tasks, listId, emptyId, countId) {
 
 function showError(error) {
   errorRegion.textContent = error instanceof Error
-    ? `前端错误：${error.message}`
+    ? `${error.name}: ${error.message}`
     : `${error.code}: ${error.message}`;
   errorRegion.hidden = false;
 }

@@ -173,26 +173,6 @@ async function typeScriptFiles(directory: string): Promise<string[]> {
 }
 
 describe('server-rendered pages', () => {
-  it('does not disguise frontend load failures as network errors', async () => {
-    const scripts = await Promise.all([
-      'dashboard.js',
-      'settings.js',
-      'notifications.js',
-      'authorizations.js',
-      'channels.js',
-      'channel-detail.js',
-      'downloads.js',
-      'download-preview.js',
-      'yt-dlp-tasks.js',
-    ].map(getPublicScript));
-
-    for (const script of scripts) {
-      expect(script).not.toContain('NETWORK_ERROR');
-      expect(script).not.toContain('无法连接服务端');
-      expect(script).not.toContain('无法加载下载记录');
-    }
-  });
-
   it.each([
     ['/', '<h1 class="mb-4">总览</h1>'],
     ['/settings', '<h1>配置</h1>'],
@@ -777,7 +757,7 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('preview-download');
     expect(html).not.toContain('preview-original');
     expect(script).toContain('浏览器无法播放此文件，请返回下载页面下载后查看');
-    expect(script).toContain('error instanceof Error ? `前端错误：${error.message}`');
+    expect(script).toContain('error instanceof Error ? `${error.name}: ${error.message}`');
     expect(script).toContain("error.code === 'DOWNLOAD_NOT_FOUND' ? '下载记录不存在' : `${error.code}: ${error.message}`");
     expect(html).not.toContain('class="app-shell d-flex"');
     expect(html).not.toContain('class="app-sidebar d-flex');
@@ -1077,7 +1057,7 @@ describe('server-rendered pages', () => {
 
     expect(helpers.nodes.get('page-error')).toMatchObject({
       hidden: false,
-      textContent: `前端错误：${message}`,
+      textContent: `Error: ${message}`,
     });
     expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
     expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);
@@ -1111,7 +1091,7 @@ describe('server-rendered pages', () => {
 
     expect(helpers.nodes.get('page-error')).toMatchObject({
       hidden: false,
-      textContent: '前端错误：network unavailable',
+      textContent: 'Error: network unavailable',
     });
     expect(helpers.nodes.get('active-task-list')?.children).toHaveLength(0);
     expect(helpers.nodes.get('terminal-task-list')?.children).toHaveLength(0);

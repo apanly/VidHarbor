@@ -4,7 +4,7 @@ const proxyModal = bootstrap.Modal.getOrCreateInstance(proxyModalElement);
 const proxyModalTitle = document.querySelector('#proxy-modal-title');
 const proxySubmit = document.querySelector('[data-proxy-submit]');
 let proxyMode = { kind: 'create' };
-function showError(form, error) { const region = form.querySelector('[data-form-error]'); region.textContent = error instanceof Error ? `前端错误：${error.message}` : `${error.code}: ${error.message}`; region.hidden = false; }
+function showError(form, error) { const region = form.querySelector('[data-form-error]'); region.textContent = error instanceof Error ? `${error.name}: ${error.message}` : `${error.code}: ${error.message}`; region.hidden = false; }
 function clearError(form) { const region = form.querySelector('[data-form-error]'); region.textContent = ''; region.hidden = true; }
 function optionalText(value) { return value === '' ? null : value; }
 function proxyPayload(form) { return { name: form.elements.name.value, protocol: form.elements.protocol.value, host: form.elements.host.value, port: Number(form.elements.port.value), username: optionalText(form.elements.username.value), password: optionalText(form.elements.password.value) }; }

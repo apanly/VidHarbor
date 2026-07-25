@@ -5,7 +5,7 @@ const styles = { success: 'text-bg-success', no_updates: 'text-bg-secondary', fa
 
 function showError(error) {
   errorRegion.textContent = error instanceof Error
-    ? `前端错误：${error.message}`
+    ? `${error.name}: ${error.message}`
     : `${error.code}: ${error.message}`;
   errorRegion.hidden = false;
 }
