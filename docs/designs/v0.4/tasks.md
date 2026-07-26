@@ -350,7 +350,7 @@
   2. `rg -n "Accept-Language|vidharbor_language|downloads/preview|/channels/:id|README.en.md" test/integration/pages.test.ts` → 协商负向、Cookie、参数化页面和双 README 断言可定位
 
 ## task-17 · 证明语言 Cookie 不改变 API 契约
-- 状态: pending
+- 状态: done
 - 依赖: task-16
 - 文件范围:
   - test/integration/http-contract.test.ts
