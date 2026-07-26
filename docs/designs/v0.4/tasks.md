@@ -113,7 +113,7 @@
   3. `rg -n "innerHTML" src/public/dashboard.js src/public/yt-dlp-tasks.js` → 无匹配
 
 ## task-06 · 完成下载页面静态与动态双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-05
 - 文件范围:
   - src/views/downloads.ejs
