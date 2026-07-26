@@ -308,7 +308,7 @@
   2. `rg -n "src/views|src/public|ERROR_HTTP_STATUS|Asia/Shanghai" test/unit/i18n.test.ts` → 模板、脚本、错误码和时区扫描入口均可定位
 
 ## task-15 · 更新中英文用户文档与 v0.4 变更说明
-- 状态: pending
+- 状态: done
 - 依赖: task-14
 - 文件范围:
   - README.md
