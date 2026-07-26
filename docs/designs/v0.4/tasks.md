@@ -392,7 +392,7 @@
   3. `test "$(rg -c 'README.en.md' Dockerfile)" = 2` → 构建上下文与运行镜像各复制一次英文 README
 
 ## task-19 · 执行双语 Web 验收并留存逐页证据
-- 状态: pending
+- 状态: failed
 - 依赖: task-18
 - 文件范围:
   - docs/testing/v0.4-i18n-web-acceptance.md (新建)
