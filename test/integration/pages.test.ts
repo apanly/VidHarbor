@@ -922,6 +922,55 @@ describe('server-rendered pages', () => {
     }
   });
 
+  it.each([
+    {
+      language: 'zh-CN',
+      urlHelp: '支持 YouTube 频道和 Bilibili UP 主空间，例如',
+      authorizationHelp: '仅可选择与频道相同平台的授权。',
+      history: [['1', '最近 1 个月'], ['3', '最近 3 个月'], ['6', '最近 6 个月'], ['12', '最近 1 年']],
+    },
+    {
+      language: 'en',
+      urlHelp: 'Supports YouTube channels and Bilibili creator pages, for example',
+      authorizationHelp: 'Only authorizations for the same platform as the channel are available.',
+      history: [['1', 'Last month'], ['3', 'Last 3 months'], ['6', 'Last 6 months'], ['12', 'Last year']],
+    },
+  ] as const)('renders channel form catalog copy with fixed history values in $language', async ({ language, urlHelp, authorizationHelp, history }) => {
+    const html = await getPage('/channels', { Cookie: `vidharbor_language=${language}` });
+
+    expect(html).toContain(`<div class="form-text">${urlHelp} https://space.bilibili.com/3985676</div>`);
+    expect(html).toContain(`<div class="form-text">${authorizationHelp}</div>`);
+    for (const [value, label] of history) expect(html).toContain(`<option value="${value}">${label}</option>`);
+    expect(TRANSLATIONS[language]['channels.urlHelp']).not.toMatch(/https?:\/\/|</);
+  });
+
+  it.each([
+    {
+      language: 'zh-CN',
+      rule: '当前官方范围包括 YouTube、Bilibili、X、Facebook 公开单视频或 Reel，以及抖音公开单视频；其他 HTTPS URL 仍按通用单资源契约探测，但不属于官方支持或验证范围。Bilibili 用 <code>?p=序号</code> 选择分 P，X 一帖多视频用 <code>/video/序号</code> 选择。',
+    },
+    {
+      language: 'en',
+      rule: 'The current official scope includes public single-video or Reel URLs from YouTube, Bilibili, X, and Facebook, plus public single-video URLs from Douyin. Other HTTPS URLs are still probed under the generic single-resource contract, but are not officially supported or verified. Use <code>?p=number</code> to select a Bilibili part and <code>/video/number</code> to select one video from an X post with multiple videos.',
+    },
+  ] as const)('renders safe download URL rule structure in $language', async ({ language, rule }) => {
+    const html = await getPage('/downloads', { Cookie: `vidharbor_language=${language}` });
+    const keys = ['downloads.urlRulesBeforeBilibiliPart', 'downloads.urlRulesIndex', 'downloads.urlRulesBetweenSelectors', 'downloads.urlRulesAfterXVideo'] as const;
+
+    expect(html).toContain(`<p>${rule}</p>`);
+    for (const key of keys) expect(TRANSLATIONS[language][key]).not.toMatch(/<|\?p=|\/video\//);
+  });
+
+  it.each([
+    ['zh-CN', '例如：192.168.1.100', '例如：1080'],
+    ['en', 'For example: 192.168.1.100', 'For example: 1080'],
+  ] as const)('renders fixed proxy form attributes in %s', async (language, hostPlaceholder, portPlaceholder) => {
+    const html = await getPage('/settings', { Cookie: `vidharbor_language=${language}` });
+
+    expect(html).toContain(`<input class="form-control" id="proxy-host" name="host" placeholder="${hostPlaceholder}" required>`);
+    expect(html).toContain(`<input class="form-control" id="proxy-port" type="number" min="1" max="65535" step="1" name="port" placeholder="${portPlaceholder}" required>`);
+  });
+
   it('renders add and edit forms in dialogs with single-column fields', async () => {
     const channelsHtml = await getPage('/channels');
     const settingsHtml = await getPage('/settings');

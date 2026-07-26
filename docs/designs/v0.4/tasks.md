@@ -503,7 +503,7 @@
   3. `rg -n -F '<option value="channel"><%= t(' src/views/channel-detail.ejs` → 固定业务值使用专用翻译调用
 
 ## task-24 · 清理模板中绕过翻译目录的文案
-- 状态: pending
+- 状态: done
 - 依赖: task-06, task-07, task-11, task-14
 - 文件范围:
   - src/i18n.ts
