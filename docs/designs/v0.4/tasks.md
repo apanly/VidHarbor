@@ -222,7 +222,7 @@
   3. `rg -n "File\.text|localStorage" src/views/authorizations.ejs src/public/authorizations.js` → 无匹配
 
 ## task-11 · 完成配置与代理页面双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-10
 - 文件范围:
   - src/views/settings.ejs
