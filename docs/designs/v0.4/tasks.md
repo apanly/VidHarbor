@@ -288,7 +288,7 @@
   3. `git diff --exit-code -- src/public/guide.js` → guide.js 未被修改
 
 ## task-14 · 完整验证目录、状态与翻译调用边界
-- 状态: pending
+- 状态: done
 - 依赖: task-13
 - 文件范围:
   - test/unit/i18n.test.ts
