@@ -1,12 +1,14 @@
 import { formatChinaTimestamp } from '/public/time.js';
+import { formatApiError, t } from '/public/i18n.js';
 
 const platformLabels = Object.freeze({
   youtube: 'YouTube',
   bilibili: 'Bilibili',
   x: 'X',
   facebook: 'Facebook',
-  douyin: '抖音',
+  douyin: 'Douyin',
 });
+const platforms = Object.freeze(Object.keys(platformLabels));
 
 const form = document.querySelector('#authorization-form');
 const modalElement = document.querySelector('#authorization-modal');
@@ -24,8 +26,22 @@ let mode = { kind: 'create' };
 
 function errorMessage(error) {
   return error instanceof Error
-    ? `${error.name}: ${error.message}`
-    : `${error.code}: ${error.message}`;
+    ? `${t('common.failed')}: ${error.message}`
+    : formatApiError(error);
+}
+
+function platformLabel(platform) {
+  if (!Object.hasOwn(platformLabels, platform)) {
+    throw new TypeError(`unknown authorization platform: ${String(platform)}`);
+  }
+  return platformLabels[platform];
+}
+
+function statusLabel(configured) {
+  if (configured !== true) {
+    throw new TypeError(`unknown authorization configuration status: ${String(configured)}`);
+  }
+  return t('authorizations.status.configured');
 }
 
 async function request(path, method = 'GET', body, contentType = 'application/octet-stream') {
@@ -71,27 +87,27 @@ function fillPlatformOptions(platforms) {
   for (const platform of platforms) {
     const option = document.createElement('option');
     option.value = platform;
-    option.textContent = platformLabels[platform];
+    option.textContent = platformLabel(platform);
     platformControl.append(option);
   }
 }
 
 function openCreateModal() {
   mode = { kind: 'create' };
-  modalTitle.textContent = '新增授权';
-  submit.textContent = '新增授权';
+  modalTitle.textContent = t('authorizations.create');
+  submit.textContent = t('authorizations.create');
   form.reset();
   platformControl.disabled = false;
   fillPlatformOptions(
-    Object.keys(platformLabels).filter((platform) => !configurations.has(platform)),
+    platforms.filter((platform) => !configurations.has(platform)),
   );
   clearFormError();
 }
 
 function openEditModal(configuration) {
   mode = { kind: 'edit', platform: configuration.platform };
-  modalTitle.textContent = `编辑 ${platformLabels[configuration.platform]} 授权`;
-  submit.textContent = '保存';
+  modalTitle.textContent = t('authorizations.edit', { platform: platformLabel(configuration.platform) });
+  submit.textContent = t('common.save');
   form.reset();
   fillPlatformOptions([configuration.platform]);
   platformControl.value = configuration.platform;
@@ -101,8 +117,8 @@ function openEditModal(configuration) {
 }
 
 async function deleteConfiguration(configuration, button) {
-  const label = platformLabels[configuration.platform];
-  const confirmed = confirm(`确认删除 ${label} 的 Cookie 配置？删除后无法恢复。`);
+  const label = platformLabel(configuration.platform);
+  const confirmed = confirm(t('authorizations.deleteConfirm', { platform: label }));
   if (!confirmed) return;
 
   button.disabled = true;
@@ -127,22 +143,24 @@ function renderList() {
     const cell = document.createElement('td');
     cell.colSpan = 4;
     cell.className = 'authorization-empty-state text-center';
-    cell.textContent = '尚未添加授权。';
+    cell.textContent = t('authorizations.empty');
     row.append(cell);
     list.append(row);
     return;
   }
 
-  for (const configuration of configurations.values()) {
+  for (const platformName of platforms) {
+    const configuration = configurations.get(platformName);
+    if (configuration === undefined) continue;
     const row = document.createElement('tr');
     const platform = document.createElement('td');
     platform.className = 'authorization-platform-name';
-    platform.textContent = platformLabels[configuration.platform];
+    platform.textContent = platformLabel(configuration.platform);
 
     const status = document.createElement('td');
     const statusBadge = document.createElement('span');
     statusBadge.className = 'authorization-status rounded-pill';
-    statusBadge.textContent = '已配置';
+    statusBadge.textContent = statusLabel(configuration.configured);
     status.append(statusBadge);
 
     const updated = document.createElement('td');
@@ -157,12 +175,12 @@ function renderList() {
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.className = 'btn btn-sm btn-outline-primary';
-    edit.textContent = '编辑';
+    edit.textContent = t('common.edit');
     edit.addEventListener('click', () => openEditModal(configuration));
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'btn btn-sm btn-outline-danger';
-    remove.textContent = '删除';
+    remove.textContent = t('common.delete');
     remove.addEventListener('click', () => deleteConfiguration(configuration, remove));
     actions.append(edit);
     actions.append(remove);
@@ -173,7 +191,7 @@ function renderList() {
 }
 
 function renderState() {
-  createButton.disabled = configurations.size === Object.keys(platformLabels).length;
+  createButton.disabled = configurations.size === platforms.length;
   renderList();
 }
 
@@ -181,7 +199,11 @@ async function load() {
   clearListError();
   const result = await request('/api/authorizations/cookies');
   configurations = new Map(
-    result.configurations.map((configuration) => [configuration.platform, configuration]),
+    result.configurations.map((configuration) => {
+      platformLabel(configuration.platform);
+      statusLabel(configuration.configured);
+      return [configuration.platform, configuration];
+    }),
   );
   renderState();
 }
@@ -196,11 +218,14 @@ form.addEventListener('submit', async (event) => {
   clearFormError();
   try {
     const platform = mode.kind === 'create' ? platformControl.value : mode.platform;
+    platformLabel(platform);
     const result = await request(
       `/api/authorizations/cookies/${platform}`,
       mode.kind === 'create' ? 'POST' : 'PUT',
       file,
     );
+    platformLabel(result.configuration.platform);
+    statusLabel(result.configuration.configured);
     configurations.set(platform, result.configuration);
     renderState();
     modal.hide();

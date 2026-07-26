@@ -200,7 +200,7 @@
   2. `rg -n "from '/public/i18n.js'|\bt\(" src/public/notifications.js` → 读状态、操作和错误使用公共翻译入口
 
 ## task-10 · 完成授权管理页面双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-09
 - 文件范围:
   - src/views/authorizations.ejs
