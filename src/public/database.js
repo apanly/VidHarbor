@@ -1,3 +1,5 @@
+import { formatApiError, formatNumber, t } from '/public/i18n.js';
+
 const tableList = document.querySelector('#database-table-list');
 const queryForm = document.querySelector('#database-query-form');
 const sqlInput = document.querySelector('#database-sql');
@@ -18,7 +20,7 @@ async function request(path, method = 'GET', body) {
 }
 
 function showError(error) {
-  pageError.textContent = `${error.code}: ${error.message}`;
+  pageError.textContent = error instanceof Error ? `${t('common.failed')}: ${error.message}` : formatApiError(error);
   pageError.hidden = false;
 }
 
@@ -27,13 +29,13 @@ function renderResult(columns, rows) {
 
   const summary = document.createElement('p');
   summary.className = 'database-result-summary mb-3';
-  summary.textContent = `共 ${rows.length} 行 · ${columns.length} 列`;
+  summary.textContent = t('database.resultSummary', { rows: formatNumber(rows.length), columns: formatNumber(columns.length) });
   result.append(summary);
 
   if (rows.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'database-result-empty text-center';
-    empty.textContent = '无数据';
+    empty.textContent = t('database.noData');
     result.append(empty);
     return;
   }
@@ -71,6 +73,7 @@ function renderResult(columns, rows) {
 
 async function executeQuery() {
   runButton.disabled = true;
+  runButton.textContent = t('common.inProgress');
   pageError.hidden = true;
   try {
     const payload = await request('/api/database/query', 'POST', { sql: sqlInput.value });
@@ -79,13 +82,19 @@ async function executeQuery() {
     showError(error);
   } finally {
     runButton.disabled = false;
+    runButton.textContent = t('database.run');
   }
 }
 
 async function loadTables() {
+  tableList.textContent = t('common.loading');
   try {
     const { tables } = await request('/api/database/tables');
     tableList.textContent = '';
+    if (tables.length === 0) {
+      tableList.textContent = t('database.noData');
+      return;
+    }
     for (const table of tables) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -101,6 +110,7 @@ async function loadTables() {
       tableList.append(button);
     }
   } catch (error) {
+    tableList.textContent = '';
     showError(error);
   }
 }

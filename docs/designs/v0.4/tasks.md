@@ -243,7 +243,7 @@
   2. `rg -n "from '/public/i18n.js'|\bt\(" src/public/settings.js` → 模态框、空状态、确认和错误使用公共翻译入口
 
 ## task-12 · 完成数据库浏览器页面双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-11
 - 文件范围:
   - src/views/database.ejs
