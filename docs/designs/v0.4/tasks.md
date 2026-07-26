@@ -457,7 +457,7 @@
   3. `! rg -n "language === 'zh-CN'" src/views/authorizations.ejs` → 授权页不再以语言分支绕过目录
 
 ## task-22 · 恢复频道检查间隔的单位与来源
-- 状态: pending
+- 状态: done
 - 依赖: task-07, task-14
 - 文件范围:
   - src/i18n.ts

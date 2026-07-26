@@ -561,8 +561,8 @@ describe('server-rendered pages', () => {
       platform: 'youtube',
       proxyId: null,
       authorizationPlatform: null,
-      checkIntervalMinutes: null,
-      effectiveCheckIntervalMinutes: 30,
+      checkIntervalMinutes: index === 0 ? null : 15,
+      effectiveCheckIntervalMinutes: index === 0 ? 1234 : 5678,
       unreadNotificationCount: 1234,
       pausedAt: null,
       initialSync: { status, error: status === 'failed' ? 'third-party sync detail' : null },
@@ -611,6 +611,9 @@ describe('server-rendered pages', () => {
       expect(dom).toContain(i18n.t(status === 'succeeded' ? 'status.channel.running' : `status.sync.${status}` as keyof typeof TRANSLATIONS['zh-CN']));
     }
     for (const name of channels.map((channel) => channel.customName)) expect(dom).toContain(name);
+    expect(dom).toContain(i18n.t('channels.checkInterval'));
+    expect(dom).toContain(i18n.t('channels.globalInterval', { minutes: i18n.formatNumber(1234) }));
+    expect(dom).toContain(i18n.t('channels.overrideInterval', { minutes: i18n.formatNumber(5678) }));
     expect(dom).toContain('third-party sync detail');
     expect(dom).toContain('third-party check detail');
     const deleteButton = list.querySelectorAll('.btn-outline-danger')[0];
