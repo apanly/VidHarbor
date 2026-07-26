@@ -330,7 +330,7 @@
   2. `test "$(rg -c 'APP_GUIDE_EXCLUDE_START|APP_GUIDE_EXCLUDE_END' README.md)" = 2 && test "$(rg -c 'APP_GUIDE_EXCLUDE_START|APP_GUIDE_EXCLUDE_END' README.en.md)" = 2` → 两份 README 各保留一对排除标记
 
 ## task-16 · 扩展页面集成测试覆盖 10 页与动态交互
-- 状态: pending
+- 状态: done
 - 依赖: task-15
 - 文件范围:
   - test/integration/pages.test.ts
