@@ -432,3 +432,97 @@
   1. `rg -n "^### WA-23 .*— 通过$|频道删除写请求.*(未产生|0)|^\\- 通过：25$|^\\- 失败：0$" docs/testing/v0.4-i18n-web-acceptance.md` → WA-23、安全无写入证据和最终统计均可定位
   2. `git diff --exit-code -- src test` → 生产代码与测试代码均未改动
   3. `rg -n "zh-CN.*en|确认|取消|证据" docs/testing/v0.4-i18n-web-acceptance.md` → 双语确认、取消结果和证据均有记录
+
+## task-21 · 授权页安全说明纳入唯一翻译目录
+- 状态: done
+- 依赖: task-10, task-14
+- 文件范围:
+  - src/i18n.ts
+  - src/views/authorizations.ejs
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 原始 bugfix 描述: Review F001，位置 src/views/authorizations.ejs:35。三条安全说明正文与“已配置”免责声明使用 language 分支硬编码中英文，绕过 src/i18n.ts 唯一翻译事实源和目录扫描。将固定文案拆为扁平翻译键，EJS 只调用 t()；链接保持模板结构，不将 HTML 放入翻译值。
+  - 必须保持 `Get cookies.txt LOCALLY` 链接为 EJS 模板结构，翻译值只能包含链接前后的纯文本，不能把 HTML、链接地址或属性写入目录。
+  - 不能改变授权页现有文案含义、Cookie 敏感信息边界、文件上传行为或授权 API 契约。
+- 任务目的: 修复 bugfix-02 描述的问题
+- 实现入口: src/views/authorizations.ejs:35 安全说明语言分支与 :45 “已配置”免责声明；src/i18n.ts 的 `authorizations.*` 扁平目录
+- 期望行为: 三条安全说明和“已配置”免责声明在 `zh-CN`、`en` 下保持现有显示内容，但全部由 `src/i18n.ts` 固定键提供，模板只通过 `t()` 取纯文本并保留原链接结构。
+- 范围边界:
+  - 必须: 为两套目录增加键集合一致、值非空的固定键，移除授权页对应 `language` 分支，并验证双语渲染内容与链接安全属性。
+  - 不能: 不能改动与本 bug 无关的模块，不能在翻译值中存放 HTML，不能读取、展示或记录 Cookie 内容。
+  - 不做: 不修改授权脚本、授权 API、数据库、样式或其他页面文案。
+- 验收标准:
+  1. `npm test -- --run test/unit/i18n.test.ts --maxWorkers=1` → 新增固定键被两套目录与 EJS 字面量调用扫描覆盖
+  2. `npm test -- --run test/integration/pages.test.ts --maxWorkers=1` → 双语安全说明、免责声明与原链接结构渲染断言通过
+  3. `! rg -n "language === 'zh-CN'" src/views/authorizations.ejs` → 授权页不再以语言分支绕过目录
+
+## task-22 · 恢复频道检查间隔的单位与来源
+- 状态: pending
+- 依赖: task-07, task-14
+- 文件范围:
+  - src/i18n.ts
+  - src/public/channels.js
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 原始 bugfix 描述: Review F002，位置 src/public/channels.js:80。频道卡片错用表单键 channels.interval，并且只显示数字，丢失“分钟”单位以及“全局/频道覆盖”来源。标签改用 channels.checkInterval，按 checkIntervalMinutes === null 选择固定翻译键并恢复单位和来源，保持数值本地化与表单契约不变。
+  - 必须仅以 `checkIntervalMinutes === null` 区分全局值与频道覆盖值，显示 `effectiveCheckIntervalMinutes` 的本地化数字、分钟单位和对应来源。
+  - 不能改变频道表单键、提交字段、API 数据结构、检查调度或间隔计算。
+- 任务目的: 修复 bugfix-03 描述的问题
+- 实现入口: src/public/channels.js:80 `load` 中频道卡片 `details` 构建；src/i18n.ts 的 `channels.*` 扁平目录
+- 期望行为: 频道卡片使用 `channels.checkInterval` 标签；空频道覆盖显示“全局”来源，非空频道覆盖显示“频道覆盖”来源，两种情况都带分钟单位且数值继续按当前语言格式化。
+- 范围边界:
+  - 必须: 覆盖 `checkIntervalMinutes` 为 `null` 和正整数两种已确认输入，并保留 `effectiveCheckIntervalMinutes` 作为展示数值来源。
+  - 不能: 不能改动与本 bug 无关的模块，不能猜测其他来源状态，不能用表单文案键 `channels.interval` 代替卡片标签。
+  - 不做: 不修改频道表单、API、服务、数据库、调度器或间隔取值规则。
+- 验收标准:
+  1. `npm test -- --run test/integration/pages.test.ts --maxWorkers=1` → 双语全局来源与频道覆盖来源、单位和本地化数值行为断言通过
+  2. `npm test -- --run test/unit/i18n.test.ts --maxWorkers=1` → 新增来源/单位固定键与浏览器字面量调用均通过目录扫描
+  3. `rg -n "channels\.checkInterval|checkIntervalMinutes === null|effectiveCheckIntervalMinutes" src/public/channels.js` → 标签、来源判定和数值来源均可定位
+
+## task-23 · 恢复频道详情代理选项语义
+- 状态: pending
+- 依赖: task-08, task-14
+- 文件范围:
+  - src/i18n.ts
+  - src/views/channel-detail.ejs
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 原始 bugfix 描述: Review F003，位置 src/views/channel-detail.ejs:24。批量下载代理下拉将 value=channel 显示为通用 field.channel（“频道/Channel”），丢失“沿用频道代理 / Use channel proxy”的策略语义。新增并使用专用固定翻译键，保持 value=channel 和提交契约不变。
+  - 必须只替换 `value="channel"` 选项的显示文案，固定值、空值直连选项和批量下载 payload 保持不变。
+  - 不能复用含义不同的通用 `field.channel`，不能增加代理策略或自动选择逻辑。
+- 任务目的: 修复 bugfix-04 描述的问题
+- 实现入口: src/views/channel-detail.ejs:24 批量下载代理 `<option value="channel">`；src/i18n.ts 的 `channelDetail.*` 扁平目录
+- 期望行为: 频道详情批量下载代理下拉在中文显示“沿用频道代理”、英文显示“Use channel proxy”，提交时仍传递原始 `channel` 值。
+- 范围边界:
+  - 必须: 新增并使用一个专用双语固定键，验证双语选项文本及 `value="channel"` 不变。
+  - 不能: 不能改动与本 bug 无关的模块，不能修改 `field.channel` 的既有含义，不能改变表单或请求契约。
+  - 不做: 不修改频道详情脚本、代理 API、批量下载服务、其他代理选项或页面布局。
+- 验收标准:
+  1. `npm test -- --run test/unit/i18n.test.ts --maxWorkers=1` → 专用固定键在两套目录存在且模板调用可解析
+  2. `npm test -- --run test/integration/pages.test.ts --maxWorkers=1` → 双语代理策略文本和原始提交值断言通过
+  3. `rg -n -F '<option value="channel"><%= t(' src/views/channel-detail.ejs` → 固定业务值使用专用翻译调用
+
+## task-24 · 清理模板中绕过翻译目录的文案
+- 状态: pending
+- 依赖: task-06, task-07, task-11, task-14
+- 文件范围:
+  - src/i18n.ts
+  - src/views/channels.ejs
+  - src/views/downloads.ejs
+  - src/views/settings.ejs
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 原始 bugfix 描述: Review F004，位置 src/views/channels.ejs:26，同类位置还包括 downloads.ejs 与 settings.ejs。频道 URL 帮助、同平台授权说明、首次同步 historyMonths 选项、下载平台地址规则和代理主机/端口 placeholder 使用 language 三元或分支硬编码中英文。为这些已确认文案补齐 zh-CN/en 固定键并统一调用 t()；含 HTML 的说明拆为安全结构，不改变业务行为。
+  - 必须保持频道 `historyMonths` 的 `1`、`3`、`6`、`12` 值、下载规则中的 `<code>` 结构以及代理 host/port 的表单属性不变。
+  - 不能把 HTML、URL 结构或表单值放入翻译目录，不能借清理文案改变平台支持范围或输入契约。
+- 任务目的: 修复 bugfix-05 描述的问题
+- 实现入口: src/views/channels.ejs:26 频道 URL 帮助、:29 同平台授权说明、:43 `historyMonths` 选项；src/views/downloads.ejs:52 平台地址规则；src/views/settings.ejs:37 代理 host/port placeholder；src/i18n.ts 对应扁平目录
+- 期望行为: 已确认的频道帮助、授权说明、历史范围、下载地址规则和代理 placeholder 全部由 `src/i18n.ts` 的双语固定键提供；模板保留现有安全 HTML 和表单结构，不再通过 `language` 三元或分支选择文案。
+- 范围边界:
+  - 必须: 为两套目录补齐一致的非空固定键，拆分下载规则中 `<code>` 前后的纯文本，并验证三份模板的双语输出和原始业务值。
+  - 不能: 不能改动与本 bug 无关的模块，不能将 HTML 写入翻译值，不能改变频道、下载或代理的业务行为。
+  - 不做: 不修改浏览器脚本、API、服务、数据库、平台枚举、表单 payload 或样式。
+- 验收标准:
+  1. `npm test -- --run test/unit/i18n.test.ts --maxWorkers=1` → 新增固定键、目录一致性与 EJS 字面量调用扫描通过
+  2. `npm test -- --run test/integration/pages.test.ts --maxWorkers=1` → 三份模板的双语文案、安全结构和原始表单值断言通过
+  3. `! rg -n "language === 'zh-CN'" src/views/channels.ejs src/views/downloads.ejs src/views/settings.ejs` → 目标模板不再以语言分支绕过目录

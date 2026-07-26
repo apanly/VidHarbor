@@ -866,12 +866,6 @@ describe('server-rendered pages', () => {
     expect(html).toContain('删除会立即移除文件且无法恢复');
     expect(html).toContain('使用范围');
     expect(html).toContain('频道可选择同平台授权用于首次同步、手动检查和定时检查');
-    expect(html).toContain('安全获取与导出说明');
-    expect(html).toContain('href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc"');
-    expect(html).toContain('target="_blank" rel="noopener noreferrer">Get cookies.txt LOCALLY</a>');
-    expect(html).toContain('Cookie 等同账号登录凭据');
-    expect(html).toContain('不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性');
-    expect(html).toContain('不代表登录态当前有效');
     expect(html).toContain('<script type="module" src="/public/authorizations.js"></script>');
     expect(html).not.toContain('Vimeo');
     expect(html.includes(sensitiveMarker)).toBe(false);
@@ -882,6 +876,47 @@ describe('server-rendered pages', () => {
     expect(html).not.toMatch(/<a[^>]+\bdownload(?:\s|=|>)/);
     expect(script).toContain("statusBadge.className = 'authorization-status rounded-pill'");
     expect(script).toContain("actions.className = 'authorization-actions d-flex align-items-center flex-nowrap flex-sm-wrap'");
+  });
+
+  it.each([
+    {
+      language: 'zh-CN',
+      beforeLink: '只在可信设备上登录目标平台，可使用',
+      afterLink: '从 Chrome/Edge 当前登录会话导出 Netscape 格式文件。',
+      upload: '新增授权时选择平台并上传文件；编辑授权时重新上传完整文件。系统不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性。',
+      credential: 'Cookie 等同账号登录凭据。不要通过聊天、工单、截图、日志或公开文件传递原文；不再需要或怀疑泄露时，请删除授权或重新导出后替换。',
+      disclaimer: '“已配置”仅表示文件已保存且格式正确，不代表登录态当前有效。',
+    },
+    {
+      language: 'en',
+      beforeLink: 'Sign in to the target platform only on a trusted device. You may use',
+      afterLink: 'to export a Netscape-format file from the current Chrome/Edge signed-in session.',
+      upload: 'Choose a platform and upload a file when adding an authorization; upload the complete file again when editing. The system does not read browser profile directories, sign in on your behalf, convert other authorization formats, or validate the authorization remotely.',
+      credential: 'Cookie data is equivalent to account sign-in credentials. Do not share its contents through chats, issues, screenshots, logs, or public files. Delete the authorization when it is no longer needed, or replace it with a fresh export if exposure is suspected.',
+      disclaimer: '“Configured” only means the file was saved and its format is valid; it does not mean the sign-in session remains valid.',
+    },
+  ] as const)('renders $language authorization safety copy from the catalog', async ({ language, beforeLink, afterLink, upload, credential, disclaimer }) => {
+    const html = await getPage('/authorizations', { Cookie: `vidharbor_language=${language}` });
+    const link = '<a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener noreferrer">Get cookies.txt LOCALLY</a>';
+
+    expect(html).toContain(`<li>${beforeLink} ${link} ${afterLink}</li>`);
+    expect(html).toContain(`<li>${upload}</li>`);
+    expect(html).toContain(`<li>${credential}</li>`);
+    expect(html).toContain(`<strong>${disclaimer}</strong>`);
+  });
+
+  it('keeps authorization safety translations as plain text', () => {
+    const keys = [
+      'authorizations.safetyExportBeforeLink',
+      'authorizations.safetyExportAfterLink',
+      'authorizations.safetyUpload',
+      'authorizations.safetyCredential',
+      'authorizations.safetyConfiguredDisclaimer',
+    ] as const;
+
+    for (const catalog of Object.values(TRANSLATIONS)) {
+      for (const key of keys) expect(catalog[key]).not.toMatch(/<|https?:\/\/|target=|rel=/);
+    }
   });
 
   it('renders add and edit forms in dialogs with single-column fields', async () => {

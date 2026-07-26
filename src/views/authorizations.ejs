@@ -32,17 +32,11 @@
       <section class="authorization-safety-card" aria-labelledby="authorization-safety-title">
         <h2 id="authorization-safety-title"><%= t('authorizations.safety') %></h2>
         <ol>
-          <% if (language === 'zh-CN') { %>
-            <li>只在可信设备上登录目标平台，可使用 <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener noreferrer">Get cookies.txt LOCALLY</a> 从 Chrome/Edge 当前登录会话导出 Netscape 格式文件。</li>
-            <li>新增授权时选择平台并上传文件；编辑授权时重新上传完整文件。系统不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性。</li>
-            <li>Cookie 等同账号登录凭据。不要通过聊天、工单、截图、日志或公开文件传递原文；不再需要或怀疑泄露时，请删除授权或重新导出后替换。</li>
-          <% } else { %>
-            <li>Sign in to the target platform only on a trusted device. You may use <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener noreferrer">Get cookies.txt LOCALLY</a> to export a Netscape-format file from the current Chrome/Edge signed-in session.</li>
-            <li>Choose a platform and upload a file when adding an authorization; upload the complete file again when editing. The system does not read browser profile directories, sign in on your behalf, convert other authorization formats, or validate the authorization remotely.</li>
-            <li>Cookie data is equivalent to account sign-in credentials. Do not share its contents through chats, issues, screenshots, logs, or public files. Delete the authorization when it is no longer needed, or replace it with a fresh export if exposure is suspected.</li>
-          <% } %>
+          <li><%= t('authorizations.safetyExportBeforeLink') %> <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener noreferrer">Get cookies.txt LOCALLY</a> <%= t('authorizations.safetyExportAfterLink') %></li>
+          <li><%= t('authorizations.safetyUpload') %></li>
+          <li><%= t('authorizations.safetyCredential') %></li>
         </ol>
-        <p class="mb-0"><strong><%= language === 'zh-CN' ? '“已配置”仅表示文件已保存且格式正确，不代表登录态当前有效。' : '“Configured” only means the file was saved and its format is valid; it does not mean the sign-in session remains valid.' %></strong></p>
+        <p class="mb-0"><strong><%= t('authorizations.safetyConfiguredDisclaimer') %></strong></p>
       </section>
 
       <div class="modal fade" id="authorization-modal" tabindex="-1" aria-labelledby="authorization-modal-title" aria-hidden="true" data-bs-backdrop="static">
