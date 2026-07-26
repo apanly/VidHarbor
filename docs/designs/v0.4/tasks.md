@@ -43,7 +43,7 @@
   2. `node --input-type=module -e "import('./dist/routes/pages.js').then(({createPagesRouter})=>createPagesRouter())"` → 两份 README 标记有效时路由可初始化
 
 ## task-03 · 本地化共享外壳并实现原地语言切换
-- 状态: pending
+- 状态: done
 - 依赖: task-02
 - 文件范围:
   - src/views/partials/language-switcher.ejs (新建)

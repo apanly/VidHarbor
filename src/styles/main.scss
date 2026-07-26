@@ -51,6 +51,40 @@ body {
   gap: 0.4rem;
 }
 
+.language-switcher {
+  gap: 0.25rem;
+  margin-top: 1rem;
+  padding: 0.25rem;
+  border: bootstrap.$border-width solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.75rem;
+  background: #172033;
+}
+
+.language-switcher-button {
+  flex: 1 1 0;
+  padding: 0.45rem 0.65rem;
+  border: 0;
+  border-radius: 0.55rem;
+  color: rgba(232, 238, 248, 0.72);
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.language-switcher-button:hover {
+  color: #fff;
+}
+
+.language-switcher-button[aria-pressed="true"] {
+  color: #0f172a;
+  background: linear-gradient(135deg, #8affc1, #72e6ff);
+}
+
+.language-switcher-button:focus-visible {
+  outline: 0.2rem solid #72e6ff;
+  outline-offset: 0.15rem;
+}
+
 .sidebar-guide-link {
   margin-top: auto;
 }
@@ -1350,6 +1384,9 @@ body {
   .app-sidebar {
     position: fixed;
     left: 0;
+    height: 100dvh;
+    min-height: 0;
+    overflow-y: auto;
     transform: translateX(-105%);
     transition: transform 0.2s ease;
   }
