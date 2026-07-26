@@ -370,7 +370,7 @@
   2. `rg -n "vidharbor_language|zh-CN|invalid|en" test/integration/http-contract.test.ts` → 四类 Cookie 维度断言可定位
 
 ## task-18 · 验证干净构建、双 README 启动边界与容器完整性
-- 状态: pending
+- 状态: done
 - 依赖: task-17
 - 文件范围:
   - Dockerfile
