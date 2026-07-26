@@ -265,7 +265,7 @@
   3. `rg -n "cell\.textContent = value === null \? '' : String\(value\)" src/public/database.js` → 数据库单元格原值显示契约仍存在
 
 ## task-13 · 完成系统说明与独立下载预览双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-12
 - 文件范围:
   - src/views/guide.ejs

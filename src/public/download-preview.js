@@ -1,3 +1,5 @@
+import { formatApiError, t } from '/public/i18n.js';
+
 const player = document.querySelector('#preview-player');
 const errorRegion = document.querySelector('#preview-error');
 
@@ -6,13 +8,13 @@ function parseDownloadId(value) { if (!/^[1-9]\d*$/.test(value ?? '')) return nu
 function showPreviewError(region, message) { region.textContent = message; region.hidden = false; }
 function renderPreview(download, rawId, media, page, region) {
   const id = parseDownloadId(rawId);
-  if (id === null) { showPreviewError(region, '下载记录参数无效'); return; }
-  if (download.status !== 'completed') { showPreviewError(region, '文件尚不可预览'); return; }
+  if (id === null) { showPreviewError(region, t('preview.invalidId')); return; }
+  if (download.status !== 'completed') { showPreviewError(region, t('preview.unavailable')); return; }
   page.title = download.title;
   media.src = `/api/downloads/${id}/media`;
   media.hidden = false;
 }
-async function load() { const rawId = new URLSearchParams(location.search).get('id'); const id = parseDownloadId(rawId); if (id === null) { showPreviewError(errorRegion, '下载记录参数无效'); return; } const response = await request(`/api/downloads/${id}`); renderPreview(response.download, rawId, player, document, errorRegion); }
+async function load() { const rawId = new URLSearchParams(location.search).get('id'); const id = parseDownloadId(rawId); if (id === null) { showPreviewError(errorRegion, t('preview.invalidId')); return; } const response = await request(`/api/downloads/${id}`); renderPreview(response.download, rawId, player, document, errorRegion); }
 
-player.addEventListener('error', () => showPreviewError(errorRegion, '浏览器无法播放此文件，请返回下载页面下载后查看'));
-load().catch((error) => showPreviewError(errorRegion, error instanceof Error ? `${error.name}: ${error.message}` : error.code === 'DOWNLOAD_NOT_FOUND' ? '下载记录不存在' : `${error.code}: ${error.message}`));
+player.addEventListener('error', () => showPreviewError(errorRegion, t('preview.playbackFailed')));
+load().catch((error) => showPreviewError(errorRegion, error instanceof Error ? `${t('common.failed')}: ${error.message}` : error.code === 'DOWNLOAD_NOT_FOUND' ? t('preview.notFound') : formatApiError(error)));
