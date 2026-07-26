@@ -480,7 +480,7 @@
   3. `rg -n "channels\.checkInterval|checkIntervalMinutes === null|effectiveCheckIntervalMinutes" src/public/channels.js` → 标签、来源判定和数值来源均可定位
 
 ## task-23 · 恢复频道详情代理选项语义
-- 状态: pending
+- 状态: done
 - 依赖: task-08, task-14
 - 文件范围:
   - src/i18n.ts

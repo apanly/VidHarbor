@@ -986,6 +986,15 @@ describe('server-rendered pages', () => {
     expect(settingsHtml).not.toContain('id="proxy-create-form"');
   });
 
+  it.each([
+    ['zh-CN', '沿用频道代理'],
+    ['en', 'Use channel proxy'],
+  ] as const)('renders the channel proxy strategy with its fixed value in %s', async (language, label) => {
+    const html = await getPage('/channels/7', { Cookie: `vidharbor_language=${language}` });
+
+    expect(html).toContain(`<option value="channel">${label}</option>`);
+  });
+
   it('submits only explicitly selected channel videos', async () => {
     const html = await getPage('/channels/7');
     const script = await getPublicScript('channel-detail.js');
@@ -1035,7 +1044,6 @@ describe('server-rendered pages', () => {
     expect(script).toContain('`/api/downloads/${video.downloadId}/file`');
     expect(script).toContain('video.downloadFailureReason');
     expect(html).toContain('name="proxyId"');
-    expect(html).toContain('<option value="channel">频道</option>');
     expect(script).toContain("request('/api/proxies')");
     expect(script).toContain("checkbox.name = 'videoIds'");
     expect(script).toContain(
