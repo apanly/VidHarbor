@@ -22,6 +22,35 @@ import {
   createI18n,
   readI18n,
 } from '../../src/public/i18n.js';
+import { renderPagination } from '../../src/public/pagination.js';
+import { formatChinaTimestamp } from '../../src/public/time.js';
+
+class FakeElement {
+  type = '';
+  className = '';
+  textContent = '';
+  ariaLabel = '';
+  disabled = false;
+  hidden = false;
+  children: FakeElement[] = [];
+  listeners = new Map<string, () => void>();
+
+  replaceChildren(...children: FakeElement[]) { this.children = children; }
+  append(...children: FakeElement[]) { this.children.push(...children); }
+  addEventListener(type: string, listener: () => void) { this.listeners.set(type, listener); }
+  click() { this.listeners.get('click')?.(); }
+}
+
+function useFakeDocument(language: Language) {
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      documentElement: { lang: language },
+      getElementById: () => ({ type: 'application/json', textContent: serializeI18n(language) }),
+      createElement: () => new FakeElement(),
+    },
+  });
+}
 
 describe('fixed language contract', () => {
   it('exports only zh-CN and en with zh-CN as the default', () => {
@@ -144,14 +173,71 @@ describe('browser i18n', () => {
     expect(createI18n('en', TRANSLATIONS.en).formatNumber(12345.6)).toBe(new Intl.NumberFormat('en').format(12345.6));
   });
 
-  it('formats file sizes by 1024 with at most two fractional digits', () => {
+  it('advances file-size units at the 1024 boundary', () => {
     expect(createI18n('en', TRANSLATIONS.en).formatFileSize(1024)).toBe('1 KiB');
-    expect(createI18n('en', TRANSLATIONS.en).formatFileSize(1536)).toBe('1.5 KiB');
+  });
+
+  it('limits file sizes to two fractional digits', () => {
+    expect(createI18n('en', TRANSLATIONS.en).formatFileSize(1281)).toBe('1.25 KiB');
+  });
+
+  it('rejects invalid file sizes', () => {
     expect(() => createI18n('en', TRANSLATIONS.en).formatFileSize(-1)).toThrow('non-negative safe integer');
   });
 
   it('contains no HTML-producing browser API', () => {
     const source = readFileSync(new URL('../../src/public/i18n.js', import.meta.url), 'utf8');
     expect(source).not.toMatch(/innerHTML|insertAdjacentHTML|createContextualFragment/);
+  });
+});
+
+describe('localized browser display', () => {
+  it('formats one Shanghai timestamp with each selected language', () => {
+    const value = '2026-07-18T09:43:33.709Z';
+    useFakeDocument('zh-CN');
+    expect(formatChinaTimestamp(value)).toBe('2026/07/18 17:43:33');
+    useFakeDocument('en');
+    expect(formatChinaTimestamp(value)).toBe('07/18/2026, 17:43:33');
+  });
+
+  it('returns an invalid date unchanged', () => {
+    useFakeDocument('en');
+    expect(formatChinaTimestamp('not-a-date')).toBe('not-a-date');
+  });
+
+  it('localizes pagination display without changing callback numbers', () => {
+    useFakeDocument('en');
+    const container = new FakeElement();
+    const selected: number[] = [];
+    renderPagination(container, {
+      page: 12345,
+      totalPages: 12346,
+      totalItems: 98765,
+    }, (page: number) => selected.push(page));
+
+    const [previous, pages, next, summary] = container.children;
+    expect(previous?.textContent).toBe('Previous');
+    expect(next?.textContent).toBe('Next');
+    expect(summary?.textContent).toBe('Page 12,345 / 12,346 · 98,765 items');
+    const pageButton = pages?.children.find((node) => node.textContent === '12,344');
+    expect(pageButton?.ariaLabel).toBe('Page 12,344');
+    pageButton?.click();
+    expect(selected).toEqual([12344]);
+  });
+
+  it('hides empty pagination', () => {
+    useFakeDocument('en');
+    const container = new FakeElement();
+    renderPagination(container, { page: 1, totalPages: 0, totalItems: 0 }, () => undefined);
+    expect(container.hidden).toBe(true);
+    expect(container.children).toEqual([]);
+  });
+
+  it('disables pagination controls at both page boundaries', () => {
+    useFakeDocument('en');
+    const container = new FakeElement();
+    renderPagination(container, { page: 1, totalPages: 1, totalItems: 1 }, () => undefined);
+    expect(container.children[0]?.disabled).toBe(true);
+    expect(container.children[2]?.disabled).toBe(true);
   });
 });

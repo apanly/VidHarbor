@@ -68,7 +68,7 @@
   3. `rg -n "localStorage|Accept-Language|location.href" src/views/partials src/public/shell.js` → 无匹配
 
 ## task-04 · 统一本地化日期、数字、文件大小与分页
-- 状态: pending
+- 状态: done
 - 依赖: task-03
 - 文件范围:
   - src/public/time.js
