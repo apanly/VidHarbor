@@ -135,7 +135,7 @@
   3. `rg -n "platformLabels\[download\.platform\].*download\.platform" src/public/downloads.js` → 历史未知平台原值显示契约仍存在
 
 ## task-07 · 完成频道列表与首次同步双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-06
 - 文件范围:
   - src/views/channels.ejs
