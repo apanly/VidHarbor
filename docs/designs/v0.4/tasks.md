@@ -90,7 +90,7 @@
   2. `npm run build` → 共享浏览器模块导入关系构建成功
 
 ## task-05 · 完成总览与 yt-dlp 任务区域双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-04
 - 文件范围:
   - src/views/dashboard.ejs

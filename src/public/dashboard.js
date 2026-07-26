@@ -1,12 +1,19 @@
+import { formatApiError, formatNumber, t } from '/public/i18n.js';
+
 const errorRegion = document.querySelector('#page-error');
 const summary = document.querySelector('#channel-summary');
-const labels = { success: '检查成功', no_updates: '没有更新', failed: '检查失败' };
+const labelKeys = { success: 'status.check.success', no_updates: 'status.check.no_updates', failed: 'status.check.failed' };
 const styles = { success: 'text-bg-success', no_updates: 'text-bg-secondary', failed: 'text-bg-danger' };
+
+function fixedValue(values, value) {
+  if (!Object.hasOwn(values, value)) throw new TypeError(`unknown check result: ${String(value)}`);
+  return values[value];
+}
 
 function showError(error) {
   errorRegion.textContent = error instanceof Error
-    ? `${error.name}: ${error.message}`
-    : `${error.code}: ${error.message}`;
+    ? `${t('common.failed')}: ${error.message}`
+    : formatApiError(error);
   errorRegion.hidden = false;
 }
 
@@ -21,7 +28,10 @@ async function load() {
   const unreadCount = notifications.unreadCount;
   const runningCount = downloads.statusCounts.pending + downloads.statusCounts.running + downloads.statusCounts.downloading + downloads.statusCounts.deleting;
   const failedCount = downloads.statusCounts.failed + downloads.statusCounts.interrupted;
-  const totals = document.createElement('div'); totals.className = 'col-12'; totals.innerHTML = `<div class="alert alert-info">未读提醒：${unreadCount}；进行中下载：${runningCount}；失败/中断下载：${failedCount}</div>`; summary.append(totals);
+  const totals = document.createElement('div'); totals.className = 'col-12';
+  const alert = document.createElement('div'); alert.className = 'alert alert-info';
+  alert.textContent = t('dashboard.summary', { unread: formatNumber(unreadCount), running: formatNumber(runningCount), failed: formatNumber(failedCount) });
+  totals.append(alert); summary.append(totals);
   if (body.items.length === 0) return;
   for (const channel of body.items) {
     const column = document.createElement('div');
@@ -39,8 +49,8 @@ async function load() {
     cardBody.append(title);
     const result = channel.lastCheck.result;
     const badge = document.createElement('span');
-    badge.className = `badge ${result === null ? 'text-bg-light' : styles[result]}`;
-    badge.textContent = result === null ? '尚无定时检查' : labels[result];
+    badge.className = `badge ${result === null ? 'text-bg-light' : fixedValue(styles, result)}`;
+    badge.textContent = result === null ? t('dashboard.noScheduledCheck') : t(fixedValue(labelKeys, result));
     cardBody.append(badge);
     if (result === 'failed') {
       const reason = document.createElement('p');
