@@ -23,7 +23,7 @@
   2. `npm run build` → 新增 TypeScript 模块与浏览器模块可构建并复制到 `dist`
 
 ## task-02 · 将语言选择接入页面路由与双 README 预渲染
-- 状态: pending
+- 状态: done
 - 依赖: task-01
 - 文件范围:
   - src/routes/pages.ts
