@@ -1,16 +1,16 @@
 <%- include('partials/header') %>
-      <h1>新视频提醒</h1>
-      <p class="text-body-secondary">这里展示频道后续检查发现的新视频。进入对应频道可选择是否下载。</p>
+      <h1><%= t('page.notifications.title') %></h1>
+      <p class="text-body-secondary"><%= t('notifications.summary') %></p>
       <div id="page-error" class="alert alert-danger" hidden></div>
-      <button id="mark-all-read" class="btn btn-outline-primary mb-3" type="button" hidden>全部标记已读</button>
+      <button id="mark-all-read" class="btn btn-outline-primary mb-3" type="button" hidden><%= t('notifications.markAllRead') %></button>
       <div class="channel-table-shell table-responsive">
         <table class="table channel-detail-table notification-table align-middle mb-0">
-          <thead><tr><th scope="col">视频</th><th scope="col">频道</th><th scope="col">发布日期</th><th scope="col">发现时间</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead>
+          <thead><tr><th scope="col"><%= t('field.video') %></th><th scope="col"><%= t('field.channel') %></th><th scope="col"><%= t('field.publishedDate') %></th><th scope="col"><%= t('field.createdAt') %></th><th scope="col"><%= t('field.status') %></th><th scope="col"><%= t('field.actions') %></th></tr></thead>
           <tbody id="notification-list" aria-live="polite"></tbody>
         </table>
-        <div id="notification-empty-state" class="channel-table-empty p-5 text-center" hidden>暂无新视频提醒。</div>
+        <div id="notification-empty-state" class="channel-table-empty p-5 text-center" hidden><%= t('notifications.empty') %></div>
       </div>
-      <nav id="notification-pagination" class="list-pagination" aria-label="提醒分页" hidden></nav>
+      <nav id="notification-pagination" class="list-pagination" aria-label="<%= t('page.notifications.title') %>" hidden></nav>
     </main>
     <script type="module" src="/public/notifications.js"></script>
 <%- include('partials/footer') %>

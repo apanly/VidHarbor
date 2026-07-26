@@ -179,7 +179,7 @@
   3. `rg -n "from '/public/i18n.js'|\bt\(" src/public/channel-detail.js` → 状态、控件与错误使用公共翻译入口
 
 ## task-09 · 完成提醒页面双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-08
 - 文件范围:
   - src/views/notifications.ejs
