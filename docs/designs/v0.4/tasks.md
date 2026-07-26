@@ -157,7 +157,7 @@
   3. `rg -n "from '/public/i18n.js'|\bt\(" src/public/channels.js` → 动态文案与错误使用公共翻译入口
 
 ## task-08 · 完成频道详情双语化
-- 状态: pending
+- 状态: done
 - 依赖: task-07
 - 文件范围:
   - src/views/channel-detail.ejs
