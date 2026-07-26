@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import {
   access,
   chmod,
+  cp,
   lstat,
   mkdir,
   mkdtemp,
@@ -19,7 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const fsControl = vi.hoisted(() => ({
   rejectedChmodPath: undefined as string | undefined,
@@ -66,6 +67,29 @@ const execFileAsync = promisify(execFile);
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const originalPath = process.env.PATH;
 const SENSITIVE_COOKIE_MARKER = 'server-lifecycle-cookie-secret';
+const GUIDE_EXCLUDE_START = '<!-- APP_GUIDE_EXCLUDE_START -->';
+const GUIDE_EXCLUDE_END = '<!-- APP_GUIDE_EXCLUDE_END -->';
+
+type BuiltServerModule = { startServer: typeof startServer };
+
+async function importBuiltServer(
+  readmeOverride?: { readonly name: 'README.md' | 'README.en.md'; readonly content: string },
+): Promise<BuiltServerModule> {
+  const releaseRoot = await mkdtemp(join(tmpdir(), 'vidharbor-built-release-'));
+  sandboxes.push(releaseRoot);
+  await cp(join(projectRoot, 'dist'), join(releaseRoot, 'dist'), { recursive: true });
+  await symlink(join(projectRoot, 'node_modules'), join(releaseRoot, 'node_modules'), 'dir');
+  for (const name of ['README.md', 'README.en.md'] as const) {
+    await writeFile(
+      join(releaseRoot, name),
+      readmeOverride?.name === name
+        ? readmeOverride.content
+        : await readFile(join(projectRoot, name), 'utf8'),
+      'utf8',
+    );
+  }
+  return (await import(pathToFileURL(join(releaseRoot, 'dist/server.js')).href)) as BuiltServerModule;
+}
 
 function cookieStoragePath(config: AppConfig): string {
   return join(dirname(config.databasePath), 'cookies');
@@ -78,8 +102,10 @@ function permissionMode(value: number): number {
 async function expectStartupFailure(
   config: AppConfig,
   message: string,
+  start: typeof startServer = startServer,
 ): Promise<void> {
-  const result = await startServer(config, () => undefined).catch(
+  const listen = vi.spyOn(Server.prototype, 'listen');
+  const result = await start(config, () => undefined).catch(
     (error: unknown) => error,
   );
   if ('stop' in Object(result)) {
@@ -87,6 +113,7 @@ async function expectStartupFailure(
   }
   expect(result).toBeInstanceOf(Error);
   expect((result as Error).message).toContain(message);
+  expect(listen).not.toHaveBeenCalled();
 }
 
 async function createConfig(): Promise<AppConfig> {
@@ -156,6 +183,11 @@ function listenerNames(server: Server, event: string): string[] {
     return wrapped.listener?.name ?? listener.name;
   });
 }
+
+beforeAll(async () => {
+  await rm(join(projectRoot, 'dist'), { recursive: true, force: true });
+  await execFileAsync('npm', ['run', 'build'], { cwd: projectRoot });
+});
 
 afterEach(async () => {
   fsControl.rejectedChmodPath = undefined;
@@ -271,20 +303,104 @@ describe('server lifecycle', () => {
     );
   });
 
-  it('starts from a clean build and serves the overview page from dist resources', async () => {
-    await rm(join(projectRoot, 'dist'), { recursive: true, force: true });
-    await execFileAsync('npm', ['run', 'build'], { cwd: projectRoot });
-
-    const builtServerModule = (await import(
-      `${pathToFileURL(join(projectRoot, 'dist/server.js')).href}?clean-build`
-    )) as { startServer: typeof startServer };
+  it('serves overview pages in both contracted languages from a clean build', async () => {
+    const builtServerModule = await importBuiltServer();
     const config = await createConfig();
     const server = await builtServerModule.startServer(config, () => undefined);
     runningServers.push(server);
 
-    const response = await fetch(`http://127.0.0.1:${server.port}/`);
+    const origin = `http://127.0.0.1:${server.port}`;
+    const [chinese, english] = await Promise.all([
+      fetch(origin),
+      fetch(origin, { headers: { Cookie: 'vidharbor_language=en' } }),
+    ]);
+    expect(chinese.status).toBe(200);
+    expect(await chinese.text()).toContain('<html lang="zh-CN">');
+    expect(english.status).toBe(200);
+    expect(await english.text()).toContain('<html lang="en">');
+  });
+
+  it('defaults an invalid language Cookie to Chinese from a clean build', async () => {
+    const builtServerModule = await importBuiltServer();
+    const config = await createConfig();
+    const server = await builtServerModule.startServer(config, () => undefined);
+    runningServers.push(server);
+
+    const response = await fetch(`http://127.0.0.1:${server.port}/`, {
+      headers: { Cookie: 'vidharbor_language=EN' },
+    });
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain('总览');
+    expect(await response.text()).toContain('<html lang="zh-CN">');
+  });
+
+  it('serves each language guide from its fixed README in a clean build', async () => {
+    const builtServerModule = await importBuiltServer();
+    const config = await createConfig();
+    const server = await builtServerModule.startServer(config, () => undefined);
+    runningServers.push(server);
+
+    const origin = `http://127.0.0.1:${server.port}/guide`;
+    const [chinese, english] = await Promise.all([
+      fetch(origin),
+      fetch(origin, { headers: { Cookie: 'vidharbor_language=en' } }),
+    ]);
+    const [chineseHtml, englishHtml] = await Promise.all([
+      chinese.text(),
+      english.text(),
+    ]);
+    expect(chinese.status).toBe(200);
+    expect(chineseHtml).toContain('只能部署在可信内网');
+    expect(chineseHtml).not.toContain('Deploy only on a trusted private network');
+    expect(english.status).toBe(200);
+    expect(englishHtml).toContain('Deploy only on a trusted private network');
+    expect(englishHtml).not.toContain('只能部署在可信内网');
+  });
+
+  it('rejects a clean build when README.md is missing an exclusion marker', async () => {
+    const readme = await readFile(join(projectRoot, 'README.md'), 'utf8');
+    const builtServerModule = await importBuiltServer({
+      name: 'README.md',
+      content: readme.replace(GUIDE_EXCLUDE_START, ''),
+    });
+
+    await expectStartupFailure(
+      await createConfig(),
+      'README.md guide exclusion markers are invalid',
+      builtServerModule.startServer,
+    );
+  });
+
+  it('rejects a clean build when README.en.md has a duplicate exclusion marker', async () => {
+    const readme = await readFile(join(projectRoot, 'README.en.md'), 'utf8');
+    const builtServerModule = await importBuiltServer({
+      name: 'README.en.md',
+      content: readme.replace(
+        GUIDE_EXCLUDE_START,
+        `${GUIDE_EXCLUDE_START}\n${GUIDE_EXCLUDE_START}`,
+      ),
+    });
+
+    await expectStartupFailure(
+      await createConfig(),
+      'README.en.md guide exclusion markers are invalid',
+      builtServerModule.startServer,
+    );
+  });
+
+  it('rejects a clean build when README.md exclusion markers are reversed', async () => {
+    const readme = await readFile(join(projectRoot, 'README.md'), 'utf8');
+    const builtServerModule = await importBuiltServer({
+      name: 'README.md',
+      content: `${GUIDE_EXCLUDE_END}\n${GUIDE_EXCLUDE_START}\n${readme
+        .replace(GUIDE_EXCLUDE_START, '')
+        .replace(GUIDE_EXCLUDE_END, '')}`,
+    });
+
+    await expectStartupFailure(
+      await createConfig(),
+      'README.md guide exclusion markers are invalid',
+      builtServerModule.startServer,
+    );
   });
 
   it('migrates, recovers, creates one worker and scheduler, then serves the existing overview page', async () => {

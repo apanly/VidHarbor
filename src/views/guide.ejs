@@ -1,6 +1,6 @@
 <%- include('partials/header') %>
       <div class="guide-layout d-grid align-items-start">
-        <nav id="guide-toc" class="guide-toc d-grid" aria-label="说明目录"><strong>快速导航</strong></nav>
+        <nav id="guide-toc" class="guide-toc d-grid" aria-label="<%= t('guide.toc') %>"><strong><%= t('guide.quickNav') %></strong></nav>
         <article id="guide-content" class="guide-markdown"><%- guideHtml %></article>
       </div>
       <script src="/public/guide.js"></script>

@@ -1,25 +1,25 @@
 <%- include('partials/header') %>
-      <h1>配置</h1>
+      <h1><%= t('page.settings.title') %></h1>
       <section class="card my-4"><div class="card-body">
-        <h2 class="h4">全局设置</h2>
+        <h2 class="h4"><%= t('settings.global') %></h2>
         <form id="settings-form">
-          <div class="mb-3"><label class="form-label" for="downloadRoot">下载根目录</label><input class="form-control" id="downloadRoot" readonly aria-describedby="downloadRootHelp"><div class="form-text" id="downloadRootHelp">由部署配置固定，不能在此修改。</div></div>
-          <div class="mb-3"><label class="form-label" for="globalCheckIntervalMinutes">全局检查间隔（分钟）</label><input class="form-control" type="number" min="1" step="1" id="globalCheckIntervalMinutes" name="globalCheckIntervalMinutes" required></div>
-          <div class="mb-3"><label class="form-label" for="downloadConcurrency">下载并发数</label><input class="form-control" type="number" min="1" step="1" id="downloadConcurrency" name="downloadConcurrency" required></div>
-          <div class="alert alert-danger" data-form-error hidden></div><button class="btn btn-primary" type="submit">保存设置</button>
+          <div class="mb-3"><label class="form-label" for="downloadRoot"><%= t('settings.downloadRoot') %></label><input class="form-control" id="downloadRoot" readonly aria-describedby="downloadRootHelp"><div class="form-text" id="downloadRootHelp"><%= t('settings.downloadRootHelp') %></div></div>
+          <div class="mb-3"><label class="form-label" for="globalCheckIntervalMinutes"><%= t('settings.checkInterval') %></label><input class="form-control" type="number" min="1" step="1" id="globalCheckIntervalMinutes" name="globalCheckIntervalMinutes" required></div>
+          <div class="mb-3"><label class="form-label" for="downloadConcurrency"><%= t('settings.downloadConcurrency') %></label><input class="form-control" type="number" min="1" step="1" id="downloadConcurrency" name="downloadConcurrency" required></div>
+          <div class="alert alert-danger" data-form-error hidden></div><button class="btn btn-primary" type="submit"><%= t('settings.save') %></button>
         </form>
       </div></section>
       <section class="card"><div class="card-body">
         <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
           <div>
-            <h2 class="h4">代理</h2>
-            <p class="text-body-secondary mb-0">代理密码仅以脱敏形式展示；编辑时必须重新输入完整密码。</p>
+            <h2 class="h4"><%= t('settings.proxies') %></h2>
+            <p class="text-body-secondary mb-0"><%= t('settings.proxyHelp') %></p>
           </div>
-          <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#proxy-modal" data-proxy-create>新增代理</button>
+          <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#proxy-modal" data-proxy-create><%= t('settings.proxyCreate') %></button>
         </div>
         <div id="proxy-list-error" class="alert alert-danger" hidden></div>
         <div class="table-responsive"><table id="proxy-table" class="table align-middle">
-          <thead><tr><th>名称</th><th>协议</th><th>主机</th><th>端口</th><th>用户名</th><th>密码</th><th>操作</th></tr></thead>
+          <thead><tr><th><%= t('field.name') %></th><th><%= t('settings.protocol') %></th><th><%= t('settings.host') %></th><th><%= t('settings.port') %></th><th><%= t('settings.username') %></th><th><%= t('settings.password') %></th><th><%= t('field.actions') %></th></tr></thead>
           <tbody id="proxy-list"></tbody>
         </table></div>
       </div></section>
@@ -27,25 +27,25 @@
         <div class="modal-dialog modal-dialog-centered">
             <form id="proxy-form" class="modal-content proxy-modal-form">
               <div class="modal-header">
-                <h2 class="modal-title h5" id="proxy-modal-title">新增代理</h2>
-                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
+                <h2 class="modal-title h5" id="proxy-modal-title"><%= t('settings.proxyCreate') %></h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="<%= t('common.close') %>"></button>
               </div>
               <div class="modal-body d-grid">
-                <div class="proxy-field-full"><label class="form-label" for="proxy-name">名称</label><input class="form-control" id="proxy-name" name="name" required></div>
-                <div class="proxy-field-full"><label class="form-label" for="proxy-protocol">代理类型</label><select class="form-select" id="proxy-protocol" name="protocol" required><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option></select></div>
+                <div class="proxy-field-full"><label class="form-label" for="proxy-name"><%= t('field.name') %></label><input class="form-control" id="proxy-name" name="name" required></div>
+                <div class="proxy-field-full"><label class="form-label" for="proxy-protocol"><%= t('settings.protocol') %></label><select class="form-select" id="proxy-protocol" name="protocol" required><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option></select></div>
                 <div class="row g-3">
-                  <div class="col-12 col-sm-6"><label class="form-label" for="proxy-host">主机地址</label><input class="form-control" id="proxy-host" name="host" placeholder="例如：192.168.1.100" required></div>
-                  <div class="col-12 col-sm-6"><label class="form-label" for="proxy-port">端口</label><input class="form-control" id="proxy-port" type="number" min="1" max="65535" step="1" name="port" placeholder="例如：1080" required></div>
+                  <div class="col-12 col-sm-6"><label class="form-label" for="proxy-host"><%= t('settings.host') %></label><input class="form-control" id="proxy-host" name="host" placeholder="<%= t('settings.hostPlaceholder') %>" required></div>
+                  <div class="col-12 col-sm-6"><label class="form-label" for="proxy-port"><%= t('settings.port') %></label><input class="form-control" id="proxy-port" type="number" min="1" max="65535" step="1" name="port" placeholder="<%= t('settings.portPlaceholder') %>" required></div>
                 </div>
                 <div class="row g-3">
-                  <div class="col-12 col-sm-6"><label class="form-label" for="proxy-username">用户名</label><input class="form-control" id="proxy-username" name="username" placeholder="代理用户名"></div>
-                  <div class="col-12 col-sm-6"><label class="form-label" for="proxy-password">密码</label><input class="form-control" id="proxy-password" type="password" name="password" placeholder="代理密码"></div>
+                  <div class="col-12 col-sm-6"><label class="form-label" for="proxy-username"><%= t('settings.username') %></label><input class="form-control" id="proxy-username" name="username" placeholder="<%= t('settings.username') %>"></div>
+                  <div class="col-12 col-sm-6"><label class="form-label" for="proxy-password"><%= t('settings.password') %></label><input class="form-control" id="proxy-password" type="password" name="password" placeholder="<%= t('settings.password') %>"></div>
                 </div>
                 <div class="alert alert-danger" data-form-error hidden></div>
               </div>
               <div class="modal-footer">
-                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">取消</button>
-                <button class="btn btn-primary" type="submit" data-proxy-submit>新增代理</button>
+                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal"><%= t('common.cancel') %></button>
+                <button class="btn btn-primary" type="submit" data-proxy-submit><%= t('settings.proxyCreate') %></button>
               </div>
             </form>
         </div>

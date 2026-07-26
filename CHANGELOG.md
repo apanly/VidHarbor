@@ -6,6 +6,9 @@ All notable user-visible changes are documented here. The project follows Semant
 
 ### Added
 
+- Added a fixed bilingual interface for Chinese (`zh-CN`) and English (`en`) across all 10 pages, including server-rendered content, dynamic states, errors, confirmations, accessibility labels, the System Guide, and Download Preview.
+- Added a page-level Chinese / English switcher backed by the `vidharbor_language` session Cookie. It preserves the current page across refreshes and in-app navigation; missing, cleared, or invalid values restore the Chinese default without browser-language negotiation.
+- Added automated bilingual contract coverage and isolated-browser acceptance for all 10 pages, including language selection, dynamic UI states, README sources, and localized date and number display.
 - Added a public GHCR deployment path alongside local source builds.
 - Added authorization management for one strictly validated Netscape Cookie file per YouTube, Bilibili, X, Facebook, and Douyin platform, with upload, full replacement, status, and deletion controls.
 - Added durable download status `deleting` for completed-archive removal, with startup recovery and HTTP `DOWNLOAD_DELETE_IN_PROGRESS` (409) when another delete already owns the row.
@@ -13,6 +16,7 @@ All notable user-visible changes are documented here. The project follows Semant
 
 ### Changed
 
+- Localized dates and human-readable numbers with the selected interface language while keeping routes, API requests and responses, status values, database schema and data, and all existing business workflows unchanged.
 - Replaced the bare empty channel message with a guided first-channel action.
 - Removed the redundant no-channel-updates message from the dashboard.
 - Grouped optional direct-download fields behind a clearer advanced-options section.

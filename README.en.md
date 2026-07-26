@@ -111,6 +111,14 @@ Downloads support video or audio, maximum resolution, transcoding formats, subti
 
 Downloads do not retry or resume automatically. Failed, canceled, and interrupted tasks can be retried explicitly by the user. A new submission is rejected without creating a duplicate when the same platform and video ID already has a pending, running, or completed record. The user may explicitly recreate a task after failure, cancellation, or interruption. Download records store and display the source platform. The Downloads page has fixed Completed, Active, and Failed views and opens Completed by default. Completed records show only the thumbnail, title, total duration, file size, total download time, completion time, storage path, and actions. Older records whose historical size cannot be determined reliably display `—`.
 
+## Interface Language
+
+The interface supports exactly Chinese (`zh-CN`) and English (`en`), with Chinese as the default. Every page provides a Chinese / English switcher; switching reloads the current page while preserving its path, query parameters, and fragment.
+
+The selection is stored in the `vidharbor_language` session Cookie and persists only across page refreshes and in-app navigation within the same browser session. The interface returns to Chinese when the Cookie is missing, cleared, or not exactly `zh-CN` or `en`; browser language is never used for automatic selection.
+
+Dates and human-readable numbers follow the current interface language, while time semantics, business values, and inputs and outputs remain unchanged. Language switching affects interface text only; it does not change page routes, APIs, status values, the database schema, or any download, channel, notification, authorization, settings, or database-browsing workflow.
+
 ## Pages
 
 | Page | Purpose |
@@ -124,6 +132,7 @@ Downloads do not retry or resume automatically. Failed, canceled, and interrupte
 | Settings | View the fixed download root, configure the global check interval and download concurrency, and manage HTTP, HTTPS, or SOCKS5 proxies. |
 | Database | View tables and run read-only SQL for local diagnostics. Writes are unsupported. |
 | System Guide | Display this README without the interface preview. The System Guide link at the bottom of the sidebar points to `/guide`. |
+| Download Preview | Preview media from a completed download. The page language and error messages follow the current interface language, while media URLs and business status values remain unchanged. |
 
 Downloads, channels, channel videos, channel checks, and notifications are paginated by the server at 20 items per page. Search and state filters are applied on the server before pagination. Mark All as Read applies to all notifications, regardless of the current page.
 

@@ -1,23 +1,23 @@
 <%- include('partials/header') %>
       <div class="download-page-heading d-flex flex-column flex-sm-row align-items-stretch align-items-sm-end justify-content-between mb-4">
         <div>
-          <p class="download-page-kicker">DOWNLOAD LIBRARY</p>
-          <h1>下载</h1>
-          <p class="download-page-summary">跟踪进行中的任务，查找并管理已经归档的内容。</p>
+          <p class="download-page-kicker"><%= t('page.downloads.title') %></p>
+          <h1><%= t('page.downloads.title') %></h1>
+          <p class="download-page-summary"><%= t('downloads.summary') %></p>
         </div>
-        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#direct-download-modal">新建直下载</button>
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#direct-download-modal"><%= t('downloads.create') %></button>
       </div>
       <section class="download-workspace">
         <div id="page-error" class="alert alert-danger" hidden></div>
         <div class="download-controls d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center justify-content-between gap-3">
-          <div class="download-tabs nav nav-pills d-flex flex-nowrap gap-1 flex-shrink-0" role="tablist" aria-label="下载状态">
-            <button class="download-tab nav-link active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed">已完成 <span class="badge rounded-pill d-inline-grid" data-download-count="completed">0</span></button>
-            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active">下载中 <span class="badge rounded-pill d-inline-grid" data-download-count="active">0</span></button>
-            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed">失败 <span class="badge rounded-pill d-inline-grid" data-download-count="failed">0</span></button>
+          <div class="download-tabs nav nav-pills d-flex flex-nowrap gap-1 flex-shrink-0" role="tablist" aria-label="<%= t('field.status') %>">
+            <button class="download-tab nav-link active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed"><%= t('downloads.tab.completed') %> <span class="badge rounded-pill d-inline-grid" data-download-count="completed">0</span></button>
+            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active"><%= t('downloads.tab.active') %> <span class="badge rounded-pill d-inline-grid" data-download-count="active">0</span></button>
+            <button class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed"><%= t('downloads.tab.failed') %> <span class="badge rounded-pill d-inline-grid" data-download-count="failed">0</span></button>
           </div>
           <div class="download-search position-relative">
-            <label class="visually-hidden" for="download-search">搜索下载标题</label>
-            <input class="form-control" id="download-search" type="search" placeholder="搜索下载标题" autocomplete="off">
+            <label class="visually-hidden" for="download-search"><%= t('downloads.search') %></label>
+            <input class="form-control" id="download-search" type="search" placeholder="<%= t('downloads.search') %>" autocomplete="off">
           </div>
         </div>
         <div id="download-empty-state" class="download-empty-state position-relative overflow-hidden text-center mt-3" role="status" hidden>
@@ -27,75 +27,75 @@
           <button class="btn btn-outline-primary" type="button" data-empty-action></button>
         </div>
         <div id="download-list" class="download-list d-grid gap-3 mt-3" aria-live="polite"></div>
-        <nav id="download-pagination" class="list-pagination" aria-label="下载分页" hidden></nav>
+        <nav id="download-pagination" class="list-pagination" aria-label="<%= t('page.downloads.title') %>" hidden></nav>
       </section>
       <div class="modal fade" id="direct-download-modal" tabindex="-1" aria-labelledby="direct-download-title" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
           <form id="direct-download-form" class="modal-content form-stack direct-download-form">
               <div class="modal-header">
-                <h2 class="modal-title h5" id="direct-download-title">单视频直下载</h2>
-                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="关闭"></button>
+                <h2 class="modal-title h5" id="direct-download-title"><%= t('downloads.directTitle') %></h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="<%= t('common.close') %>"></button>
               </div>
               <div class="modal-body d-grid gap-3">
                 <section class="card direct-form-section border rounded-4 bg-white shadow-sm" aria-labelledby="direct-source-title">
                   <div class="direct-form-section-heading d-flex flex-column flex-sm-row align-items-start align-items-sm-end justify-content-between gap-1 gap-sm-3">
-                    <div><p class="mb-0 text-uppercase">必填</p><h3 class="mb-0" id="direct-source-title">下载来源</h3></div>
-                    <span class="small text-secondary">粘贴一个公开单视频地址</span>
+                    <div><p class="mb-0 text-uppercase"><%= t('common.required') %></p><h3 class="mb-0" id="direct-source-title"><%= t('downloads.source') %></h3></div>
+                    <span class="small text-secondary"><%= t('downloads.sourcePrompt') %></span>
                   </div>
                   <div class="row g-3">
                     <div class="col-12">
-                      <label class="form-label" for="direct-url">视频地址</label>
+                      <label class="form-label" for="direct-url"><%= t('downloads.videoUrl') %></label>
                       <input class="form-control" id="direct-url" type="url" name="url" placeholder="https://" required>
-                      <div class="form-text">支持公开单视频 HTTPS 地址，不展开频道主页、列表或合集。</div>
+                      <div class="form-text"><%= t('downloads.urlHelp') %></div>
                       <details class="direct-url-help">
-                        <summary>查看平台地址规则</summary>
-                        <p>当前官方范围包括 YouTube、Bilibili、X、Facebook 公开单视频或 Reel，以及抖音公开单视频；其他 HTTPS URL 仍按通用单资源契约探测，但不属于官方支持或验证范围。Bilibili 用 <code>?p=序号</code> 选择分 P，X 一帖多视频用 <code>/video/序号</code> 选择。</p>
+                        <summary><%= t('downloads.urlRules') %></summary>
+                        <p><%= t('downloads.urlRulesBeforeBilibiliPart') %> <code>?p=<%= t('downloads.urlRulesIndex') %></code> <%= t('downloads.urlRulesBetweenSelectors') %> <code>/video/<%= t('downloads.urlRulesIndex') %></code> <%= t('downloads.urlRulesAfterXVideo') %></p>
                       </details>
                     </div>
                     <div class="col-12 col-sm-6">
-                      <label class="form-label" for="direct-proxy">网络路径</label>
-                      <select class="form-select" id="direct-proxy" name="proxyId"><option value="">直连</option></select>
+                      <label class="form-label" for="direct-proxy"><%= t('field.network') %></label>
+                      <select class="form-select" id="direct-proxy" name="proxyId"><option value=""><%= t('common.direct') %></option></select>
                     </div>
                     <div class="col-12 col-sm-6">
-                      <label class="form-label" for="direct-media-type">媒体类型</label>
-                      <select class="form-select" id="direct-media-type" name="mediaType"><option value="video">视频</option><option value="audio">音频</option></select>
+                      <label class="form-label" for="direct-media-type"><%= t('downloads.mediaType') %></label>
+                      <select class="form-select" id="direct-media-type" name="mediaType"><option value="video"><%= t('downloads.mediaType.video') %></option><option value="audio"><%= t('downloads.mediaType.audio') %></option></select>
                     </div>
                   </div>
                 </section>
                 <details class="card direct-advanced-options border rounded-4 bg-white shadow-sm">
                   <summary class="d-flex align-items-start align-items-sm-center justify-content-between gap-3 py-3">
-                    <span class="d-grid"><strong>高级选项</strong><small class="text-secondary">质量、转码、字幕与时间裁剪</small></span>
-                    <span class="direct-advanced-badge ms-auto rounded-pill">可选</span>
+                    <span class="d-grid"><strong><%= t('downloads.advanced') %></strong><small class="text-secondary"><%= t('downloads.advancedHelp') %></small></span>
+                    <span class="direct-advanced-badge ms-auto rounded-pill"><%= t('common.optional') %></span>
                   </summary>
                   <div class="direct-advanced-content d-grid border-top">
                     <section aria-labelledby="direct-media-options-title">
-                      <h3 id="direct-media-options-title">媒体处理</h3>
+                      <h3 id="direct-media-options-title"><%= t('downloads.mediaProcessing') %></h3>
                       <div class="row g-3">
-                        <div class="col-12 col-sm-6"><label class="form-label" for="direct-quality">最高分辨率</label><select class="form-select" id="direct-quality" name="quality"><option value="">不限制</option><option value="4320">4320p（8K）</option><option value="2160">2160p（4K）</option><option value="1440">1440p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option><option value="240">240p</option></select></div>
-                        <div class="col-12 col-sm-6"><label class="form-label" for="direct-codec">转码格式</label><select class="form-select" id="direct-codec" name="codec"><option value="">不转码</option><optgroup label="视频"><option value="avi">AVI</option><option value="flv">FLV</option><option value="gif">GIF</option><option value="mkv">MKV</option><option value="mov">MOV</option><option value="mp4">MP4</option><option value="webm">WebM</option></optgroup><optgroup label="音频"><option value="aac">AAC</option><option value="aiff">AIFF</option><option value="alac">ALAC</option><option value="flac">FLAC</option><option value="m4a">M4A</option><option value="mka">MKA</option><option value="mp3">MP3</option><option value="ogg">OGG</option><option value="opus">Opus</option><option value="vorbis">Vorbis</option><option value="wav">WAV</option></optgroup></select></div>
+                        <div class="col-12 col-sm-6"><label class="form-label" for="direct-quality"><%= t('downloads.quality') %></label><select class="form-select" id="direct-quality" name="quality"><option value=""><%= t('downloads.unlimited') %></option><option value="4320">4320p（8K）</option><option value="2160">2160p（4K）</option><option value="1440">1440p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option><option value="240">240p</option></select></div>
+                        <div class="col-12 col-sm-6"><label class="form-label" for="direct-codec"><%= t('downloads.codec') %></label><select class="form-select" id="direct-codec" name="codec"><option value=""><%= t('downloads.noTranscode') %></option><optgroup label="<%= t('downloads.mediaType.video') %>"><option value="avi">AVI</option><option value="flv">FLV</option><option value="gif">GIF</option><option value="mkv">MKV</option><option value="mov">MOV</option><option value="mp4">MP4</option><option value="webm">WebM</option></optgroup><optgroup label="<%= t('downloads.mediaType.audio') %>"><option value="aac">AAC</option><option value="aiff">AIFF</option><option value="alac">ALAC</option><option value="flac">FLAC</option><option value="m4a">M4A</option><option value="mka">MKA</option><option value="mp3">MP3</option><option value="ogg">OGG</option><option value="opus">Opus</option><option value="vorbis">Vorbis</option><option value="wav">WAV</option></optgroup></select></div>
                       </div>
                     </section>
                     <section aria-labelledby="direct-extra-title">
-                      <h3 id="direct-extra-title">附加内容</h3>
+                      <h3 id="direct-extra-title"><%= t('downloads.extra') %></h3>
                       <div class="d-grid gap-3">
-                        <label class="direct-option d-flex align-items-start gap-3" for="writeSubtitles"><input class="form-check-input flex-shrink-0" type="checkbox" name="writeSubtitles" id="writeSubtitles"><span class="d-grid"><strong>字幕</strong><small>保存视频提供的字幕文件</small></span></label>
+                        <label class="direct-option d-flex align-items-start gap-3" for="writeSubtitles"><input class="form-check-input flex-shrink-0" type="checkbox" name="writeSubtitles" id="writeSubtitles"><span class="d-grid"><strong><%= t('downloads.subtitles') %></strong><small><%= t('downloads.subtitlesHelp') %></small></span></label>
                       </div>
                     </section>
                     <section aria-labelledby="direct-time-title">
-                      <h3 id="direct-time-title">时间裁剪</h3>
+                      <h3 id="direct-time-title"><%= t('downloads.timeRange') %></h3>
                       <div class="row g-3">
-                        <div class="col-12 col-sm-6"><label class="form-label" for="direct-time-start">起始时间</label><input class="form-control" id="direct-time-start" name="timeRangeStart" inputmode="numeric" placeholder="00:00:00"></div>
-                        <div class="col-12 col-sm-6"><label class="form-label" for="direct-time-end">结束时间</label><input class="form-control" id="direct-time-end" name="timeRangeEnd" inputmode="numeric" placeholder="00:10:00"></div>
+                        <div class="col-12 col-sm-6"><label class="form-label" for="direct-time-start"><%= t('downloads.timeStart') %></label><input class="form-control" id="direct-time-start" name="timeRangeStart" inputmode="numeric" placeholder="00:00:00"></div>
+                        <div class="col-12 col-sm-6"><label class="form-label" for="direct-time-end"><%= t('downloads.timeEnd') %></label><input class="form-control" id="direct-time-end" name="timeRangeEnd" inputmode="numeric" placeholder="00:10:00"></div>
                       </div>
-                      <p class="direct-field-note">起始时间和结束时间需要同时填写；全部留空则下载完整视频。</p>
+                      <p class="direct-field-note"><%= t('downloads.timeHelp') %></p>
                     </section>
                   </div>
                 </details>
                 <div class="alert alert-danger" data-form-error hidden></div>
               </div>
               <div class="modal-footer">
-                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">取消</button>
-                <button class="btn btn-primary" type="submit">开始下载</button>
+                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal"><%= t('common.cancel') %></button>
+                <button class="btn btn-primary" type="submit"><%= t('downloads.start') %></button>
               </div>
           </form>
         </div>

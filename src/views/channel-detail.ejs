@@ -2,17 +2,16 @@
       <header class="channel-detail-hero position-relative overflow-hidden mb-4" data-channel-id="<%= channelId %>">
         <div class="channel-detail-heading d-flex flex-column flex-md-row align-items-start align-items-md-end justify-content-between gap-4">
           <div>
-            <p class="channel-detail-kicker">CHANNEL LIBRARY</p>
-            <h1 class="mb-0" id="channel-name">频道详情</h1>
+            <h1 class="mb-0" id="channel-name"><%= t('page.channelDetail.title') %></h1>
           </div>
-          <p id="channel-summary" class="channel-detail-summary">正在载入频道资料…</p>
+          <p id="channel-summary" class="channel-detail-summary"><%= t('channelDetail.loading') %></p>
         </div>
       </header>
       <div id="page-error" class="alert alert-danger" hidden></div>
 
-      <div class="channel-detail-tabs nav nav-pills d-flex mb-3" role="tablist" aria-label="频道详情">
-        <button class="channel-detail-tab nav-link active" id="video-tab" type="button" role="tab" aria-selected="true" aria-controls="video-panel" data-channel-tab="videos">视频列表</button>
-        <button class="channel-detail-tab nav-link" id="check-tab" type="button" role="tab" aria-selected="false" aria-controls="check-panel" data-channel-tab="checks">检查记录</button>
+      <div class="channel-detail-tabs nav nav-pills d-flex mb-3" role="tablist" aria-label="<%= t('page.channelDetail.title') %>">
+        <button class="channel-detail-tab nav-link active" id="video-tab" type="button" role="tab" aria-selected="true" aria-controls="video-panel" data-channel-tab="videos"><%= t('channelDetail.videos') %></button>
+        <button class="channel-detail-tab nav-link" id="check-tab" type="button" role="tab" aria-selected="false" aria-controls="check-panel" data-channel-tab="checks"><%= t('channelDetail.checks') %></button>
       </div>
 
       <div class="channel-detail-content">
@@ -20,42 +19,42 @@
           <form id="download-form">
             <div class="channel-video-toolbar d-grid align-items-end mb-3">
               <div class="channel-proxy-field">
-                <label class="form-label" for="channel-download-proxy">下载网络路径</label>
+                <label class="form-label" for="channel-download-proxy"><%= t('field.network') %></label>
                 <select class="form-select" id="channel-download-proxy" name="proxyId">
-                  <option value="channel">沿用频道代理</option>
-                  <option value="">直连</option>
+                  <option value="channel"><%= t('channelDetail.useChannelProxy') %></option>
+                  <option value=""><%= t('common.direct') %></option>
                 </select>
               </div>
               <div class="channel-filter-field">
-                <label class="form-label" for="channel-video-filter">筛选视频</label>
-                <input class="form-control" id="channel-video-filter" name="filter" placeholder="输入标题关键字">
+                <label class="form-label" for="channel-video-filter"><%= t('channelDetail.filter') %></label>
+                <input class="form-control" id="channel-video-filter" name="filter" placeholder="<%= t('channelDetail.filterPlaceholder') %>">
               </div>
               <div class="channel-selection-action d-grid">
-                <span id="selected-video-count">已选择 0 个</span>
-                <button class="btn btn-primary" type="submit" disabled>下载所选视频</button>
+                <span id="selected-video-count"><%= t('channelDetail.selected', { count: 0 }) %></span>
+                <button class="btn btn-primary" type="submit" disabled><%= t('channelDetail.downloadSelected') %></button>
               </div>
             </div>
             <div class="alert alert-danger" data-form-error hidden></div>
             <div class="channel-table-shell table-responsive">
               <table class="table channel-detail-table align-middle mb-0">
-                <thead><tr><th scope="col" class="channel-select-column text-center">选择</th><th scope="col">视频</th><th scope="col">发布日期</th><th scope="col">时长</th><th scope="col">下载状态</th><th scope="col">原始地址</th></tr></thead>
+                <thead><tr><th scope="col" class="channel-select-column text-center"><%= t('channelDetail.select') %></th><th scope="col"><%= t('field.video') %></th><th scope="col"><%= t('field.publishedDate') %></th><th scope="col"><%= t('field.duration') %></th><th scope="col"><%= t('field.status') %></th><th scope="col"><%= t('common.originalUrl') %></th></tr></thead>
                 <tbody id="video-list"></tbody>
               </table>
               <div id="video-empty-state" class="channel-table-empty p-5 text-center" hidden></div>
             </div>
-            <nav id="video-pagination" class="list-pagination" aria-label="频道视频分页" hidden></nav>
+            <nav id="video-pagination" class="list-pagination" aria-label="<%= t('channelDetail.videos') %>" hidden></nav>
           </form>
         </section>
 
         <section id="check-panel" class="channel-tab-panel" role="tabpanel" aria-labelledby="check-tab" data-channel-panel="checks" hidden>
           <div class="channel-table-shell table-responsive">
             <table class="table channel-detail-table channel-check-table align-middle mb-0">
-              <thead><tr><th scope="col">类型</th><th scope="col">开始时间</th><th scope="col">结束时间</th><th scope="col">结果</th><th scope="col">新增视频</th><th scope="col">失败原因</th></tr></thead>
+              <thead><tr><th scope="col"><%= t('field.type') %></th><th scope="col"><%= t('field.startedAt') %></th><th scope="col"><%= t('field.finishedAt') %></th><th scope="col"><%= t('field.result') %></th><th scope="col"><%= t('field.video') %></th><th scope="col"><%= t('field.failureReason') %></th></tr></thead>
               <tbody id="check-list"></tbody>
             </table>
-            <div id="check-empty-state" class="channel-table-empty p-5 text-center" hidden>尚无检查记录。</div>
+            <div id="check-empty-state" class="channel-table-empty p-5 text-center" hidden><%= t('channelDetail.noChecks') %></div>
           </div>
-          <nav id="check-pagination" class="list-pagination" aria-label="检查记录分页" hidden></nav>
+          <nav id="check-pagination" class="list-pagination" aria-label="<%= t('channelDetail.checks') %>" hidden></nav>
         </section>
       </div>
     </main>

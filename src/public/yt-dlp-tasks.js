@@ -1,19 +1,20 @@
 import { formatChinaTimestamp } from '/public/time.js';
+import { formatApiError, formatNumber, t } from '/public/i18n.js';
 
-const taskTypeLabels = Object.freeze({
-  media_download: '媒体下载',
-  metadata_probe: '元数据探测',
-  channel_initial_sync: '频道首次同步',
-  channel_manual_check: '频道手动检查',
-  channel_scheduled_check: '频道定时检查',
+const taskTypeKeys = Object.freeze({
+  media_download: 'task.type.media_download',
+  metadata_probe: 'task.type.metadata_probe',
+  channel_initial_sync: 'task.type.channel_initial_sync',
+  channel_manual_check: 'task.type.channel_manual_check',
+  channel_scheduled_check: 'task.type.channel_scheduled_check',
 });
 
-const taskStatusLabels = Object.freeze({
-  queued: '排队中',
-  running: '运行中',
-  succeeded: '已成功',
-  failed: '已失败',
-  cance\u006ced: '已取消',
+const taskStatusKeys = Object.freeze({
+  queued: 'status.task.queued',
+  running: 'status.task.running',
+  succeeded: 'status.task.succeeded',
+  failed: 'status.task.failed',
+  canceled: 'status.task.canceled',
 });
 
 const taskStatusClasses = Object.freeze({
@@ -21,11 +22,11 @@ const taskStatusClasses = Object.freeze({
   running: 'text-bg-primary',
   succeeded: 'text-bg-success',
   failed: 'text-bg-danger',
-  cance\u006ced: 'text-bg-secondary',
+  canceled: 'text-bg-secondary',
 });
 
 const activeStatuses = new Set(['queued', 'running']);
-const terminalStatuses = new Set(['succeeded', 'failed', 'cance\u006ced']);
+const terminalStatuses = new Set(['succeeded', 'failed', 'canceled']);
 const terminalTaskLimit = 30;
 const errorRegion = document.querySelector('#page-error');
 
@@ -46,36 +47,36 @@ function appendTextCell(row, value, label, className) {
 
 function taskRow(task) {
   const row = document.createElement('tr');
-  appendTextCell(row, String(task.id), '任务 ID', 'yt-dlp-task-id');
-  appendTextCell(row, fixedLabel(taskTypeLabels, task.type, '类型'), '任务类型');
+  appendTextCell(row, String(task.id), 'ID', 'yt-dlp-task-id');
+  appendTextCell(row, t(fixedLabel(taskTypeKeys, task.type, 'type')), t('field.type'));
 
   const statusCell = document.createElement('td');
-  statusCell.dataset.label = '状态';
+  statusCell.dataset.label = t('field.status');
   const status = document.createElement('span');
-  status.className = `badge ${fixedLabel(taskStatusClasses, task.status, '状态')}`;
-  status.textContent = fixedLabel(taskStatusLabels, task.status, '状态');
+  status.className = `badge ${fixedLabel(taskStatusClasses, task.status, 'status')}`;
+  status.textContent = t(fixedLabel(taskStatusKeys, task.status, 'status'));
   statusCell.append(status);
   row.append(statusCell);
 
-  appendTextCell(row, formatChinaTimestamp(task.createdAt), '创建时间', 'yt-dlp-task-time');
-  appendTextCell(row, task.startedAt === null ? '—' : formatChinaTimestamp(task.startedAt), '开始时间', 'yt-dlp-task-time');
-  appendTextCell(row, task.finishedAt === null ? '—' : formatChinaTimestamp(task.finishedAt), '结束时间', 'yt-dlp-task-time');
-  appendTextCell(row, task.status === 'failed' ? task.failureReason : '—', '失败原因', 'yt-dlp-task-failure');
+  appendTextCell(row, formatChinaTimestamp(task.createdAt), t('field.createdAt'), 'yt-dlp-task-time');
+  appendTextCell(row, task.startedAt === null ? t('common.none') : formatChinaTimestamp(task.startedAt), t('field.startedAt'), 'yt-dlp-task-time');
+  appendTextCell(row, task.finishedAt === null ? t('common.none') : formatChinaTimestamp(task.finishedAt), t('field.finishedAt'), 'yt-dlp-task-time');
+  appendTextCell(row, task.status === 'failed' ? task.failureReason : t('common.none'), t('field.failureReason'), 'yt-dlp-task-failure');
   return row;
 }
 
 function renderGroup(tasks, listId, emptyId, countId) {
   const list = document.querySelector(`#${listId}`);
   const empty = document.querySelector(`#${emptyId}`);
-  document.querySelector(`#${countId}`).textContent = String(tasks.length);
+  document.querySelector(`#${countId}`).textContent = formatNumber(tasks.length);
   empty.hidden = tasks.length !== 0;
   for (const task of tasks) list.append(taskRow(task));
 }
 
 function showError(error) {
   errorRegion.textContent = error instanceof Error
-    ? `${error.name}: ${error.message}`
-    : `${error.code}: ${error.message}`;
+    ? `${t('common.failed')}: ${error.message}`
+    : formatApiError(error);
   errorRegion.hidden = false;
 }
 
@@ -88,8 +89,8 @@ async function load() {
   const activeTasks = [];
   const terminalTasks = [];
   for (const task of body.tasks) {
-    fixedLabel(taskTypeLabels, task.type, '类型');
-    fixedLabel(taskStatusLabels, task.status, '状态');
+    fixedLabel(taskTypeKeys, task.type, 'type');
+    fixedLabel(taskStatusKeys, task.status, 'status');
     if (activeStatuses.has(task.status)) activeTasks.push(task);
     else if (terminalStatuses.has(task.status)) terminalTasks.push(task);
   }

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="<%= language %>">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,12 +8,17 @@
     <link rel="icon" href="/public/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
     <link rel="stylesheet" href="/public/main.css">
+    <script id="vidharbor-i18n" type="application/json"><%- i18nJson %></script>
   </head>
   <body class="preview-page overflow-hidden">
+    <div class="position-fixed top-0 end-0 z-3 p-3">
+      <%- include('partials/language-switcher') %>
+    </div>
     <main class="download-preview position-relative w-100 h-100">
       <video id="preview-player" class="download-preview-player d-block w-100 h-100" controls preload="metadata" hidden></video>
       <p id="preview-error" class="download-preview-error position-absolute m-0 text-center" hidden></p>
     </main>
-    <script src="/public/download-preview.js"></script>
+    <script type="module" src="/public/download-preview.js"></script>
+    <script type="module" src="/public/shell.js"></script>
   </body>
 </html>

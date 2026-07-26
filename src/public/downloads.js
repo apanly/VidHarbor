@@ -1,5 +1,6 @@
 import { renderPagination } from '/public/pagination.js';
 import { formatChinaTimestamp } from '/public/time.js';
+import { formatApiError, formatFileSize, formatNumber, t } from '/public/i18n.js';
 
 const form = document.querySelector('#direct-download-form');
 const list = document.querySelector('#download-list');
@@ -19,29 +20,30 @@ let currentPage = 1;
 let currentPagination = { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 };
 let downloadEvents = null;
 let searchTimer = null;
-const labels = { pending: '等待下载', downloading: '运行中', running: '运行中', completed: '下载完成', failed: '下载失败', canceled: '已取消', interrupted: '已中断', deleting: '删除中' };
+const labelKeys = { pending: 'status.download.pending', downloading: 'status.download.downloading', running: 'status.download.running', completed: 'status.download.completed', failed: 'status.download.failed', canceled: 'status.download.canceled', interrupted: 'status.download.interrupted', deleting: 'status.download.deleting' };
 const styles = { pending: 'text-bg-secondary', downloading: 'text-bg-primary', running: 'text-bg-primary', completed: 'text-bg-success', failed: 'text-bg-danger', canceled: 'text-bg-warning', interrupted: 'text-bg-warning', deleting: 'text-bg-secondary' };
 const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili', vimeo: 'Vimeo', twitter: 'X', facebook: 'Facebook', douyin: '抖音' };
 
 function nullableNumber(value) { return value === '' ? null : Number(value); }
 function nullableText(value) { return value === '' ? null : value; }
 function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: null, quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, splitChapters: false, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value) }; }
-function showError(region, error) { region.textContent = error instanceof Error ? `${error.name}: ${error.message}` : `${error.code}: ${error.message}`; region.hidden = false; }
+function fixedValue(values, value) { if (!Object.hasOwn(values, value)) throw new TypeError(`unknown download status: ${String(value)}`); return values[value]; }
+function showError(region, error) { region.textContent = error instanceof Error ? `${t('common.failed')}: ${error.message}` : formatApiError(error); region.hidden = false; }
 async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const text = await response.text(); if (response.status === 202 && text === '') return null; const result = JSON.parse(text); if (!response.ok) throw result.error; return result; }
-function displayValue(value) { return value ?? '—'; }
+function displayValue(value) { return value ?? t('common.none'); }
 function textElement(tag, className, value) { const node = document.createElement(tag); node.className = className; node.textContent = displayValue(value); return node; }
 function fieldElement(tag, className, fieldName) { const node = textElement(tag, className, null); node.dataset.downloadField = fieldName; return node; }
 function detail(label, fieldName, className = '') { const node = document.createElement('div'); node.className = `download-detail d-grid ${className}`.trim(); node.append(textElement('span', 'download-detail-label', label), fieldElement('span', 'download-detail-value', fieldName)); return node; }
-function formatTimestamp(value) { return value === null ? '—' : formatChinaTimestamp(value); }
-function formatDuration(value) { if (value === null) return '—'; const hours = Math.floor(value / 3600); const minutes = Math.floor((value % 3600) / 60); const seconds = value % 60; return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':'); }
+function formatTimestamp(value) { return value === null ? t('common.none') : formatChinaTimestamp(value); }
+function formatDuration(value) { if (value === null) return t('common.none'); const hours = Math.floor(value / 3600); const minutes = Math.floor((value % 3600) / 60); const seconds = value % 60; return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':'); }
 function downloadElapsedSeconds(startedAt, finishedAt) { if (startedAt === null || finishedAt === null) return null; return Math.floor((Date.parse(finishedAt) - Date.parse(startedAt)) / 1000); }
-function formatBytes(value) { if (value === null) return '—'; const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']; let size = value; let unit = 0; while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; } return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(size)} ${units[unit]}`; }
+function formatBytes(value) { return value === null ? t('common.none') : formatFileSize(value); }
 function emptyStateFor(tab, query, total) {
-  if (total === 0) return { title: '还没有下载任务', description: '粘贴一个受支持的 HTTPS 地址，第一条任务会出现在这里。', action: 'create', actionLabel: '新建直下载' };
-  if (query !== '') return { title: `没有找到“${query}”`, description: '试试更短的标题关键词，或清除当前搜索。', action: 'clear', actionLabel: '清除搜索' };
-  if (tab === 'completed') return { title: '还没有完成的下载', description: '任务完成后会自动归档到这里。', action: 'active', actionLabel: '查看下载中' };
-  if (tab === 'failed') return { title: '没有失败的下载', description: '失败、取消和中断的任务会显示在这里。', action: 'active', actionLabel: '查看下载中' };
-  return { title: '当前没有下载中的任务', description: '新任务和正在执行的任务会显示在这里。', action: 'create', actionLabel: '新建直下载' };
+  if (total === 0) return { title: t('downloads.noTasks'), description: t('downloads.noTasksHelp'), action: 'create', actionLabel: t('downloads.create') };
+  if (query !== '') return { title: t('downloads.noSearchResults', { query }), description: t('downloads.noSearchResultsHelp'), action: 'clear', actionLabel: t('downloads.clearSearch') };
+  if (tab === 'completed') return { title: t('downloads.noCompleted'), description: t('downloads.noCompletedHelp'), action: 'active', actionLabel: t('downloads.viewActive') };
+  if (tab === 'failed') return { title: t('downloads.noFailed'), description: t('downloads.noFailedHelp'), action: 'active', actionLabel: t('downloads.viewActive') };
+  return { title: t('downloads.noActive'), description: t('downloads.noActiveHelp'), action: 'create', actionLabel: t('downloads.create') };
 }
 
 function setSelectedTab(tab) {
@@ -58,9 +60,9 @@ function updateDownloadView(statusCounts) {
   const activeCount = statusCounts.pending + statusCounts.downloading + statusCounts.running + statusCounts.deleting;
   const failedCount = statusCounts.failed + statusCounts.canceled + statusCounts.interrupted;
   const totalCount = activeCount + statusCounts.completed + failedCount;
-  document.querySelector('[data-download-count="active"]').textContent = String(activeCount);
-  document.querySelector('[data-download-count="completed"]').textContent = String(statusCounts.completed);
-  document.querySelector('[data-download-count="failed"]').textContent = String(failedCount);
+  document.querySelector('[data-download-count="active"]').textContent = formatNumber(activeCount);
+  document.querySelector('[data-download-count="completed"]').textContent = formatNumber(statusCounts.completed);
+  document.querySelector('[data-download-count="failed"]').textContent = formatNumber(failedCount);
   const empty = downloadState.size === 0;
   list.hidden = empty;
   emptyState.hidden = !empty;
@@ -91,22 +93,23 @@ function renderActions(article, download) {
   const actions = article.querySelector('[data-download-actions]');
   actions.textContent = '';
   if (download.status === 'pending' || download.status === 'running' || download.status === 'downloading') {
-    const cancel = document.createElement('button'); cancel.className = 'btn btn-sm btn-outline-warning'; cancel.type = 'button'; cancel.textContent = '取消'; cancel.addEventListener('click', () => void mutateDownload(`/api/downloads/${download.id}/cancel`, 'POST', {}, cancel)); actions.append(cancel);
+    const cancel = document.createElement('button'); cancel.className = 'btn btn-sm btn-outline-warning'; cancel.type = 'button'; cancel.textContent = t('downloads.cancel'); cancel.addEventListener('click', () => void mutateDownload(`/api/downloads/${download.id}/cancel`, 'POST', {}, cancel)); actions.append(cancel);
   }
   if (download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted') {
-    const retry = document.createElement('button'); retry.className = 'btn btn-sm btn-outline-primary'; retry.type = 'button'; retry.textContent = '重试'; retry.addEventListener('click', () => void mutateDownload(`/api/downloads/${download.id}/retry`, 'POST', {}, retry)); actions.append(retry);
+    const retry = document.createElement('button'); retry.className = 'btn btn-sm btn-outline-primary'; retry.type = 'button'; retry.textContent = t('common.retry'); retry.addEventListener('click', () => void mutateDownload(`/api/downloads/${download.id}/retry`, 'POST', {}, retry)); actions.append(retry);
   }
   if (download.status === 'completed') {
-    const preview = document.createElement('a'); preview.className = 'btn btn-sm btn-outline-primary'; preview.href = `/downloads/preview?id=${download.id}`; preview.target = '_blank'; preview.rel = 'noopener noreferrer'; preview.textContent = '预览';
-    const file = document.createElement('a'); file.className = 'btn btn-sm btn-outline-secondary'; file.href = `/api/downloads/${download.id}/file`; file.textContent = '下载'; actions.append(preview, file);
+    const preview = document.createElement('a'); preview.className = 'btn btn-sm btn-outline-primary'; preview.href = `/downloads/preview?id=${download.id}`; preview.target = '_blank'; preview.rel = 'noopener noreferrer'; preview.textContent = t('common.preview');
+    const file = document.createElement('a'); file.className = 'btn btn-sm btn-outline-secondary'; file.href = `/api/downloads/${download.id}/file`; file.textContent = t('downloads.downloadFile'); actions.append(preview, file);
   }
-  const original = document.createElement('a'); original.className = 'btn btn-sm btn-outline-secondary'; original.href = download.sourceUrl; original.target = '_blank'; original.rel = 'noopener noreferrer'; original.textContent = '原始地址'; actions.append(original);
+  const original = document.createElement('a'); original.className = 'btn btn-sm btn-outline-secondary'; original.href = download.sourceUrl; original.target = '_blank'; original.rel = 'noopener noreferrer'; original.textContent = t('common.originalUrl'); actions.append(original);
   if (download.status === 'completed' || download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted') {
-    const remove = document.createElement('button'); remove.className = 'btn btn-sm btn-outline-danger'; remove.type = 'button'; remove.textContent = '删除'; remove.addEventListener('click', () => { const confirmed = confirm(`确认永久删除下载「${download.title}」及其文件？`); if (!confirmed) return; void mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove); }); actions.append(remove);
+    const remove = document.createElement('button'); remove.className = 'btn btn-sm btn-outline-danger'; remove.type = 'button'; remove.textContent = t('common.delete'); remove.addEventListener('click', () => { const confirmed = confirm(t('downloads.deleteConfirm', { title: download.title })); if (!confirmed) return; void mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove); }); actions.append(remove);
   }
 }
 
 function createDownloadCard(download) {
+  fixedValue(labelKeys, download.status);
   const article = document.createElement('article'); article.className = 'download-card border rounded-4'; article.dataset.downloadId = String(download.id);
   const header = document.createElement('header'); header.className = 'download-card-header d-flex flex-column flex-sm-row align-items-start justify-content-between gap-3';
   const identity = document.createElement('div'); identity.className = 'download-card-identity';
@@ -122,14 +125,14 @@ function createDownloadCard(download) {
 
   const metrics = document.createElement('section'); metrics.className = 'download-card-metrics d-grid gap-3 mt-3 border-top';
   if (download.status === 'completed') {
-    metrics.append(detail('总时长', 'durationSeconds'), detail('文件大小', 'outputSizeBytes'), detail('总下载耗时', 'downloadElapsedSeconds'), detail('完成时间', 'finishedAt'));
-    article.append(header, metrics, detail('存储路径', 'outputPath', 'download-card-storage'));
+    metrics.append(detail(t('downloads.totalDuration'), 'durationSeconds'), detail(t('field.fileSize'), 'outputSizeBytes'), detail(t('downloads.elapsed'), 'downloadElapsedSeconds'), detail(t('field.finishedAt'), 'finishedAt'));
+    article.append(header, metrics, detail(t('field.storagePath'), 'outputPath', 'download-card-storage'));
     return article;
   } else if (download.status === 'pending' || download.status === 'running' || download.status === 'downloading') {
-    metrics.append(detail('进度', 'progressPercent'), detail('速度', 'speedText'), detail('ETA', 'etaSeconds'), detail('网络路径', 'networkMode'), detail('开始时间', 'startedAt'));
+    metrics.append(detail(t('field.progress'), 'progressPercent'), detail(t('field.speed'), 'speedText'), detail('ETA', 'etaSeconds'), detail(t('field.network'), 'networkMode'), detail(t('field.startedAt'), 'startedAt'));
   } else {
-    metrics.append(detail('网络路径', 'networkMode'), detail('结束时间', 'finishedAt'));
-    const failure = detail('失败原因', 'failureReason', 'download-card-failure border-top');
+    metrics.append(detail(t('field.network'), 'networkMode'), detail(t('field.finishedAt'), 'finishedAt'));
+    const failure = detail(t('field.failureReason'), 'failureReason', 'download-card-failure border-top');
     article.append(header, metrics, failure);
     return article;
   }
@@ -145,9 +148,10 @@ function setField(article, fieldName, value) {
 }
 
 function updateDownloadCard(article, previous, download) {
+  const statusKey = fixedValue(labelKeys, download.status);
   setField(article, 'title', download.title);
   const thumbnail = article.querySelector('.download-card-thumbnail'); thumbnail.hidden = download.thumbnailUrl === null; if (download.thumbnailUrl !== null && thumbnail.src !== download.thumbnailUrl) thumbnail.src = download.thumbnailUrl;
-  setField(article, 'sourceType', download.sourceType === 'channel' ? '频道视频' : '单视频');
+  setField(article, 'sourceType', t(download.sourceType === 'channel' ? 'downloads.source.channel' : 'downloads.source.direct'));
   setField(article, 'platform', platformLabels[download.platform] ?? download.platform);
   setField(article, 'progressPercent', download.progressPercent === null ? null : `${download.progressPercent}%`);
   setField(article, 'speedText', download.speedText);
@@ -155,15 +159,15 @@ function updateDownloadCard(article, previous, download) {
   setField(article, 'durationSeconds', formatDuration(download.durationSeconds));
   setField(article, 'outputSizeBytes', formatBytes(download.outputSizeBytes));
   setField(article, 'downloadElapsedSeconds', formatDuration(downloadElapsedSeconds(download.startedAt, download.finishedAt)));
-  setField(article, 'networkMode', download.networkMode === 'direct' ? '直连' : download.proxyName);
+  setField(article, 'networkMode', download.networkMode === 'direct' ? t('common.direct') : download.proxyName);
   setField(article, 'outputPath', download.outputPath);
   setField(article, 'failureReason', download.failureReason);
   setField(article, 'startedAt', formatTimestamp(download.startedAt));
   setField(article, 'finishedAt', formatTimestamp(download.finishedAt));
   if (previous === undefined || previous.status !== download.status) {
     const badge = article.querySelector('[data-download-status]');
-    badge.className = `badge ${styles[download.status]}`;
-    badge.textContent = labels[download.status];
+    badge.className = `badge ${fixedValue(styles, download.status)}`;
+    badge.textContent = t(statusKey);
     renderActions(article, download);
   }
 }
