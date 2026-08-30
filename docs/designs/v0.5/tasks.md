@@ -483,7 +483,7 @@
 
 ## task-20 · moveDownload 接受 null 目标子目录表示根目录
 
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/services/download.ts

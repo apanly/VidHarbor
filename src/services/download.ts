@@ -1318,7 +1318,7 @@ export async function retryDownload(
 }
 
 export interface MoveDownloadInput {
-  readonly targetSubdirectory: string;
+  readonly targetSubdirectory: string | null;
 }
 
 function isEExist(error: unknown): boolean {
@@ -1348,10 +1348,16 @@ export async function moveDownload(
   // SAFETY: MoveDownloadInput is a structural subset; accept a superset row so
   // callers can pass the full request object without a narrow type.
   const raw = input as unknown as Record<string, unknown>;
-  if (typeof raw.targetSubdirectory !== "string") {
+  if (
+    raw.targetSubdirectory !== null &&
+    typeof raw.targetSubdirectory !== "string"
+  ) {
     throw new BusinessError("VALIDATION_ERROR", "invalid move download input");
   }
-  const targetSubdirectory = validateTargetSubdirectory(raw.targetSubdirectory);
+  const targetSubdirectory =
+    raw.targetSubdirectory === null
+      ? null
+      : validateTargetSubdirectory(raw.targetSubdirectory);
 
   let row:
     | {
@@ -1409,11 +1415,10 @@ export async function moveDownload(
     currentSubdirectory,
     String(downloadId),
   );
-  const newArchiveDir = join(
-    realDownloadRoot,
-    targetSubdirectory,
-    String(downloadId),
-  );
+  const newArchiveDir =
+    targetSubdirectory === null
+      ? join(realDownloadRoot, String(downloadId))
+      : join(realDownloadRoot, targetSubdirectory, String(downloadId));
 
   // The stored output path must resolve to the download's current archive dir.
   const realCurrentDir = await realpath(dirname(row.output_path)).catch(
@@ -1427,14 +1432,17 @@ export async function moveDownload(
   }
 
   // Same target -> no-op, rejected as a validation error.
-  if (targetSubdirectory === currentSubdirectory) {
+  // Null means root; moving a root archive to null is also unchanged.
+  if (targetSubdirectory === row.target_subdirectory) {
     throw new BusinessError(
       "VALIDATION_ERROR",
       "download cannot be moved to its current folder",
     );
   }
 
-  await mkdir(join(realDownloadRoot, targetSubdirectory), { recursive: true });
+  if (targetSubdirectory !== null) {
+    await mkdir(join(realDownloadRoot, targetSubdirectory), { recursive: true });
+  }
   try {
     await rename(currentArchiveDir, newArchiveDir);
   } catch (error) {
