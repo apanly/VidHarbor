@@ -20,6 +20,8 @@ import {
   deleteDownload,
   getDownloadFile,
   getDownloadThumbnail,
+  listDownloadFolders,
+  moveDownload,
   retryDownload,
   type ChannelDownloadProxySelection,
   type DownloadQueue,
@@ -150,6 +152,7 @@ interface DownloadRow {
   readonly duration_seconds: number | null;
   readonly thumbnail_path: string | null;
   readonly output_size_bytes: number | null;
+  readonly target_subdirectory: string | null;
 }
 
 type DownloadTab = 'all' | 'active' | 'completed' | 'failed';
@@ -190,6 +193,7 @@ function assertEmptyBody(input: unknown): void {
 interface ChannelDownloadInput {
   readonly videoIds: readonly number[];
   readonly proxyId: ChannelDownloadProxySelection;
+  readonly targetSubdirectory: string | null;
 }
 
 function parseChannelInput(input: unknown): ChannelDownloadInput {
@@ -199,9 +203,10 @@ function parseChannelInput(input: unknown): ChannelDownloadInput {
 
   const keys = Object.keys(input);
   if (
-    keys.length !== 2 ||
+    keys.length !== 3 ||
     !keys.includes('videoIds') ||
-    !keys.includes('proxyId')
+    !keys.includes('proxyId') ||
+    !keys.includes('targetSubdirectory')
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel download input');
   }
@@ -218,9 +223,20 @@ function parseChannelInput(input: unknown): ChannelDownloadInput {
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel download input');
   }
+  // The route only enforces the declared shape; the service guarantees the
+  // target_subdirectory value is a valid single-level path (plan §3.2 contract).
+  if (
+    value.targetSubdirectory !== null &&
+    typeof value.targetSubdirectory !== 'string'
+  ) {
+    throw new BusinessError('VALIDATION_ERROR', 'invalid channel download input');
+  }
+  // SAFETY: request body is untyped input; videoIds carries raw numbers from a
+  // client, validated above and promoted to an immutable readonly tuple.
   return {
     videoIds: videoIds as unknown as readonly number[],
     proxyId: value.proxyId as ChannelDownloadProxySelection,
+    targetSubdirectory: value.targetSubdirectory as string | null,
   };
 }
 
@@ -254,6 +270,7 @@ function toDownloadSnapshot(row: DownloadRow): Record<string, unknown> {
     durationSeconds: row.duration_seconds,
     thumbnailUrl: row.thumbnail_path === null ? null : `/api/downloads/${row.id}/thumbnail`,
     outputSizeBytes: row.output_size_bytes,
+    targetSubdirectory: row.target_subdirectory,
   };
 }
 
@@ -285,7 +302,8 @@ function listDownloads(
         `SELECT id, source_type, platform, title, source_url, status, output_path, failure_reason,
                 progress_percent, speed_text, eta_seconds, exit_code,
                 created_at, started_at, finished_at, network_mode, proxy_name,
-                duration_seconds, thumbnail_path, output_size_bytes
+                duration_seconds, thumbnail_path, output_size_bytes,
+                target_subdirectory
          FROM downloads
          ${where}
          ORDER BY created_at DESC, id DESC
@@ -316,14 +334,18 @@ function listDownloads(
   }
 }
 
-function getDownloadSnapshot(database: DatabaseConnection, downloadId: number): unknown {
+function getDownloadSnapshot(
+  database: DatabaseConnection,
+  downloadId: number,
+): Record<string, unknown> {
   try {
     const row = database
       .prepare(
         `SELECT id, source_type, platform, title, source_url, status, output_path, failure_reason,
                 progress_percent, speed_text, eta_seconds, exit_code,
                 created_at, started_at, finished_at, network_mode, proxy_name,
-                duration_seconds, thumbnail_path, output_size_bytes
+                duration_seconds, thumbnail_path, output_size_bytes,
+                target_subdirectory
          FROM downloads WHERE id = ?`,
       )
       .get(downloadId) as DownloadRow | undefined;
@@ -355,6 +377,7 @@ export function createDownloadsRouter(
       new Date(),
       input.proxyId,
       cookieAuthorizationService,
+      input.targetSubdirectory,
     );
     response.status(202).json({ downloads });
   });
@@ -413,6 +436,10 @@ export function createDownloadsRouter(
       }
     }, DOWNLOAD_EVENT_INTERVAL_MILLISECONDS);
     request.on('close', close);
+  });
+
+  router.get('/folders', (_request, response) => {
+    response.json({ folders: listDownloadFolders(database) });
   });
 
   router.get('/:id', (request, response) => {
@@ -475,6 +502,16 @@ export function createDownloadsRouter(
       cookieAuthorizationService,
     );
     response.status(202).end();
+  });
+
+  router.post('/:id/move', async (request, response) => {
+    await moveDownload(
+      database,
+      downloadsMountPath,
+      parseDownloadId(request.params.id),
+      request.body,
+    );
+    response.status(204).end();
   });
 
   router.delete('/:id', async (request, response) => {

@@ -136,7 +136,10 @@ function parseTargetSubdirectory(value: unknown): string | null {
     return null;
   }
   if (typeof value !== "string") {
-    throw new BusinessError("VALIDATION_ERROR", "invalid direct download input");
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
   return validateTargetSubdirectory(value);
 }
@@ -302,7 +305,12 @@ function hostMatches(hostname: string, domain: string): boolean {
 }
 
 function directCookiePlatform(url: string): CookiePlatform | null {
-  const hostname = new URL(url).hostname.toLowerCase();
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
   if (hostname === "youtu.be" || hostMatches(hostname, "youtube.com")) {
     return "youtube";
   }
@@ -671,6 +679,7 @@ export async function createChannelDownloads(
   now = new Date(),
   proxySelection: ChannelDownloadProxySelection = "channel",
   cookieAuthorizationService?: CookieAuthorizationService,
+  targetSubdirectory: string | null = null,
 ): Promise<Download[]> {
   const prepared = await prepareChannelDownloads(
     database,
@@ -678,7 +687,7 @@ export async function createChannelDownloads(
     videoIds,
     proxySelection,
     cookieAuthorizationService,
-    null,
+    targetSubdirectory,
   );
   const createdAt = now.toISOString();
   const downloads = insertDownloads(database, prepared, createdAt);
@@ -1310,10 +1319,10 @@ export interface MoveDownloadInput {
 
 function isEExist(error: unknown): boolean {
   return (
-    typeof error === 'object' &&
+    typeof error === "object" &&
     error !== null &&
-    'code' in error &&
-    (error as NodeJS.ErrnoException).code === 'EEXIST'
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "EEXIST"
   );
 }
 
@@ -1329,25 +1338,27 @@ export async function moveDownload(
 ): Promise<void> {
   validateDownloadId(downloadId);
 
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid move download input');
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new BusinessError("VALIDATION_ERROR", "invalid move download input");
   }
   // SAFETY: MoveDownloadInput is a structural subset; accept a superset row so
   // callers can pass the full request object without a narrow type.
   const raw = input as unknown as Record<string, unknown>;
-  if (typeof raw.targetSubdirectory !== 'string') {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid move download input');
+  if (typeof raw.targetSubdirectory !== "string") {
+    throw new BusinessError("VALIDATION_ERROR", "invalid move download input");
   }
   const targetSubdirectory = validateTargetSubdirectory(raw.targetSubdirectory);
 
-  let row: {
-    id: number;
-    status: string;
-    archive_layout: string;
-    output_path: string | null;
-    thumbnail_path: string | null;
-    target_subdirectory: string | null;
-  } | undefined;
+  let row:
+    | {
+        id: number;
+        status: string;
+        archive_layout: string;
+        output_path: string | null;
+        thumbnail_path: string | null;
+        target_subdirectory: string | null;
+      }
+    | undefined;
   try {
     row = database
       .prepare(
@@ -1367,31 +1378,56 @@ export async function moveDownload(
     throw persistenceError();
   }
   if (row === undefined) {
-    throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+    throw new BusinessError("DOWNLOAD_NOT_FOUND", "download not found");
   }
   // Only completed downloads with a download_directory archive layout can move;
   // legacy_file layout and anything not completed must be rejected here.
-  if (row.status !== 'completed' || row.archive_layout !== 'download_directory') {
-    throw new BusinessError('VALIDATION_ERROR', 'download cannot be moved');
+  if (
+    row.status !== "completed" ||
+    row.archive_layout !== "download_directory"
+  ) {
+    throw new BusinessError("VALIDATION_ERROR", "download cannot be moved");
   }
   if (row.output_path === null) {
-    throw new BusinessError('DOWNLOAD_MOVE_FAILED', 'download has no output file');
+    throw new BusinessError(
+      "DOWNLOAD_MOVE_FAILED",
+      "download has no output file",
+    );
   }
 
-  const realDownloadRoot = await validateDownloadRoot(downloadsMountPath, downloadsMountPath);
-  const currentSubdirectory = row.target_subdirectory ?? '';
-  const currentArchiveDir = join(realDownloadRoot, currentSubdirectory, String(downloadId));
-  const newArchiveDir = join(realDownloadRoot, targetSubdirectory, String(downloadId));
+  const realDownloadRoot = await validateDownloadRoot(
+    downloadsMountPath,
+    downloadsMountPath,
+  );
+  const currentSubdirectory = row.target_subdirectory ?? "";
+  const currentArchiveDir = join(
+    realDownloadRoot,
+    currentSubdirectory,
+    String(downloadId),
+  );
+  const newArchiveDir = join(
+    realDownloadRoot,
+    targetSubdirectory,
+    String(downloadId),
+  );
 
   // The stored output path must resolve to the download's current archive dir.
-  const realCurrentDir = await realpath(dirname(row.output_path)).catch(() => undefined);
+  const realCurrentDir = await realpath(dirname(row.output_path)).catch(
+    () => undefined,
+  );
   if (realCurrentDir !== currentArchiveDir) {
-    throw new BusinessError('VALIDATION_ERROR', 'download archive directory is not as expected');
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "download archive directory is not as expected",
+    );
   }
 
   // Same target -> no-op, rejected as a validation error.
   if (targetSubdirectory === currentSubdirectory) {
-    throw new BusinessError('VALIDATION_ERROR', 'download cannot be moved to its current folder');
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "download cannot be moved to its current folder",
+    );
   }
 
   await mkdir(join(realDownloadRoot, targetSubdirectory), { recursive: true });
@@ -1400,15 +1436,20 @@ export async function moveDownload(
   } catch (error) {
     // rename fails atomically, so a failure leaves the source untouched.
     if (isEExist(error)) {
-      throw new BusinessError('DOWNLOAD_MOVE_TARGET_EXISTS', 'move target already exists');
+      throw new BusinessError(
+        "DOWNLOAD_MOVE_TARGET_EXISTS",
+        "move target already exists",
+      );
     }
-    throw new BusinessError('DOWNLOAD_MOVE_FAILED', 'download move failed');
+    throw new BusinessError("DOWNLOAD_MOVE_FAILED", "download move failed");
   }
 
   // rename succeeded; recompute persisted paths via basename within the new dir.
   const newOutputPath = join(newArchiveDir, basename(row.output_path));
   const newThumbnailPath =
-    row.thumbnail_path === null ? null : join(newArchiveDir, basename(row.thumbnail_path));
+    row.thumbnail_path === null
+      ? null
+      : join(newArchiveDir, basename(row.thumbnail_path));
   try {
     const updated = database
       .prepare(
@@ -1418,7 +1459,7 @@ export async function moveDownload(
     if (updated.changes !== 1) {
       // best-effort rollback: move the directory back to its original place.
       await rename(newArchiveDir, currentArchiveDir).catch(() => undefined);
-      throw new BusinessError('DOWNLOAD_MOVE_FAILED', 'download move failed');
+      throw new BusinessError("DOWNLOAD_MOVE_FAILED", "download move failed");
     }
   } catch (error) {
     if (error instanceof BusinessError) throw error;

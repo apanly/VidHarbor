@@ -125,7 +125,7 @@
 
 ## task-06 · 路由：channel 入参、move、folders、snapshot 字段
 
-- 状态: pending
+- 状态: done
 - 依赖: task-04, task-05
 - 文件范围:
   - src/routes/downloads.ts
