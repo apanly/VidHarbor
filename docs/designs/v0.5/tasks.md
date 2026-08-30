@@ -338,3 +338,216 @@
   - 不做: 不动非 contract 无关的失败项
 - 验收标准:
   1. `npx vitest run test/integration/download-api.test.ts test/integration/server-lifecycle.test.ts` → 全绿
+
+## task-14 · worker 归档子目录 mkdir 后 realpath containment
+
+- 状态: done
+- 依赖: 无
+- 文件范围:
+  - src/download-worker.ts
+- 关键约束:
+  - 描述原文：`src/download-worker.ts:497` 这里把 join(realDownloadRoot, targetSubdirectory) 当作 realSubdirectory，但没有在 mkdir 后 realpath 校验真实目录仍位于 realDownloadRoot 内。若下载根目录下已有 targetSubdirectory 对应的符号链接，后续 join(realDownloadRoot, targetSubdirectory, String(downloadId)) 会跟随该链接创建最终归档目录。
+  - 源码确认：`#run` 在 `targetSubdirectory !== undefined` 时先 `join(realDownloadRoot, targetSubdirectory)` 赋给 `realSubdirectory`，只做字符串级 `isContained`，再 `mkdir(..., { recursive: true })`；本文件已有 `ensureDirectoryWithin`（约第 172 行）会 `realpath` + `stat` + `isContained`
+  - 不能另写一套 containment 实现，必须复用已有 `ensureDirectoryWithin`
+  - 不能让 `downloadId` 目录已存在时静默复用（`mkdir(targetDirectory)` 保持非递归，`EEXIST` 仍抛 `'final download directory already exists'`）
+  - 不能用未经 realpath 的 `join(realDownloadRoot, targetSubdirectory, String(downloadId))` 作为成品目录
+- 任务目的: 修复 bugfix-02 描述的问题
+- 实现入口: src/download-worker.ts `#run` 归档段（约第 495–508 行，`const realSubdirectory = join(realDownloadRoot, targetSubdirectory)`）；复用同文件 `ensureDirectoryWithin`
+- 期望行为: subdir 存在时先 `mkdir(join(realDownloadRoot, targetSubdirectory), { recursive: true })`，再 `ensureDirectoryWithin` 得到真实子目录；成品目录为 `join(真实子目录, String(downloadId))`。若真实子目录不在 `realDownloadRoot` 内则抛错，不在 root 外创建归档。`targetSubdirectory === undefined` 时行为与现状完全一致
+- 范围边界:
+  - 必须: mkdir 之后用 realpath 校验真实子目录仍位于 realDownloadRoot 内，并用该真实路径拼接 downloadId
+  - 不能: 改动与本 bug 无关的模块；不能移除既有 `isContained` / `ensureDirectoryWithin`；不能在 worker 内做 subdir 字符串校验
+  - 不做: 不改 `src/services/download.ts` 的 move/delete 路径；不改校验函数 `validateTargetSubdirectory`
+- 验收标准:
+  1. `grep -c "ensureDirectoryWithin" src/download-worker.ts` → ≥ 4（定义 + createTaskDirectory 两处 + `#run` 归档新增）
+  2. `grep -n "recursive: true" src/download-worker.ts` → 仍命中 subdir mkdir
+  3. `npx tsc -p tsconfig.json --noEmit` → 无新增错误
+
+## task-15 · 回退 src/i18n.ts 重格式漂移并保留 DOWNLOAD_MOVE_* 文案
+
+- 状态: pending
+- 依赖: 无
+- 文件范围:
+  - src/i18n.ts
+- 关键约束:
+  - 描述原文：`src/i18n.ts:1` task-11 要求 src/i18n.ts 回退到干净单引号格式后仅补充 DOWNLOAD_MOVE_* 文案，但当前变更把整个文件从单引号改成双引号并重排多处长行，实际保留了重格式漂移。
+  - 旧 task: task-11，旧状态: done。旧约束：回退干净单引号格式并补 `error.DOWNLOAD_MOVE_FAILED` 与 `error.DOWNLOAD_MOVE_TARGET_EXISTS` 的 zhCN/enUS 文案；不能为回退改动任何实际功能；不做测试文件改动。旧期望：`src/i18n.ts` 回退干净单引号格式并补 `error.DOWNLOAD_MOVE_*` 文案。旧验收：`npx vitest run test/unit/i18n.test.ts` 全绿。
+  - 源码确认：基线 `git show 594ee43:src/i18n.ts`（task-08，含 `channelDetail.targetSubdirectory*`）为单引号；HEAD 整文件改为双引号并重排长行，同时已含 `error.DOWNLOAD_MOVE_TARGET_EXISTS` / `error.DOWNLOAD_MOVE_FAILED`
+  - 不能删除或改写任何现有翻译键（含 `channelDetail.targetSubdirectory*` 与 `error.DOWNLOAD_MOVE_*`）
+  - 不能把其它文件（`src/public/i18n.js`、`src/public/channel-detail.js`、`src/public/downloads.js`）一并重格式
+- 任务目的: 修复 bugfix-03 描述的问题
+- 实现入口: src/i18n.ts 文件开头 `export const LANGUAGES` 与 zhCN/enUS 目录字面量
+- 期望行为: `src/i18n.ts` 恢复任务基线的单引号字符串格式（与 task-08 基线一致的引号风格），仅保留必要文案增量：`error.DOWNLOAD_MOVE_TARGET_EXISTS` 与 `error.DOWNLOAD_MOVE_FAILED` 的中英文；键集合与 HEAD 功能文案一致，不再整文件双引号化或无关长行重排
+- 范围边界:
+  - 必须: 单引号格式 + 保留两则 DOWNLOAD_MOVE 文案（zhCN 与 enUS 各一条）
+  - 不能: 改动与本 bug 无关的模块；不能删改其它翻译键或译文含义
+  - 不做: 不改 `src/public/i18n.js` 的 `API_ERROR_KEYS`（HEAD 已含此二键）；不改测试文件
+- 验收标准:
+  1. `grep -n "export const LANGUAGES = \\['zh-CN'" src/i18n.ts` → 命中 1 行
+  2. `grep -c "error.DOWNLOAD_MOVE_TARGET_EXISTS" src/i18n.ts` → 2；`grep -c "error.DOWNLOAD_MOVE_FAILED" src/i18n.ts` → 2
+  3. `npx vitest run test/unit/i18n.test.ts` → 全绿（含“maps every current API error code”）
+
+## task-16 · 还原 task-11 对 downloads.js 的范围外格式改动
+
+- 状态: pending
+- 依赖: 无
+- 文件范围:
+  - src/public/downloads.js
+- 关键约束:
+  - 描述原文：`src/public/downloads.js:581` task-11 的文件范围是 src/public/channel-detail.js、src/i18n.ts、src/public/i18n.js，且要求不改实际功能；但本批 diff 修改了 direct download 提交体，新增 targetSubdirectory 字段并读取 targetSubdirectory 表单元素，这是 task-07/task-10 的功能行为，不属于 task-11。
+  - 旧 task: task-11，旧状态: done。旧约束：文件范围仅 channel-detail.js / i18n.ts / i18n.js，不能改实际功能。
+  - 源码确认：task-11 提交 `5a442e5` 对 `src/public/downloads.js` 仅删除了 `t(... "downloads.source.direct")` 的尾逗号（约第 416–419 行）；直下载提交体 `targetSubdirectory` 与 `load()` 拉取 `/api/downloads/folders` 来自已完成的 task-10，必须保留。审查所指向的第 581 行提交体不是 task-11 引入的功能，不能当范围外功能删掉。
+  - 不能删除或改写直下载 POST 体的 `targetSubdirectory`、`/api/downloads/folders` datalist 填充、preview/download 按钮
+- 任务目的: 修复 bugfix-04 描述的问题
+- 实现入口: src/public/downloads.js `updateDownloadCard` 内 `t(download.sourceType === "channel" ? "downloads.source.channel" : "downloads.source.direct")`（约第 413–420 行）
+- 期望行为: 恢复 task-11 之前的尾逗号写法（`"downloads.source.direct",`）；直下载提交仍为 `targetSubdirectory: nullableText(form.elements.targetSubdirectory.value)`，`load()` 仍请求 `/api/downloads/folders`
+- 范围边界:
+  - 必须: 去掉 task-11 引入的 downloads.js 格式改动
+  - 不能: 改动与本 bug 无关的模块；不能移除 task-10 的 targetSubdirectory / folders 功能
+  - 不做: 不在本任务加移动按钮（归 task-19）；不改 i18n.ts
+- 验收标准:
+  1. `grep -n 'downloads.source.direct' src/public/downloads.js` → 命中且该 `t()` 调用的 `"downloads.source.direct"` 后带尾逗号
+  2. `grep -n "targetSubdirectory: nullableText" src/public/downloads.js` → 命中提交体
+  3. `grep -n "/api/downloads/folders" src/public/downloads.js` → 命中
+
+## task-17 · move 路由精确校验 body 形状
+
+- 状态: pending
+- 依赖: 无
+- 文件范围:
+  - src/routes/downloads.ts
+- 关键约束:
+  - 描述原文：`src/routes/downloads.ts:507` POST /:id/move 直接把 request.body 传给 moveDownload，路由层没有校验 body 必须且只能包含 targetSubdirectory。当前服务实现还显式接受包含额外字段的对象，因此 {"targetSubdirectory":"a","extra":1} 会被放行。
+  - 对照 task-06 契约：不能给 move 路由放行空/未知 body 形状之外的输入；plan §1.6 未知输入键必须精确键集合校验
+  - 值只做 `null` / `string` 形状检查后透传；不能在路由层重复实现 subdir 字符串校验（`.` / `..` / 空段由服务层保证）
+  - 不能把 request.body 原样传给 moveDownload
+- 任务目的: 修复 bugfix-05 描述的问题
+- 实现入口: src/routes/downloads.ts `router.post('/:id/move', ...)`（约第 507 行）；参照同文件 `parseChannelInput` / `assertEmptyBody`
+- 期望行为: 新增 `parseMoveInput`：普通对象、`Object.keys` 恰好为 `['targetSubdirectory']`，值仅为 `null` 或 `string`，否则 `VALIDATION_ERROR`；路由把解析结果传给 `moveDownload`。`{"targetSubdirectory":"a","extra":1}`、缺键、空对象均 400。成功仍 204
+- 范围边界:
+  - 必须: move body 精确单键 `targetSubdirectory`，值类型 `string | null`
+  - 不能: 改动与本 bug 无关的模块；不能改 `parseChannelInput` 三键契约；不能在路由层调用 `validateTargetSubdirectory`
+  - 不做: 不改 `moveDownload` 对 null 的业务语义（归 task-20）；不改其它路由
+- 验收标准:
+  1. `grep -n "function parseMoveInput" src/routes/downloads.ts` → 命中 1 行
+  2. `grep -n "parseMoveInput(request.body)" src/routes/downloads.ts` → 命中 1 行
+  3. `npx tsc -p tsconfig.json --noEmit` → 无新增错误
+
+## task-18 · channel 路径在服务层校验 targetSubdirectory
+
+- 状态: pending
+- 依赖: 无
+- 文件范围:
+  - src/services/download.ts
+- 关键约束:
+  - 描述原文：`src/services/download.ts:509` createChannelDownloads/prepareChannelDownloads 接收 targetSubdirectory 后直接写入 PreparedDownload，并在 enqueueDownloads 中传给 worker；只有 direct 和 move 路径调用 validateTargetSubdirectory，channel 路径没有校验 '.', '..', 空段或空字符串。
+  - plan §1.5：所有写入 `target_subdirectory` 的入口（直下载、频道下载、移动）统一校验；`null` 合法表示根目录；string 必须过 `validateTargetSubdirectory`
+  - 不能把 `parseTargetSubdirectory` 的 `'invalid direct download input'` 错误文案套到 channel 路径而不经确认；channel 非 null 值直接 `validateTargetSubdirectory(targetSubdirectory)`
+  - 不能对未知类型做猜测解析或 fallback；不能静默把 `''` / `'.'` / `'..'` 写入列
+- 任务目的: 修复 bugfix-06 描述的问题
+- 实现入口: src/services/download.ts `prepareChannelDownloads`（约第 503–509 行形参 `targetSubdirectory: string | null = null`）或 `createChannelDownloads`（约第 674 行）入口
+- 期望行为: `prepareChannelDownloads` / `createChannelDownloads` 在写 `PreparedDownload` 之前：`null` 保持 `null`；非 `null` 的 string 经 `validateTargetSubdirectory` 后再写入并入队。`'.'`、`'..'`、空字符串、空段、绝对路径抛 `VALIDATION_ERROR`，不创建 pending 行
+- 范围边界:
+  - 必须: channel 路径与 direct/move 一样拒绝非法相对路径
+  - 不能: 改动与本 bug 无关的模块；不能放宽 `validateTargetSubdirectory`；不能引入别名/规范化
+  - 不做: 不改路由 `parseChannelInput` 的三键形状校验；不改 worker
+- 验收标准:
+  1. `grep -n "validateTargetSubdirectory" src/services/download.ts` → ≥ 3（import + move + channel 入口）
+  2. `npx tsc -p tsconfig.json --noEmit` → 无新增错误
+
+## task-19 · 直下载页 completed 项增加移动入口
+
+- 状态: pending
+- 依赖: task-15, task-16, task-20
+- 文件范围:
+  - src/public/downloads.js
+  - src/i18n.ts
+- 关键约束:
+  - 描述原文（bugfix-07）：`src/public/downloads.js:278` completed 下载项只渲染 preview 和 download file 按钮，没有渲染移动按钮，也没有 prompt/输入目标文件夹并 POST /api/downloads/:id/move 的逻辑；整个 downloads.js 中没有 /move 调用。
+  - 描述原文（bugfix-12）：`src/public/downloads.js:289` completed 下载项操作区只渲染预览和下载文件按钮，没有新增移动按钮，也没有弹出输入并 POST /api/downloads/:id/move。
+  - 旧 task: task-07、task-10，旧状态: done。旧期望：completed 项操作区新增“移动”按钮，弹出输入 → `POST /api/downloads/:id/move`，成功刷新；不能新增未在 i18n 定义的裸文案。旧验收：`grep -n "/move" src/public/downloads.js` 命中移动请求。源码确认该验收当前为 0 命中。
+  - 移动入口只对 `completed` 项渲染
+  - 空输入映射为 `null`（移回根目录，依赖 task-20）
+  - 不能破坏既有 preview / download file / delete / 直下载提交体
+- 任务目的: 修复 bugfix-07、bugfix-12 描述的问题
+- 实现入口: src/public/downloads.js `renderActions` 的 `download.status === "completed"` 分支（约第 278–289 行）；src/i18n.ts zhCN/enUS 目录
+- 期望行为: completed 操作区在 preview、download file 旁新增移动按钮；`prompt`/`t()` 收集目标子目录，空字符串转 `null`，`POST /api/downloads/${id}/move` body 为 `{ targetSubdirectory }`，成功后 `refreshDownloads`。i18n 新增移动按钮/输入相关键（zhCN+enUS），错误展示走既有 `formatApiError`（含 `error.DOWNLOAD_MOVE_*`）
+- 范围边界:
+  - 必须: 仅 completed 渲染移动入口；空输入提交 `null`；文案走 `t()`
+  - 不能: 改动与本 bug 无关的模块；不能改 proxyId 选择逻辑；不能加目录浏览对话框
+  - 不做: 不做端到端浏览器测试；不改 `moveDownload` 服务实现
+- 验收标准:
+  1. `grep -n "/move" src/public/downloads.js` → 命中 `POST /api/downloads/` 移动请求
+  2. `grep -n "targetSubdirectory" src/public/downloads.js` → 同时命中直下载提交体与 move body
+  3. `npx vitest run test/unit/i18n.test.ts` → 全绿
+
+## task-20 · moveDownload 接受 null 目标子目录表示根目录
+
+- 状态: pending
+- 依赖: 无
+- 文件范围:
+  - src/services/download.ts
+- 关键约束:
+  - 描述原文：`src/services/download.ts:1347` moveDownload 要求 raw.targetSubdirectory 必须是 string，导致 {"targetSubdirectory":null} 被 VALIDATION_ERROR 拒绝；需求上下文定义 move body 为 { targetSubdirectory: string | null }，null 表示移动到根目录。
+  - plan §1.3 / §1.5：`{ targetSubdirectory: string | null }`，`null` → 合法，表示根目录；非 null 再 `validateTargetSubdirectory`
+  - 不能对同名不同类型输入做兜底；`undefined` / 缺键 / 非 string-non-null 仍 `VALIDATION_ERROR`
+  - 根目录落库必须写 SQL `NULL`（空字符串不能当根目录存进去）
+- 任务目的: 修复 bugfix-08 描述的问题
+- 实现入口: src/services/download.ts `MoveDownloadInput`（约第 1316 行）与 `moveDownload` 内 `typeof raw.targetSubdirectory !== "string"`（约第 1347–1350 行）
+- 期望行为: `MoveDownloadInput.targetSubdirectory` 为 `string | null`。`null` 时目标目录为 `join(realDownloadRoot, String(downloadId))`，`UPDATE` 的 `target_subdirectory` 为 `null`；非 null 仍 `validateTargetSubdirectory` 后 `join(root, subdir, id)`。与当前子目录相同（含已经在根目录再移到 `null`）仍 `VALIDATION_ERROR`
+- 范围边界:
+  - 必须: `{"targetSubdirectory":null}` 可将 completed + download_directory 移回根目录
+  - 不能: 改动与本 bug 无关的模块；不能放宽精确键集合（路由侧归 task-17）；不能吞掉 FS 错误
+  - 不做: 不在本任务做目标已存在预检查（归 task-21）；不改 UI
+- 验收标准:
+  1. `grep -n "targetSubdirectory: string | null" src/services/download.ts` → 命中 `MoveDownloadInput`
+  2. `grep -n "validateTargetSubdirectory" src/services/download.ts` → moveDownload 仅在非 null 时调用
+  3. `npx tsc -p tsconfig.json --noEmit` → 无新增错误
+
+## task-21 · rename 前显式拒绝已存在的目标 downloadId 目录
+
+- 状态: pending
+- 依赖: task-20
+- 文件范围:
+  - src/services/download.ts
+- 关键约束:
+  - 描述原文（bugfix-09）：`src/services/download.ts:1435` moveDownload 直接 rename(currentArchiveDir, newArchiveDir)，只在 rename 抛 EEXIST 时映射 DOWNLOAD_MOVE_TARGET_EXISTS。在当前 macOS/Node 环境下，把目录 rename 到已存在的空目录会成功，因此空的目标 downloadId 目录不会被拒绝。
+  - 描述原文（bugfix-11）：`src/services/download.ts:1435` moveDownload 未在 rename 前显式检查目标 downloadId 目录是否已存在，目标非空目录会落到 DOWNLOAD_MOVE_FAILED，空目录还可能被 rename 覆盖，不符合目标已存在必须抛 DOWNLOAD_MOVE_TARGET_EXISTS 的契约。
+  - 旧 task: task-05，旧状态: done。旧约束：目标 downloadId 目录已存在必须失败（`DOWNLOAD_MOVE_TARGET_EXISTS`）；FS 移动失败或落库 changes≠1 必须尽力回滚 rename 并抛 `DOWNLOAD_MOVE_FAILED`。旧期望：目标已存在→`DOWNLOAD_MOVE_TARGET_EXISTS`。
+  - 不能先 `mkdir(newArchiveDir)` 再 rename（mkdir 成功会造出空目录，与空目录被覆盖是同一类问题）
+  - 不能继续只依赖 rename 的 EEXIST（macOS/Node 对已存在空目录 rename 会成功）
+- 任务目的: 修复 bugfix-09、bugfix-11 描述的问题
+- 实现入口: src/services/download.ts `moveDownload` 内 `await rename(currentArchiveDir, newArchiveDir)`（约第 1433–1444 行）
+- 期望行为: 在 rename 之前用 `access`/`stat`/`lstat` 检测 `newArchiveDir` 是否已存在；已存在（空或非空）立即抛 `BusinessError('DOWNLOAD_MOVE_TARGET_EXISTS', ...)`，不执行 rename。父目录仍 `mkdir(join(root, 新subdir), { recursive: true })`。rename 其它 FS 失败仍映射 `DOWNLOAD_MOVE_FAILED` 并保持既有回滚
+- 范围边界:
+  - 必须: 目标 downloadId 目录已存在（含空目录）→ 409 `DOWNLOAD_MOVE_TARGET_EXISTS`；源目录与 DB 行保持不变
+  - 不能: 改动与本 bug 无关的模块；不能覆盖已存在目标；不能改 `DOWNLOAD_MOVE_FAILED` 的其它失败路径语义
+  - 不做: 不改测试断言（归 task-22）；不引入跨进程锁（保持既有 `ponytail:` 注释）
+- 验收标准:
+  1. `grep -n "DOWNLOAD_MOVE_TARGET_EXISTS" src/services/download.ts` → 命中 rename 之前的显式存在检查分支（不只是 `isEExist` 映射）
+  2. `npx tsc -p tsconfig.json --noEmit` → 无新增错误
+
+## task-22 · 目标已存在负向用例改为 DOWNLOAD_MOVE_TARGET_EXISTS
+
+- 状态: pending
+- 依赖: task-21
+- 文件范围:
+  - test/integration/download-service.test.ts
+- 关键约束:
+  - 描述原文（bugfix-10）：`test/integration/download-service.test.ts:1184` task-05 契约要求移动目标目录已存在时返回 DOWNLOAD_MOVE_TARGET_EXISTS，但新增的负向用例把同一场景断言为 DOWNLOAD_MOVE_FAILED，测试会接受错误实现。
+  - 描述原文（bugfix-13）：`test/integration/download-service.test.ts:1184` move 目标目录已存在的负向用例断言为 DOWNLOAD_MOVE_FAILED，而 task-05 契约要求该场景必须是 DOWNLOAD_MOVE_TARGET_EXISTS。
+  - 旧 task: task-09、task-12，旧状态: done。旧约束：测试必须包含负向用例（move 目标已存在）；不能为了让旧断言通过而回退功能。旧期望：新增 move 负向用例证明“不支持什么”。
+  - 源码确认：`it('rejects moving onto an existing download directory')` 先 `mkdir` 并写入 `existing.mp4`，再断言 `'DOWNLOAD_MOVE_FAILED'`
+  - 必须覆盖空目标目录与非空目标目录均不能被移动覆盖
+  - 不能引入新测试框架 / fixture 体系
+- 任务目的: 修复 bugfix-10、bugfix-13 描述的问题
+- 实现入口: test/integration/download-service.test.ts `it('rejects moving onto an existing download directory')`（约第 1169–1198 行，断言在第 1184 行）
+- 期望行为: 该负向用例（及空目录对应用例）断言 `DOWNLOAD_MOVE_TARGET_EXISTS`；移动失败后源文件与目标已有内容均保持不变。非 completed 不可移动的既有 `VALIDATION_ERROR` 用例保持
+- 范围边界:
+  - 必须: 空目录与非空目录的目标冲突都断言 `DOWNLOAD_MOVE_TARGET_EXISTS`
+  - 不能: 改动与本 bug 无关的模块；不能把断言改回 `DOWNLOAD_MOVE_FAILED` 来迁就旧实现
+  - 不做: 不做端到端浏览器测试；不动 `download-api.test.ts` / `server-lifecycle.test.ts`
+- 验收标准:
+  1. `grep -n "rejects moving onto an existing download directory" -A 20 test/integration/download-service.test.ts` → 断言含 `DOWNLOAD_MOVE_TARGET_EXISTS` 且不含把该场景标成 `DOWNLOAD_MOVE_FAILED`
+  2. `grep -n "DOWNLOAD_MOVE_TARGET_EXISTS" test/integration/download-service.test.ts` → ≥ 2（非空目标 + 空目标）
+  3. `npx vitest run test/integration/download-service.test.ts` → 全绿

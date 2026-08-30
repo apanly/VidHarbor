@@ -493,17 +493,22 @@ export class DownloadWorker implements DownloadQueue {
       );
       this.#throwIfCanceled(operations.signal);
       const targetSubdirectory = download.targetSubdirectory;
+      let realSubdirectory: string | undefined;
       if (targetSubdirectory !== undefined) {
-        const realSubdirectory = join(realDownloadRoot, targetSubdirectory);
-        if (!isContained(realDownloadRoot, realSubdirectory)) {
+        const subdirectory = join(realDownloadRoot, targetSubdirectory);
+        if (!isContained(realDownloadRoot, subdirectory)) {
           throw new Error('target subdirectory is outside download root');
         }
-        await mkdir(realSubdirectory, { recursive: true });
+        await mkdir(subdirectory, { recursive: true });
+        realSubdirectory = await ensureDirectoryWithin(
+          subdirectory,
+          realDownloadRoot,
+        );
       }
       const targetDirectory =
-        targetSubdirectory === undefined
+        realSubdirectory === undefined
           ? join(realDownloadRoot, String(download.downloadId))
-          : join(realDownloadRoot, targetSubdirectory, String(download.downloadId));
+          : join(realSubdirectory, String(download.downloadId));
       try {
         await mkdir(targetDirectory);
       } catch (error) {
