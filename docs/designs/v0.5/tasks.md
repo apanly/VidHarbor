@@ -69,7 +69,7 @@
 
 ## task-04 · 下载服务：入参解析、落库、重试、删除定位
 
-- 状态: pending
+- 状态: done
 - 依赖: task-01, task-03
 - 文件范围:
   - src/services/download.ts

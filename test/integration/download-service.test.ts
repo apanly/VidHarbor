@@ -45,11 +45,16 @@ const DEFAULT_ADVANCED_OPTIONS = {
   timeRangeEnd: null,
 } as const;
 
-function directInput(url: string, proxyId: number | null) {
+function directInput(
+  url: string,
+  proxyId: number | null,
+  targetSubdirectory: string | null = null,
+) {
   return {
     url,
     proxyId,
     advancedOptions: DEFAULT_ADVANCED_OPTIONS,
+    targetSubdirectory,
   };
 }
 
@@ -908,6 +913,98 @@ describe('download creation service', () => {
 
     expect(downloadRows()).toHaveLength(1);
     expect(queued).toHaveLength(1);
+  });
+
+  it('persists a valid direct target_subdirectory into the download row', async () => {
+    const result = await createDirectDownload(
+      database,
+      taskManager,
+      downloadRoot,
+      directInput(GENERIC_VIDEO_URL, null, 'season-01/episode-03'),
+      queue,
+      NOW,
+    );
+
+    expect(
+      database
+        .prepare('SELECT target_subdirectory FROM downloads WHERE id = ?')
+        .get(result.id),
+    ).toEqual({ target_subdirectory: 'season-01/episode-03' });
+  });
+
+  it('rejects a non-string target_subdirectory without creating a download', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        { ...directInput(GENERIC_VIDEO_URL, null), targetSubdirectory: 123 } as never,
+        queue,
+        NOW,
+      ),
+      'VALIDATION_ERROR',
+    );
+    expect(downloadRows()).toHaveLength(0);
+    expect(queued).toHaveLength(0);
+  });
+
+  it('rejects an empty-string target_subdirectory', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        directInput(GENERIC_VIDEO_URL, null, ''),
+        queue,
+        NOW,
+      ),
+      'VALIDATION_ERROR',
+    );
+    expect(downloadRows()).toHaveLength(0);
+  });
+
+  it('stores a null target_subdirectory for channel downloads', async () => {
+    const proxyId = insertProxy();
+    const channelId = insertChannel(proxyId);
+    const videoId = insertVideo(channelId, 'BV-001', 'Channel video', '2026-07-18');
+
+    const created = await createChannelDownloads(
+      database,
+      downloadRoot,
+      [videoId],
+      queue,
+      NOW,
+    );
+
+    expect(created).toHaveLength(1);
+    expect(
+      database
+        .prepare('SELECT target_subdirectory FROM downloads WHERE id = ?')
+        .get(created[0].id),
+    ).toEqual({ target_subdirectory: null });
+  });
+
+  it('carries target_subdirectory into the retry queue', async () => {
+    const result = await createDirectDownload(
+      database,
+      taskManager,
+      downloadRoot,
+      directInput(GENERIC_VIDEO_URL, null, 'season-01/episode-03'),
+      queue,
+      NOW,
+    );
+    database
+      .prepare(
+        `UPDATE downloads
+         SET status = 'failed', failure_reason = 'network error',
+             exit_code = 3, finished_at = ? WHERE id = ?`,
+      )
+      .run(NOW.toISOString(), result.id);
+
+    queued = [];
+    await retryDownload(database, downloadRoot, result.id, queue, NOW);
+
+    expect(queued[0]?.targetSubdirectory).toBe('season-01/episode-03');
   });
 
 });

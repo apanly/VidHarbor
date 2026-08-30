@@ -1,25 +1,26 @@
-import { mkdir, realpath, rename, rm, rmdir } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { mkdir, realpath, rename, rm, rmdir } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
-import type { DatabaseConnection } from '../db/client.js';
-import { BusinessError } from '../errors.js';
+import type { DatabaseConnection } from "../db/client.js";
+import { BusinessError } from "../errors.js";
 import {
   isArchiveVideoId,
   type ValidatedDownloadFile,
   validateDownloadFile,
   validateDownloadRoot,
-} from '../filesystem.js';
-import type { YtDlpTaskManager } from '../yt-dlp-task-manager.js';
+  validateTargetSubdirectory,
+} from "../filesystem.js";
+import type { YtDlpTaskManager } from "../yt-dlp-task-manager.js";
 import type {
   CookieAuthorizationService,
   CookiePlatform,
-} from './cookie-authorization.js';
+} from "./cookie-authorization.js";
 
 export interface Download {
   readonly id: number;
-  readonly sourceType: 'channel' | 'direct';
+  readonly sourceType: "channel" | "direct";
   readonly title: string;
-  readonly status: 'pending';
+  readonly status: "pending";
   readonly outputPath: null;
   readonly failureReason: null;
   readonly progressPercent: number | null;
@@ -29,7 +30,7 @@ export interface Download {
   readonly createdAt: string;
   readonly startedAt: null;
   readonly finishedAt: null;
-  readonly networkMode: 'direct' | 'proxy';
+  readonly networkMode: "direct" | "proxy";
   readonly proxyName: string | null;
   readonly durationSeconds: number | null;
 }
@@ -56,7 +57,7 @@ export interface DownloadFile extends ValidatedDownloadFile {
 }
 
 export interface DownloadAdvancedOptions {
-  readonly mediaType: 'video' | 'audio';
+  readonly mediaType: "video" | "audio";
   readonly format: string | null;
   readonly quality: string | null;
   readonly codec: string | null;
@@ -70,12 +71,13 @@ interface DirectDownloadInput {
   readonly url: string;
   readonly proxyId: number | null;
   readonly advancedOptions: DownloadAdvancedOptions;
+  readonly targetSubdirectory: string | null;
 }
 
-export type ChannelDownloadProxySelection = 'channel' | number | null;
+export type ChannelDownloadProxySelection = "channel" | number | null;
 
 interface ProxySelection {
-  readonly networkMode: 'direct' | 'proxy';
+  readonly networkMode: "direct" | "proxy";
   readonly proxyName: string | null;
   readonly proxyUrl?: string;
 }
@@ -84,8 +86,8 @@ interface ChannelVideoRow {
   readonly video_id: number;
   readonly channel_id: number;
   readonly source_url: string;
-  readonly platform: 'youtube' | 'bilibili';
-  readonly authorization_platform: 'youtube' | 'bilibili' | null;
+  readonly platform: "youtube" | "bilibili";
+  readonly authorization_platform: "youtube" | "bilibili" | null;
   readonly platform_video_id: string;
   readonly title: string;
   readonly published_date: string;
@@ -96,7 +98,7 @@ interface ChannelVideoRow {
 }
 
 interface PreparedDownload {
-  readonly sourceType: 'channel' | 'direct';
+  readonly sourceType: "channel" | "direct";
   readonly channelId: number | null;
   readonly videoId: number | null;
   readonly sourceUrl: string;
@@ -105,35 +107,49 @@ interface PreparedDownload {
   readonly title: string;
   readonly publishedDate: string | null;
   readonly durationSeconds: number | null;
-  readonly networkMode: 'direct' | 'proxy';
+  readonly networkMode: "direct" | "proxy";
   readonly proxyName: string | null;
   readonly proxyUrl?: string;
   readonly cookieFilePath?: string;
   readonly advancedOptions: DownloadAdvancedOptions | null;
+  readonly targetSubdirectory: string | null;
   readonly downloadRoot: string;
 }
 
 interface RetryDownloadRow {
   readonly id: number;
-  readonly source_type: 'channel' | 'direct';
+  readonly source_type: "channel" | "direct";
   readonly source_url: string;
-  readonly authorization_platform: 'youtube' | 'bilibili' | null;
+  readonly authorization_platform: "youtube" | "bilibili" | null;
   readonly platform_video_id: string;
   readonly advanced_options_json: string | null;
   readonly proxy_url_snapshot: string | null;
+  readonly target_subdirectory: string | null;
 }
 
 function persistenceError(): BusinessError {
-  return new BusinessError('PERSISTENCE_ERROR', 'download persistence failed');
+  return new BusinessError("PERSISTENCE_ERROR", "download persistence failed");
+}
+
+function parseTargetSubdirectory(value: unknown): string | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new BusinessError("VALIDATION_ERROR", "invalid direct download input");
+  }
+  return validateTargetSubdirectory(value);
 }
 
 function validateDownloadId(downloadId: number): void {
   if (!Number.isSafeInteger(downloadId) || downloadId < 1) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid download ID');
+    throw new BusinessError("VALIDATION_ERROR", "invalid download ID");
   }
 }
 
-function parseAdvancedOptionsJson(value: string | null): DownloadAdvancedOptions | undefined {
+function parseAdvancedOptionsJson(
+  value: string | null,
+): DownloadAdvancedOptions | undefined {
   if (value === null) return undefined;
   try {
     return JSON.parse(value) as DownloadAdvancedOptions;
@@ -144,16 +160,19 @@ function parseAdvancedOptionsJson(value: string | null): DownloadAdvancedOptions
 
 function validateVideoIds(videoIds: readonly number[]): void {
   if (videoIds.length === 0) {
-    throw new BusinessError('VALIDATION_ERROR', 'video IDs must not be empty');
+    throw new BusinessError("VALIDATION_ERROR", "video IDs must not be empty");
   }
 
   const uniqueIds = new Set<number>();
   for (const videoId of videoIds) {
     if (!Number.isSafeInteger(videoId) || videoId < 1) {
-      throw new BusinessError('VALIDATION_ERROR', 'invalid video ID');
+      throw new BusinessError("VALIDATION_ERROR", "invalid video ID");
     }
     if (uniqueIds.has(videoId)) {
-      throw new BusinessError('VALIDATION_ERROR', 'duplicate video IDs are not allowed');
+      throw new BusinessError(
+        "VALIDATION_ERROR",
+        "duplicate video IDs are not allowed",
+      );
     }
     uniqueIds.add(videoId);
   }
@@ -161,42 +180,57 @@ function validateVideoIds(videoIds: readonly number[]): void {
 
 function parseOptionalString(value: unknown): string | null {
   if (value === null) return null;
-  if (typeof value !== 'string' || value.trim() !== value || value === '') {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
+  if (typeof value !== "string" || value.trim() !== value || value === "") {
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
   return value;
 }
 
 function parseAdvancedOptions(value: unknown): DownloadAdvancedOptions {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
   const keys = Object.keys(value);
   const required = [
-    'mediaType',
-    'format',
-    'quality',
-    'codec',
-    'writeSubtitles',
-    'splitChapters',
-    'timeRangeStart',
-    'timeRangeEnd',
+    "mediaType",
+    "format",
+    "quality",
+    "codec",
+    "writeSubtitles",
+    "splitChapters",
+    "timeRangeStart",
+    "timeRangeEnd",
   ];
-  if (keys.length !== required.length || required.some((key) => !keys.includes(key))) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
+  if (
+    keys.length !== required.length ||
+    required.some((key) => !keys.includes(key))
+  ) {
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
   const record = value as Record<string, unknown>;
-  if (
-    record.mediaType !== 'video' &&
-    record.mediaType !== 'audio'
-  ) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
+  if (record.mediaType !== "video" && record.mediaType !== "audio") {
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
   if (
-    typeof record.writeSubtitles !== 'boolean' ||
-    typeof record.splitChapters !== 'boolean'
+    typeof record.writeSubtitles !== "boolean" ||
+    typeof record.splitChapters !== "boolean"
   ) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
   return {
     mediaType: record.mediaType,
@@ -211,44 +245,55 @@ function parseAdvancedOptions(value: unknown): DownloadAdvancedOptions {
 }
 
 function parseDirectInput(input: unknown): DirectDownloadInput {
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
   const keys = Object.keys(input);
   if (
-    keys.length !== 3 ||
-    !keys.includes('url') ||
-    !keys.includes('proxyId') ||
-    !keys.includes('advancedOptions')
+    keys.length !== 4 ||
+    !keys.includes("url") ||
+    !keys.includes("proxyId") ||
+    !keys.includes("advancedOptions") ||
+    !keys.includes("targetSubdirectory")
   ) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
 
   const value = input as Record<string, unknown>;
   if (
-    typeof value.url !== 'string' ||
+    typeof value.url !== "string" ||
     (value.proxyId !== null &&
       (!Number.isSafeInteger(value.proxyId) || (value.proxyId as number) < 1))
   ) {
-    throw new BusinessError('VALIDATION_ERROR', 'invalid direct download input');
+    throw new BusinessError(
+      "VALIDATION_ERROR",
+      "invalid direct download input",
+    );
   }
   validateDirectUrl(value.url);
   return {
     url: value.url,
     proxyId: value.proxyId as number | null,
     advancedOptions: parseAdvancedOptions(value.advancedOptions),
+    targetSubdirectory: parseTargetSubdirectory(value.targetSubdirectory),
   };
 }
 
 function validateDirectUrl(value: string): void {
-  if (value === '' || value.trim() !== value || !value.startsWith('https://')) {
-    throw new BusinessError('NOT_A_VIDEO_URL', 'URL must be an HTTPS URL');
+  if (value === "" || value.trim() !== value || !value.startsWith("https://")) {
+    throw new BusinessError("NOT_A_VIDEO_URL", "URL must be an HTTPS URL");
   }
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || url.hostname === '') throw new Error();
+    if (url.protocol !== "https:" || url.hostname === "") throw new Error();
   } catch {
-    throw new BusinessError('NOT_A_VIDEO_URL', 'URL must be an HTTPS URL');
+    throw new BusinessError("NOT_A_VIDEO_URL", "URL must be an HTTPS URL");
   }
 }
 
@@ -258,15 +303,15 @@ function hostMatches(hostname: string, domain: string): boolean {
 
 function directCookiePlatform(url: string): CookiePlatform | null {
   const hostname = new URL(url).hostname.toLowerCase();
-  if (hostname === 'youtu.be' || hostMatches(hostname, 'youtube.com')) {
-    return 'youtube';
+  if (hostname === "youtu.be" || hostMatches(hostname, "youtube.com")) {
+    return "youtube";
   }
-  if (hostMatches(hostname, 'bilibili.com')) return 'bilibili';
-  if (hostMatches(hostname, 'x.com') || hostMatches(hostname, 'twitter.com')) {
-    return 'x';
+  if (hostMatches(hostname, "bilibili.com")) return "bilibili";
+  if (hostMatches(hostname, "x.com") || hostMatches(hostname, "twitter.com")) {
+    return "x";
   }
-  if (hostMatches(hostname, 'facebook.com')) return 'facebook';
-  if (hostMatches(hostname, 'douyin.com')) return 'douyin';
+  if (hostMatches(hostname, "facebook.com")) return "facebook";
+  if (hostMatches(hostname, "douyin.com")) return "douyin";
   return null;
 }
 
@@ -284,8 +329,11 @@ async function findRetryCookieFilePath(
   row: RetryDownloadRow,
   cookieAuthorizationService: CookieAuthorizationService | undefined,
 ): Promise<string | undefined> {
-  if (row.source_type === 'direct') {
-    return await findDirectCookieFilePath(row.source_url, cookieAuthorizationService);
+  if (row.source_type === "direct") {
+    return await findDirectCookieFilePath(
+      row.source_url,
+      cookieAuthorizationService,
+    );
   }
   return row.authorization_platform === null
     ? undefined
@@ -300,36 +348,53 @@ function parseDirectVideoMetadata(value: unknown): {
   readonly title: string;
   readonly durationSeconds: number | null;
 } {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata must be an object');
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new BusinessError(
+      "VIDEO_METADATA_INVALID",
+      "video metadata must be an object",
+    );
   }
   const metadata = value as Record<string, unknown>;
   if (
-    typeof metadata.extractor_key !== 'string' ||
-    metadata.extractor_key === '' ||
+    typeof metadata.extractor_key !== "string" ||
+    metadata.extractor_key === "" ||
     metadata.extractor_key.trim() !== metadata.extractor_key
   ) {
-    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata extractor_key is required');
+    throw new BusinessError(
+      "VIDEO_METADATA_INVALID",
+      "video metadata extractor_key is required",
+    );
   }
   if (!isArchiveVideoId(metadata.id)) {
-    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata id is invalid');
+    throw new BusinessError(
+      "VIDEO_METADATA_INVALID",
+      "video metadata id is invalid",
+    );
   }
-  if (typeof metadata.title !== 'string' || metadata.title.trim() === '') {
-    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata title is required');
+  if (typeof metadata.title !== "string" || metadata.title.trim() === "") {
+    throw new BusinessError(
+      "VIDEO_METADATA_INVALID",
+      "video metadata title is required",
+    );
   }
-  if (metadata.duration !== undefined && (
-    typeof metadata.duration !== 'number' ||
-    !Number.isFinite(metadata.duration) ||
-    metadata.duration < 0 ||
-    !Number.isSafeInteger(Math.ceil(metadata.duration))
-  )) {
-    throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata duration is invalid');
+  if (
+    metadata.duration !== undefined &&
+    (typeof metadata.duration !== "number" ||
+      !Number.isFinite(metadata.duration) ||
+      metadata.duration < 0 ||
+      !Number.isSafeInteger(Math.ceil(metadata.duration)))
+  ) {
+    throw new BusinessError(
+      "VIDEO_METADATA_INVALID",
+      "video metadata duration is invalid",
+    );
   }
   return {
     platform: metadata.extractor_key.toLowerCase(),
     platformVideoId: metadata.id,
     title: metadata.title,
-    durationSeconds: metadata.duration === undefined ? null : Math.ceil(metadata.duration),
+    durationSeconds:
+      metadata.duration === undefined ? null : Math.ceil(metadata.duration),
   };
 }
 
@@ -338,18 +403,18 @@ function loadProxy(
   proxyId: number | null,
 ): ProxySelection {
   if (proxyId === null) {
-    return { networkMode: 'direct', proxyName: null };
+    return { networkMode: "direct", proxyName: null };
   }
 
   try {
     const row = database
-      .prepare('SELECT name, proxy_url FROM proxies WHERE id = ?')
+      .prepare("SELECT name, proxy_url FROM proxies WHERE id = ?")
       .get(proxyId) as { name: string; proxy_url: string } | undefined;
     if (row === undefined) {
-      throw new BusinessError('PROXY_NOT_FOUND', 'proxy not found');
+      throw new BusinessError("PROXY_NOT_FOUND", "proxy not found");
     }
     return {
-      networkMode: 'proxy',
+      networkMode: "proxy",
       proxyName: row.name,
       proxyUrl: row.proxy_url,
     };
@@ -380,13 +445,13 @@ function loadChannelVideos(
     return videoIds.map((videoId) => {
       const row = statement.get(videoId) as ChannelVideoRow | undefined;
       if (row === undefined) {
-        throw new BusinessError('VIDEO_NOT_FOUND', 'video not found');
+        throw new BusinessError("VIDEO_NOT_FOUND", "video not found");
       }
       if (
         row.proxy_id !== null &&
         (row.proxy_name === null || row.proxy_url === null)
       ) {
-        throw new BusinessError('PROXY_NOT_FOUND', 'proxy not found');
+        throw new BusinessError("PROXY_NOT_FOUND", "proxy not found");
       }
       return row;
     });
@@ -415,8 +480,8 @@ function assertNoExistingDownload(
       .get(platform, platformVideoId);
     if (existingId !== undefined) {
       throw new BusinessError(
-        'DOWNLOAD_ALREADY_EXISTS',
-        'a download for this video already exists',
+        "DOWNLOAD_ALREADY_EXISTS",
+        "a download for this video already exists",
       );
     }
   } catch (error) {
@@ -433,6 +498,7 @@ async function prepareChannelDownloads(
   videoIds: readonly number[],
   proxySelection: ChannelDownloadProxySelection,
   cookieAuthorizationService?: CookieAuthorizationService,
+  targetSubdirectory: string | null = null,
 ): Promise<readonly PreparedDownload[]> {
   validateVideoIds(videoIds);
   const downloadRoot = await validateDownloadRoot(
@@ -441,7 +507,9 @@ async function prepareChannelDownloads(
   );
   const rows = loadChannelVideos(database, videoIds);
   const overrideProxy =
-    proxySelection === 'channel' ? undefined : loadProxy(database, proxySelection);
+    proxySelection === "channel"
+      ? undefined
+      : loadProxy(database, proxySelection);
   const downloads: PreparedDownload[] = [];
 
   for (const row of rows) {
@@ -449,9 +517,9 @@ async function prepareChannelDownloads(
     const selectedProxy =
       overrideProxy ??
       (row.proxy_id === null
-        ? { networkMode: 'direct' as const, proxyName: null }
+        ? { networkMode: "direct" as const, proxyName: null }
         : {
-            networkMode: 'proxy' as const,
+            networkMode: "proxy" as const,
             proxyName: row.proxy_name,
             proxyUrl: row.proxy_url as string,
           });
@@ -462,7 +530,7 @@ async function prepareChannelDownloads(
             row.authorization_platform,
           );
     downloads.push({
-      sourceType: 'channel',
+      sourceType: "channel",
       channelId: row.channel_id,
       videoId: row.video_id,
       sourceUrl: row.source_url,
@@ -478,6 +546,7 @@ async function prepareChannelDownloads(
         : { proxyUrl: selectedProxy.proxyUrl }),
       ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
       advancedOptions: null,
+      targetSubdirectory,
       downloadRoot,
     });
   }
@@ -490,14 +559,14 @@ function insertDownloads(
   createdAt: string,
 ): Download[] {
   try {
-    database.exec('BEGIN IMMEDIATE');
+    database.exec("BEGIN IMMEDIATE");
     const statement = database.prepare(
       `INSERT INTO downloads (
         source_type, channel_id, video_id, source_url, platform,
         platform_video_id, title, published_date, duration_seconds, network_mode,
         proxy_name, proxy_url_snapshot, target_subdirectory, advanced_options_json,
         archive_layout, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'download_directory', 'pending', ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'download_directory', 'pending', ?)`,
     );
     const downloads = prepared.map((value) => {
       assertNoExistingDownload(database, value.platform, value.platformVideoId);
@@ -514,16 +583,19 @@ function insertDownloads(
         value.networkMode,
         value.proxyName,
         value.proxyUrl ?? null,
-        value.advancedOptions === null ? null : JSON.stringify(value.advancedOptions),
+        value.targetSubdirectory,
+        value.advancedOptions === null
+          ? null
+          : JSON.stringify(value.advancedOptions),
         createdAt,
       );
       return toDownload(Number(result.lastInsertRowid), value, createdAt);
     });
-    database.exec('COMMIT');
+    database.exec("COMMIT");
     return downloads;
   } catch (error) {
     try {
-      database.exec('ROLLBACK');
+      database.exec("ROLLBACK");
     } catch {
       // The transaction may not have started.
     }
@@ -543,7 +615,7 @@ function toDownload(
     id,
     sourceType: value.sourceType,
     title: value.title,
-    status: 'pending',
+    status: "pending",
     outputPath: null,
     failureReason: null,
     progressPercent: null,
@@ -569,7 +641,7 @@ function enqueueDownloads(
     const download = downloads[index];
     const value = prepared[index];
     if (download === undefined || value === undefined) {
-      throw new Error('download queue input is inconsistent');
+      throw new Error("download queue input is inconsistent");
     }
     queue.enqueue({
       downloadId: download.id,
@@ -584,6 +656,9 @@ function enqueueDownloads(
       ...(value.advancedOptions === null
         ? {}
         : { advancedOptions: value.advancedOptions }),
+      ...(value.targetSubdirectory === null
+        ? {}
+        : { targetSubdirectory: value.targetSubdirectory }),
     });
   }
 }
@@ -594,7 +669,7 @@ export async function createChannelDownloads(
   videoIds: readonly number[],
   queue: DownloadQueue,
   now = new Date(),
-  proxySelection: ChannelDownloadProxySelection = 'channel',
+  proxySelection: ChannelDownloadProxySelection = "channel",
   cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<Download[]> {
   const prepared = await prepareChannelDownloads(
@@ -603,15 +678,11 @@ export async function createChannelDownloads(
     videoIds,
     proxySelection,
     cookieAuthorizationService,
+    null,
   );
   const createdAt = now.toISOString();
   const downloads = insertDownloads(database, prepared, createdAt);
-  enqueueDownloads(
-    queue,
-    downloads,
-    prepared,
-    downloadsMountPath,
-  );
+  enqueueDownloads(queue, downloads, prepared, downloadsMountPath);
   return downloads;
 }
 
@@ -638,24 +709,29 @@ export async function createDirectDownload(
   let rawMetadata: unknown;
   try {
     rawMetadata = await taskManager.submit({
-      type: 'metadata_probe',
-      execute: (operations) => operations.fetchVideoMetadata({
-        url: directInput.url,
-        ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
-        ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
-      }),
+      type: "metadata_probe",
+      execute: (operations) =>
+        operations.fetchVideoMetadata({
+          url: directInput.url,
+          ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
+          ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
+        }),
     }).result;
   } catch (error) {
     throw new BusinessError(
-      'VIDEO_FETCH_FAILED',
-      error instanceof Error ? error.message : 'video fetch failed',
+      "VIDEO_FETCH_FAILED",
+      error instanceof Error ? error.message : "video fetch failed",
     );
   }
   const metadata = parseDirectVideoMetadata(rawMetadata);
 
-  assertNoExistingDownload(database, metadata.platform, metadata.platformVideoId);
+  assertNoExistingDownload(
+    database,
+    metadata.platform,
+    metadata.platformVideoId,
+  );
   const prepared: PreparedDownload = {
-    sourceType: 'direct',
+    sourceType: "direct",
     channelId: null,
     videoId: null,
     sourceUrl: directInput.url,
@@ -669,6 +745,7 @@ export async function createDirectDownload(
     ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
     ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
     advancedOptions: directInput.advancedOptions,
+    targetSubdirectory: directInput.targetSubdirectory,
     downloadRoot,
   };
   const createdAt = now.toISOString();
@@ -676,12 +753,7 @@ export async function createDirectDownload(
   if (download === undefined) {
     throw persistenceError();
   }
-  enqueueDownloads(
-    queue,
-    [download],
-    [prepared],
-    downloadsMountPath,
-  );
+  enqueueDownloads(queue, [download], [prepared], downloadsMountPath);
   return download;
 }
 
@@ -694,7 +766,7 @@ export async function getDownloadFile(
   let row: { status: string; output_path: string | null } | undefined;
   try {
     row = database
-      .prepare('SELECT status, output_path FROM downloads WHERE id = ?')
+      .prepare("SELECT status, output_path FROM downloads WHERE id = ?")
       .get(downloadId) as
       | { status: string; output_path: string | null }
       | undefined;
@@ -702,12 +774,12 @@ export async function getDownloadFile(
     throw persistenceError();
   }
   if (row === undefined) {
-    throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+    throw new BusinessError("DOWNLOAD_NOT_FOUND", "download not found");
   }
-  if (row.status !== 'completed' || row.output_path === null) {
+  if (row.status !== "completed" || row.output_path === null) {
     throw new BusinessError(
-      'DOWNLOAD_FILE_UNAVAILABLE',
-      'download file unavailable',
+      "DOWNLOAD_FILE_UNAVAILABLE",
+      "download file unavailable",
     );
   }
 
@@ -728,15 +800,21 @@ export async function getDownloadThumbnail(
   let path: string | null | undefined;
   try {
     path = database
-      .prepare("SELECT thumbnail_path FROM downloads WHERE id = ? AND status = 'completed'")
+      .prepare(
+        "SELECT thumbnail_path FROM downloads WHERE id = ? AND status = 'completed'",
+      )
       .pluck()
       .get(downloadId) as string | null | undefined;
   } catch {
     throw persistenceError();
   }
-  if (path === undefined) throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+  if (path === undefined)
+    throw new BusinessError("DOWNLOAD_NOT_FOUND", "download not found");
   if (path === null) {
-    throw new BusinessError('DOWNLOAD_FILE_UNAVAILABLE', 'download thumbnail unavailable');
+    throw new BusinessError(
+      "DOWNLOAD_FILE_UNAVAILABLE",
+      "download thumbnail unavailable",
+    );
   }
   const file = await validateDownloadFile(
     downloadsMountPath,
@@ -754,15 +832,15 @@ export async function cancelDownload(
 ): Promise<void> {
   validateDownloadId(downloadId);
   if (!Number.isFinite(now.getTime())) {
-    throw new BusinessError('VALIDATION_ERROR', 'cancel time is invalid');
+    throw new BusinessError("VALIDATION_ERROR", "cancel time is invalid");
   }
   try {
     const exists = database
-      .prepare('SELECT id FROM downloads WHERE id = ?')
+      .prepare("SELECT id FROM downloads WHERE id = ?")
       .pluck()
       .get(downloadId);
     if (exists === undefined) {
-      throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+      throw new BusinessError("DOWNLOAD_NOT_FOUND", "download not found");
     }
     const result = database
       .prepare(
@@ -771,7 +849,7 @@ export async function cancelDownload(
              eta_seconds = NULL, finished_at = ?
          WHERE id = ? AND status IN ('pending', 'running', 'downloading')`,
       )
-      .run('download canceled by user', now.toISOString(), downloadId);
+      .run("download canceled by user", now.toISOString(), downloadId);
     if (result.changes === 1) {
       await queue.cancel(downloadId);
     }
@@ -781,16 +859,20 @@ export async function cancelDownload(
   }
 }
 
-const DELETE_QUARANTINE_DIRECTORY = '.vidharbor-delete';
+const DELETE_QUARANTINE_DIRECTORY = ".vidharbor-delete";
 
 interface DeletingDownloadRow {
   readonly id: number;
   readonly status: string;
   readonly output_path: string | null;
   readonly archive_layout: string;
+  readonly target_subdirectory: string | null;
 }
 
-function deleteQuarantinePath(downloadRoot: string, downloadId: number): string {
+function deleteQuarantinePath(
+  downloadRoot: string,
+  downloadId: number,
+): string {
   return join(downloadRoot, DELETE_QUARANTINE_DIRECTORY, String(downloadId));
 }
 
@@ -800,7 +882,7 @@ function tryMarkDownloadDeleting(
   downloadId: number,
 ): boolean {
   try {
-    database.exec('BEGIN IMMEDIATE');
+    database.exec("BEGIN IMMEDIATE");
     try {
       const result = database
         .prepare(
@@ -809,11 +891,11 @@ function tryMarkDownloadDeleting(
            WHERE id = ? AND status = 'completed'`,
         )
         .run(downloadId);
-      database.exec('COMMIT');
+      database.exec("COMMIT");
       return result.changes === 1;
     } catch (error) {
       try {
-        database.exec('ROLLBACK');
+        database.exec("ROLLBACK");
       } catch {
         // The transaction may not have started.
       }
@@ -827,8 +909,8 @@ function tryMarkDownloadDeleting(
 
 function deleteInProgressError(): BusinessError {
   return new BusinessError(
-    'DOWNLOAD_DELETE_IN_PROGRESS',
-    'download deletion is already in progress',
+    "DOWNLOAD_DELETE_IN_PROGRESS",
+    "download deletion is already in progress",
   );
 }
 
@@ -837,7 +919,7 @@ function restoreDownloadToCompleted(
   downloadId: number,
 ): void {
   try {
-    database.exec('BEGIN IMMEDIATE');
+    database.exec("BEGIN IMMEDIATE");
     try {
       const result = database
         .prepare(
@@ -847,12 +929,12 @@ function restoreDownloadToCompleted(
         )
         .run(downloadId);
       if (result.changes !== 1) {
-        throw new Error('download is not deleting');
+        throw new Error("download is not deleting");
       }
-      database.exec('COMMIT');
+      database.exec("COMMIT");
     } catch (error) {
       try {
-        database.exec('ROLLBACK');
+        database.exec("ROLLBACK");
       } catch {
         // The transaction may not have started.
       }
@@ -868,18 +950,18 @@ function hardDeleteDeletingRow(
   downloadId: number,
 ): void {
   try {
-    database.exec('BEGIN IMMEDIATE');
+    database.exec("BEGIN IMMEDIATE");
     try {
       const result = database
         .prepare("DELETE FROM downloads WHERE id = ? AND status = 'deleting'")
         .run(downloadId);
       if (result.changes !== 1) {
-        throw new Error('download is not deleting');
+        throw new Error("download is not deleting");
       }
-      database.exec('COMMIT');
+      database.exec("COMMIT");
     } catch (error) {
       try {
-        database.exec('ROLLBACK');
+        database.exec("ROLLBACK");
       } catch {
         // The transaction may not have started.
       }
@@ -892,10 +974,10 @@ function hardDeleteDeletingRow(
 
 function isEnoent(error: unknown): boolean {
   return (
-    typeof error === 'object' &&
+    typeof error === "object" &&
     error !== null &&
-    'code' in error &&
-    error.code === 'ENOENT'
+    "code" in error &&
+    error.code === "ENOENT"
   );
 }
 
@@ -907,8 +989,8 @@ async function pathExists(path: string): Promise<boolean> {
   } catch (error) {
     if (isEnoent(error)) return false;
     throw new BusinessError(
-      'DOWNLOAD_DELETE_FAILED',
-      'download file deletion failed',
+      "DOWNLOAD_DELETE_FAILED",
+      "download file deletion failed",
     );
   }
 }
@@ -947,7 +1029,7 @@ async function finalizeDeletingDownload(
   downloadsMountPath: string,
   row: DeletingDownloadRow,
 ): Promise<void> {
-  if (row.status !== 'deleting' || row.output_path === null) {
+  if (row.status !== "deleting" || row.output_path === null) {
     throw persistenceError();
   }
 
@@ -959,9 +1041,13 @@ async function finalizeDeletingDownload(
   const quarantinePath = deleteQuarantinePath(realDownloadRoot, row.id);
   let originalArchivePath: string;
 
-  if (row.archive_layout === 'download_directory') {
-    originalArchivePath = join(realDownloadRoot, String(row.id));
-  } else if (row.archive_layout === 'legacy_file') {
+  if (row.archive_layout === "download_directory") {
+    originalArchivePath = join(
+      realDownloadRoot,
+      row.target_subdirectory ?? "",
+      String(row.id),
+    );
+  } else if (row.archive_layout === "legacy_file") {
     originalArchivePath = row.output_path;
   } else {
     throw persistenceError();
@@ -986,14 +1072,17 @@ async function finalizeDeletingDownload(
     // Only remove the shared parent when empty; other deletes may use it concurrently.
     await rmdir(quarantineParent).catch(() => undefined);
   } catch {
-    if (await pathExists(quarantinePath) && !(await pathExists(originalArchivePath))) {
+    if (
+      (await pathExists(quarantinePath)) &&
+      !(await pathExists(originalArchivePath))
+    ) {
       try {
         await rename(quarantinePath, originalArchivePath);
       } catch {
         // Leave status as deleting so startup can retry cleanup.
         throw new BusinessError(
-          'DOWNLOAD_DELETE_FAILED',
-          'download file deletion failed',
+          "DOWNLOAD_DELETE_FAILED",
+          "download file deletion failed",
         );
       }
     }
@@ -1002,11 +1091,18 @@ async function finalizeDeletingDownload(
     // Recursive rm is not atomic: restore completed only when main media still
     // exists at the persisted output_path as a non-empty regular file.
     if (
-      await mainMediaIsIntact(configuredRoot, downloadsMountPath, row.output_path)
+      await mainMediaIsIntact(
+        configuredRoot,
+        downloadsMountPath,
+        row.output_path,
+      )
     ) {
       restoreDownloadToCompleted(database, row.id);
     }
-    throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download file deletion failed');
+    throw new BusinessError(
+      "DOWNLOAD_DELETE_FAILED",
+      "download file deletion failed",
+    );
   }
 
   hardDeleteDeletingRow(database, row.id);
@@ -1018,7 +1114,7 @@ export async function recoverDeletingDownloads(
 ): Promise<void> {
   const rows = database
     .prepare(
-      `SELECT id, status, output_path, archive_layout
+      `SELECT id, status, output_path, archive_layout, target_subdirectory
        FROM downloads
        WHERE status = 'deleting'
        ORDER BY id`,
@@ -1039,30 +1135,34 @@ export async function deleteDownload(
   try {
     row = database
       .prepare(
-        'SELECT id, status, output_path, archive_layout FROM downloads WHERE id = ?',
+        "SELECT id, status, output_path, archive_layout, target_subdirectory FROM downloads WHERE id = ?",
       )
       .get(downloadId) as DeletingDownloadRow | undefined;
   } catch {
     throw persistenceError();
   }
   if (row === undefined) {
-    throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+    throw new BusinessError("DOWNLOAD_NOT_FOUND", "download not found");
   }
 
-  if (row.status === 'deleting') {
+  if (row.status === "deleting") {
     // Only the request that won completed -> deleting may touch files.
     // Startup recovery remains the sole non-HTTP owner of leftover deleting rows.
     throw deleteInProgressError();
   }
 
-  if (!['completed', 'failed', 'canceled', 'interrupted'].includes(row.status)) {
-    throw new BusinessError('VALIDATION_ERROR', 'download is not deletable');
+  if (
+    !["completed", "failed", "canceled", "interrupted"].includes(row.status)
+  ) {
+    throw new BusinessError("VALIDATION_ERROR", "download is not deletable");
   }
 
-  if (row.status !== 'completed') {
+  if (row.status !== "completed") {
     try {
-      const result = database.prepare('DELETE FROM downloads WHERE id = ?').run(downloadId);
-      if (result.changes !== 1) throw new Error('download is missing');
+      const result = database
+        .prepare("DELETE FROM downloads WHERE id = ?")
+        .run(downloadId);
+      if (result.changes !== 1) throw new Error("download is missing");
       return;
     } catch {
       throw persistenceError();
@@ -1077,17 +1177,23 @@ export async function deleteDownload(
     downloadsMountPath,
     row.output_path,
   );
-  if (row.archive_layout === 'download_directory') {
+  if (row.archive_layout === "download_directory") {
     const expectedDirectory = join(
       await validateDownloadRoot(downloadRoot, downloadsMountPath),
+      row.target_subdirectory ?? "",
       String(downloadId),
     );
-    const actualDirectory = await realpath(dirname(file.path)).catch(() => undefined);
+    const actualDirectory = await realpath(dirname(file.path)).catch(
+      () => undefined,
+    );
     await file.handle.close().catch(() => undefined);
     if (actualDirectory !== expectedDirectory) {
-      throw new BusinessError('DOWNLOAD_DELETE_FAILED', 'download directory is invalid');
+      throw new BusinessError(
+        "DOWNLOAD_DELETE_FAILED",
+        "download directory is invalid",
+      );
     }
-  } else if (row.archive_layout === 'legacy_file') {
+  } else if (row.archive_layout === "legacy_file") {
     await file.handle.close().catch(() => undefined);
   } else {
     await file.handle.close().catch(() => undefined);
@@ -1097,21 +1203,22 @@ export async function deleteDownload(
   if (!tryMarkDownloadDeleting(database, downloadId)) {
     // Another request claimed the transition or the row left completed concurrently.
     const current = database
-      .prepare('SELECT status FROM downloads WHERE id = ?')
+      .prepare("SELECT status FROM downloads WHERE id = ?")
       .pluck()
       .get(downloadId) as string | undefined;
-    if (current === 'deleting') throw deleteInProgressError();
+    if (current === "deleting") throw deleteInProgressError();
     if (current === undefined) {
-      throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+      throw new BusinessError("DOWNLOAD_NOT_FOUND", "download not found");
     }
-    throw new BusinessError('VALIDATION_ERROR', 'download is not deletable');
+    throw new BusinessError("VALIDATION_ERROR", "download is not deletable");
   }
 
   await finalizeDeletingDownload(database, downloadsMountPath, {
     id: downloadId,
-    status: 'deleting',
+    status: "deleting",
     output_path: row.output_path,
     archive_layout: row.archive_layout,
+    target_subdirectory: row.target_subdirectory,
   });
 }
 
@@ -1125,13 +1232,14 @@ export async function retryDownload(
 ): Promise<void> {
   validateDownloadId(downloadId);
   if (!Number.isFinite(now.getTime())) {
-    throw new BusinessError('VALIDATION_ERROR', 'retry time is invalid');
+    throw new BusinessError("VALIDATION_ERROR", "retry time is invalid");
   }
   try {
     const row = database
       .prepare(
         `SELECT d.id, d.source_type, d.source_url, c.authorization_platform,
-                d.platform_video_id, d.advanced_options_json, d.proxy_url_snapshot
+                d.platform_video_id, d.advanced_options_json, d.proxy_url_snapshot,
+                d.target_subdirectory
          FROM downloads d
          LEFT JOIN channels c ON c.id = d.channel_id
          WHERE d.id = ? AND d.status IN ('failed', 'canceled', 'interrupted')`,
@@ -1139,13 +1247,13 @@ export async function retryDownload(
       .get(downloadId) as RetryDownloadRow | undefined;
     if (row === undefined) {
       const exists = database
-        .prepare('SELECT id FROM downloads WHERE id = ?')
+        .prepare("SELECT id FROM downloads WHERE id = ?")
         .pluck()
         .get(downloadId);
       if (exists === undefined) {
-        throw new BusinessError('DOWNLOAD_NOT_FOUND', 'download not found');
+        throw new BusinessError("DOWNLOAD_NOT_FOUND", "download not found");
       }
-      throw new BusinessError('VALIDATION_ERROR', 'download is not retryable');
+      throw new BusinessError("VALIDATION_ERROR", "download is not retryable");
     }
     const downloadRoot = await validateDownloadRoot(
       downloadsMountPath,
@@ -1164,7 +1272,7 @@ export async function retryDownload(
       )
       .run(now.toISOString(), downloadId);
     if (updated.changes !== 1) {
-      throw new Error('download is missing');
+      throw new Error("download is missing");
     }
     const cookieFilePath = await findRetryCookieFilePath(
       row,
@@ -1180,6 +1288,9 @@ export async function retryDownload(
         ? {}
         : { proxyUrl: row.proxy_url_snapshot }),
       ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
+      ...(row.target_subdirectory === null
+        ? {}
+        : { targetSubdirectory: row.target_subdirectory }),
     };
     const advancedOptions = parseAdvancedOptionsJson(row.advanced_options_json);
     queue.enqueue(
