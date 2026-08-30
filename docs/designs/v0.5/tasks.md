@@ -152,7 +152,7 @@
 
 ## task-07 · UI：直下载页文件夹输入与移动入口
 
-- 状态: pending
+- 状态: done
 - 依赖: task-06
 - 文件范围:
   - src/views/downloads.ejs
