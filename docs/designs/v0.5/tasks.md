@@ -389,7 +389,7 @@
 
 ## task-16 · 还原 task-11 对 downloads.js 的范围外格式改动
 
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/public/downloads.js
