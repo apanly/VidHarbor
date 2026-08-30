@@ -206,7 +206,7 @@
 
 ## task-09 · 测试：更新既有契约测试并补新用例
 
-- 状态: failed
+- 状态: done
 - 依赖: task-01, task-04, task-05, task-06, task-07
 - 文件范围:
   - test/integration/pages.test.ts
