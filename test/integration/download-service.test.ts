@@ -17,6 +17,7 @@ import {
   retryDownload,
   moveDownload,
   listDownloadFolders,
+  deleteDownload,
   type DownloadQueue,
   type QueuedDownload,
 } from '../../src/services/download.js';
@@ -177,6 +178,76 @@ function insertVideo(
 
 function downloadRows(): unknown[] {
   return database.prepare('SELECT * FROM downloads ORDER BY id').all();
+}
+
+function insertPendingFolderRow(
+  platformVideoId: string,
+  targetSubdirectory: string | null,
+): number {
+  const result = database
+    .prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, archive_layout, status, target_subdirectory, created_at
+      ) VALUES (
+        'direct', ?, 'generic', ?, ?, 'direct', 'download_directory',
+        'pending', ?, ?
+      )`,
+    )
+    .run(
+      `https://media.example/${platformVideoId}`,
+      platformVideoId,
+      `Folder ${platformVideoId}`,
+      targetSubdirectory,
+      NOW.toISOString(),
+    );
+  return Number(result.lastInsertRowid);
+}
+
+async function insertCompletedArchive(
+  platformVideoId: string,
+  targetSubdirectory: string | null,
+): Promise<{
+  readonly id: number;
+  readonly outputPath: string;
+  readonly directory: string;
+}> {
+  const result = database
+    .prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, archive_layout, status, output_path, output_size_bytes,
+        target_subdirectory, created_at, finished_at
+      ) VALUES (
+        'direct', ?, 'generic', ?, ?, 'direct', 'download_directory',
+        'completed', ?, 5, ?, ?, ?
+      )`,
+    )
+    .run(
+      `https://media.example/${platformVideoId}`,
+      platformVideoId,
+      `Archived ${platformVideoId}`,
+      join(downloadRoot, 'pending-path'),
+      targetSubdirectory,
+      NOW.toISOString(),
+      NOW.toISOString(),
+    );
+  const id = Number(result.lastInsertRowid);
+  const realDownloadRoot = await realpath(downloadRoot);
+  const directory = join(
+    realDownloadRoot,
+    targetSubdirectory ?? '',
+    String(id),
+  );
+  await mkdir(directory, { recursive: true });
+  const outputPath = join(directory, `${platformVideoId}.mp4`);
+  await writeFile(outputPath, 'media');
+  database
+    .prepare(
+      'UPDATE downloads SET output_path = ?, output_size_bytes = ? WHERE id = ?',
+    )
+    .run(outputPath, Buffer.byteLength('media'), id);
+  return { id, outputPath, directory };
 }
 
 function expectSingleConcurrentSuccess(
@@ -1007,5 +1078,184 @@ describe('download creation service', () => {
     await retryDownload(database, downloadRoot, result.id, queue, NOW);
 
     expect(queued[0]?.targetSubdirectory).toBe('season-01/episode-03');
+  });
+
+  it('rejects a direct input that omits targetSubdirectory', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        {
+          url: GENERIC_VIDEO_URL,
+          proxyId: null,
+          advancedOptions: DEFAULT_ADVANCED_OPTIONS,
+        },
+        queue,
+        NOW,
+      ),
+      'VALIDATION_ERROR',
+    );
+    expect(downloadRows()).toHaveLength(0);
+    expect(queued).toHaveLength(0);
+  });
+
+  it('stores a channel target_subdirectory on every download in the batch', async () => {
+    const channelId = insertChannel(null);
+    const firstId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+    const secondId = insertVideo(channelId, SECOND_VIDEO_ID, 'Second title', '2026-07-16');
+
+    const created = await createChannelDownloads(
+      database,
+      downloadRoot,
+      [firstId, secondId],
+      queue,
+      NOW,
+      'channel',
+      undefined,
+      'season-01/episode-03',
+    );
+
+    expect(created).toHaveLength(2);
+    expect(
+      database
+        .prepare(
+          'SELECT target_subdirectory FROM downloads WHERE id IN (?, ?) ORDER BY id',
+        )
+        .all(created[0].id, created[1].id),
+    ).toEqual([
+      { target_subdirectory: 'season-01/episode-03' },
+      { target_subdirectory: 'season-01/episode-03' },
+    ]);
+    expect(queued.map((job) => job.targetSubdirectory)).toEqual([
+      'season-01/episode-03',
+      'season-01/episode-03',
+    ]);
+  });
+});
+
+describe('download folder move and subdirectory delete', () => {
+  it('moves a completed download directory into a new subdirectory', async () => {
+    const archived = await insertCompletedArchive('move-source', null);
+    const realDownloadRoot = await realpath(downloadRoot);
+    const movedDirectory = join(
+      realDownloadRoot,
+      'season-01',
+      String(archived.id),
+    );
+    const movedPath = join(movedDirectory, 'move-source.mp4');
+
+    await moveDownload(database, downloadRoot, archived.id, {
+      targetSubdirectory: 'season-01',
+    });
+
+    expect(
+      database
+        .prepare(
+          'SELECT output_path, target_subdirectory, status FROM downloads WHERE id = ?',
+        )
+        .get(archived.id),
+    ).toEqual({
+      output_path: movedPath,
+      target_subdirectory: 'season-01',
+      status: 'completed',
+    });
+    await expect(readFile(movedPath, 'utf8')).resolves.toBe('media');
+    await expect(access(archived.directory)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('rejects moving onto an existing download directory', async () => {
+    const archived = await insertCompletedArchive('move-conflict', null);
+    const realDownloadRoot = await realpath(downloadRoot);
+    const targetDirectory = join(
+      realDownloadRoot,
+      'taken',
+      String(archived.id),
+    );
+    await mkdir(targetDirectory, { recursive: true });
+    await writeFile(join(targetDirectory, 'existing.mp4'), 'kept');
+
+    await expectBusinessError(
+      moveDownload(database, downloadRoot, archived.id, {
+        targetSubdirectory: 'taken',
+      }),
+      'DOWNLOAD_MOVE_FAILED',
+    );
+
+    expect(
+      database
+        .prepare('SELECT output_path, target_subdirectory FROM downloads WHERE id = ?')
+        .get(archived.id),
+    ).toEqual({
+      output_path: archived.outputPath,
+      target_subdirectory: null,
+    });
+    await expect(readFile(archived.outputPath, 'utf8')).resolves.toBe('media');
+    await expect(readFile(join(targetDirectory, 'existing.mp4'), 'utf8')).resolves.toBe(
+      'kept',
+    );
+  });
+
+  it('rejects moving a download that is not completed', async () => {
+    const pending = await createDirectDownload(
+      database,
+      taskManager,
+      downloadRoot,
+      directInput(GENERIC_VIDEO_URL, null),
+      queue,
+      NOW,
+    );
+
+    await expectBusinessError(
+      moveDownload(database, downloadRoot, pending.id, {
+        targetSubdirectory: 'season-01',
+      }),
+      'VALIDATION_ERROR',
+    );
+  });
+
+  it('lists distinct recent target subdirectories newest first', async () => {
+    insertPendingFolderRow('folder-old', 'folder-old');
+    insertPendingFolderRow('folder-new', 'folder-new');
+    insertPendingFolderRow('folder-old-again', 'folder-old');
+    insertPendingFolderRow('folder-null', null);
+
+    expect(listDownloadFolders(database)).toEqual(['folder-old', 'folder-new']);
+  });
+
+  it('caps the recent folder list at 20 entries', async () => {
+    for (let index = 1; index <= 21; index += 1) {
+      insertPendingFolderRow(
+        `folder-cap-${String(index).padStart(2, '0')}`,
+        `folder-${String(index).padStart(2, '0')}`,
+      );
+    }
+
+    expect(listDownloadFolders(database)).toEqual(
+      Array.from({ length: 20 }, (_, index) =>
+        `folder-${String(21 - index).padStart(2, '0')}`,
+      ),
+    );
+  });
+
+  it('deletes a completed download archived under a target subdirectory', async () => {
+    const archived = await insertCompletedArchive(
+      'delete-subdir',
+      'season-01/episode-03',
+    );
+
+    await deleteDownload(database, downloadRoot, archived.id);
+
+    expect(
+      database.prepare('SELECT id FROM downloads WHERE id = ?').get(archived.id),
+    ).toBeUndefined();
+    await expect(access(archived.directory)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expect(access(archived.outputPath)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   });
 });

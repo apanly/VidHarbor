@@ -18,6 +18,7 @@ import {
   validateChannelName,
   validateDownloadFile,
   validateDownloadRoot,
+  validateTargetSubdirectory,
 } from '../../src/filesystem.js';
 
 let sandbox: string;
@@ -71,6 +72,21 @@ describe('validateChannelName', () => {
   ])('rejects the non-contract channel name %j', (name) => {
     expect(() => validateChannelName(name)).toThrow();
   });
+});
+
+describe('validateTargetSubdirectory', () => {
+  it('returns a valid relative subdirectory unchanged', () => {
+    expect(validateTargetSubdirectory('season-01/episode-03')).toBe(
+      'season-01/episode-03',
+    );
+  });
+
+  it.each(['..', 'a//b', '/absolute', 'x'.repeat(81)])(
+    'rejects the non-contract subdirectory %j',
+    (value) => {
+      expect(() => validateTargetSubdirectory(value)).toThrow(BusinessError);
+    },
+  );
 });
 
 describe('validateDownloadRoot', () => {
