@@ -1181,7 +1181,7 @@ describe('download folder move and subdirectory delete', () => {
       moveDownload(database, downloadRoot, archived.id, {
         targetSubdirectory: 'taken',
       }),
-      'DOWNLOAD_MOVE_FAILED',
+      'DOWNLOAD_MOVE_TARGET_EXISTS',
     );
 
     expect(
@@ -1196,6 +1196,38 @@ describe('download folder move and subdirectory delete', () => {
     await expect(readFile(join(targetDirectory, 'existing.mp4'), 'utf8')).resolves.toBe(
       'kept',
     );
+  });
+
+  it('rejects moving onto an existing empty download directory', async () => {
+    const archived = await insertCompletedArchive('move-empty-conflict', null);
+    const realDownloadRoot = await realpath(downloadRoot);
+    const targetDirectory = join(
+      realDownloadRoot,
+      'taken-empty',
+      String(archived.id),
+    );
+    await mkdir(targetDirectory, { recursive: true });
+
+    await expectBusinessError(
+      moveDownload(database, downloadRoot, archived.id, {
+        targetSubdirectory: 'taken-empty',
+      }),
+      'DOWNLOAD_MOVE_TARGET_EXISTS',
+    );
+
+    expect(
+      database
+        .prepare('SELECT output_path, target_subdirectory FROM downloads WHERE id = ?')
+        .get(archived.id),
+    ).toEqual({
+      output_path: archived.outputPath,
+      target_subdirectory: null,
+    });
+    await expect(readFile(archived.outputPath, 'utf8')).resolves.toBe('media');
+    await expect(access(targetDirectory)).resolves.toBeUndefined();
+    await expect(
+      access(join(targetDirectory, 'move-empty-conflict.mp4')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rejects moving a download that is not completed', async () => {

@@ -529,7 +529,7 @@
 
 ## task-22 · 目标已存在负向用例改为 DOWNLOAD_MOVE_TARGET_EXISTS
 
-- 状态: pending
+- 状态: done
 - 依赖: task-21
 - 文件范围:
   - test/integration/download-service.test.ts
