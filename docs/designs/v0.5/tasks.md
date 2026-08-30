@@ -412,7 +412,7 @@
 
 ## task-17 · move 路由精确校验 body 形状
 
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/routes/downloads.ts

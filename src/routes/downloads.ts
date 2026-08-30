@@ -240,6 +240,34 @@ function parseChannelInput(input: unknown): ChannelDownloadInput {
   };
 }
 
+function parseMoveInput(input: unknown): {
+  readonly targetSubdirectory: string;
+} {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new BusinessError('VALIDATION_ERROR', 'invalid move download input');
+  }
+
+  const keys = Object.keys(input);
+  if (keys.length !== 1 || !keys.includes('targetSubdirectory')) {
+    throw new BusinessError('VALIDATION_ERROR', 'invalid move download input');
+  }
+
+  const value = input as Record<string, unknown>;
+  // The route only enforces the declared shape; subdirectory string rules
+  // ('.' / '..' / empty segments) stay in the service.
+  if (
+    value.targetSubdirectory !== null &&
+    typeof value.targetSubdirectory !== 'string'
+  ) {
+    throw new BusinessError('VALIDATION_ERROR', 'invalid move download input');
+  }
+  // SAFETY: HTTP body allows string | null; MoveDownloadInput currently types
+  // the field as string, so null is passed through for the service to handle.
+  return {
+    targetSubdirectory: value.targetSubdirectory as string,
+  };
+}
+
 function parseDownloadTab(value: unknown): DownloadTab {
   if (value === undefined) return 'all';
   if (value !== 'active' && value !== 'completed' && value !== 'failed') {
@@ -509,7 +537,7 @@ export function createDownloadsRouter(
       database,
       downloadsMountPath,
       parseDownloadId(request.params.id),
-      request.body,
+      parseMoveInput(request.body),
     );
     response.status(204).end();
   });
