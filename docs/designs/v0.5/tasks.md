@@ -261,7 +261,7 @@
 
 ## task-11 · 清理重格式漂移 + 补 i18n 错误码映射
 
-- 状态: pending
+- 状态: failed
 - 依赖: task-09
 - 文件范围:
   - src/public/channel-detail.js
