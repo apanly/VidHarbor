@@ -4,7 +4,7 @@
 
 ## task-01 · 相对子目录校验函数
 
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/filesystem.ts
