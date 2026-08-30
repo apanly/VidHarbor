@@ -98,7 +98,7 @@
 
 ## task-05 · 下载服务：移动与最近文件夹
 
-- 状态: pending
+- 状态: done
 - 依赖: task-01, task-02, task-04
 - 文件范围:
   - src/services/download.ts

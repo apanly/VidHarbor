@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
-import { BusinessError } from '../../src/errors.js';
+import type { BusinessError } from '../../src/errors.js';
 import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import {
   createChannelDownloads,
@@ -15,6 +15,8 @@ import {
   cancelDownload,
   getDownloadFile,
   retryDownload,
+  moveDownload,
+  listDownloadFolders,
   type DownloadQueue,
   type QueuedDownload,
 } from '../../src/services/download.js';
@@ -1006,5 +1008,4 @@ describe('download creation service', () => {
 
     expect(queued[0]?.targetSubdirectory).toBe('season-01/episode-03');
   });
-
 });
