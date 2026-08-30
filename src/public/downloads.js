@@ -286,7 +286,24 @@ function renderActions(article, download) {
     file.className = "btn btn-sm btn-outline-secondary";
     file.href = `/api/downloads/${download.id}/file`;
     file.textContent = t("downloads.downloadFile");
-    actions.append(preview, file);
+    const move = document.createElement("button");
+    move.className = "btn btn-sm btn-outline-secondary";
+    move.type = "button";
+    move.textContent = t("downloads.move");
+    move.addEventListener("click", () => {
+      const input = prompt(
+        t("downloads.movePrompt", { title: download.title }),
+        download.targetSubdirectory ?? "",
+      );
+      if (input === null) return;
+      void mutateDownload(
+        `/api/downloads/${download.id}/move`,
+        "POST",
+        { targetSubdirectory: nullableText(input) },
+        move,
+      );
+    });
+    actions.append(preview, file, move);
   }
   const original = document.createElement("a");
   original.className = "btn btn-sm btn-outline-secondary";
@@ -416,7 +433,7 @@ function updateDownloadCard(article, previous, download) {
     t(
       download.sourceType === "channel"
         ? "downloads.source.channel"
-        : "downloads.source.direct",
+        : "downloads.source.direct"
     ),
   );
   setField(

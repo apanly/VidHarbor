@@ -457,7 +457,7 @@
 
 ## task-19 · 直下载页 completed 项增加移动入口
 
-- 状态: pending
+- 状态: done
 - 依赖: task-15, task-16, task-20
 - 文件范围:
   - src/public/downloads.js
