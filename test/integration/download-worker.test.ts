@@ -891,18 +891,29 @@ if (args.includes('--skip-download')) {
     await expectTaskDirectoryRemoved(downloadId);
   });
 
-  it('archives to a configured target subdirectory', async () => {
+  it('creates a missing nested target subdirectory when archiving', async () => {
     const realDownloadRoot = await realpath(downloadRoot);
+    const subdirectory = 'season-01/episode-03';
     const downloadId = insertPending(FIRST_VIDEO_ID);
+    await expect(access(join(downloadRoot, subdirectory))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
     const worker = createWorker();
     worker.enqueue(
-      job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success', downloadRoot, undefined, 'Saved channel'),
+      job(
+        downloadId,
+        FIRST_VIDEO_ID,
+        'fixture://worker-success',
+        downloadRoot,
+        undefined,
+        subdirectory,
+      ),
     );
     await worker.waitForIdle();
 
     const expectedPath = join(
       realDownloadRoot,
-      'Saved channel',
+      subdirectory,
       String(downloadId),
       `${FIRST_VIDEO_ID}.mp4`,
     );
@@ -911,7 +922,7 @@ if (args.includes('--skip-download')) {
       output_path: expectedPath,
     });
     await expect(
-      readdir(join(downloadRoot, 'Saved channel', String(downloadId))),
+      readdir(join(downloadRoot, subdirectory, String(downloadId))),
     ).resolves.toEqual(expect.arrayContaining([`${FIRST_VIDEO_ID}.mp4`]));
     await expect(readFile(expectedPath, 'utf8')).resolves.toBe('media');
     await expectTaskDirectoryRemoved(downloadId);

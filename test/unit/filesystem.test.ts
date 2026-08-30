@@ -84,7 +84,13 @@ describe('validateTargetSubdirectory', () => {
   it.each(['..', 'a//b', '/absolute', 'x'.repeat(81)])(
     'rejects the non-contract subdirectory %j',
     (value) => {
-      expect(() => validateTargetSubdirectory(value)).toThrow(BusinessError);
+      try {
+        validateTargetSubdirectory(value);
+        expect.unreachable('expected VALIDATION_ERROR');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BusinessError);
+        expect(error).toMatchObject({ code: 'VALIDATION_ERROR' });
+      }
     },
   );
 });
