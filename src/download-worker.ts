@@ -23,9 +23,9 @@ import {
   isYtDlpTaskCancellationError,
   YtDlpTaskCancellationError,
 } from './yt-dlp-task-cancellation.js';
-import type {
-  YtDlpOperations,
-  YtDlpTaskManager,
+import {
+  type YtDlpOperations,
+  type YtDlpTaskManager,
 } from './yt-dlp-task-manager.js';
 
 const RESTART_FAILURE_REASON = 'service restarted before task completed';

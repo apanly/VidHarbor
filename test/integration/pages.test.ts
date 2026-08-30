@@ -1174,7 +1174,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain('抖音公开单视频');
     expect(html).not.toContain('Vimeo');
     expect(html).toContain('name="proxyId"');
-    expect(script).toContain('request("/api/proxies")');
+    expect(script).toContain("request('/api/proxies')");
     expect(html).toContain('name="targetSubdirectory"');
     expect(html).not.toContain('name="writeThumbnail"');
     expect(html).not.toContain('name="filenamePreset"');
@@ -1186,15 +1186,11 @@ describe('server-rendered pages', () => {
     expect(script).toContain('format: null');
     expect(script).toContain('splitChapters: false');
     expect(script).not.toContain('filenamePreset');
-    expect(script).toContain('request("/api/downloads/direct", "POST", {');
-    expect(script).toContain(
-      'targetSubdirectory: nullableText(form.elements.targetSubdirectory.value)',
-    );
-    expect(script).toContain('advancedOptions: advancedOptions(form),');
-    expect(script).toContain('let selectedTab = "completed"');
-    expect(script).toContain('facebook: "Facebook"');
-    expect(script).toContain('douyin: "抖音"');
-    expect(script).toContain('thumbnail.referrerPolicy = "no-referrer"');
+    expect(script).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) })");
+    expect(script).toContain("let selectedTab = 'completed'");
+    expect(script).toContain("facebook: 'Facebook'");
+    expect(script).toContain("douyin: '抖音'");
+    expect(script).toContain("thumbnail.referrerPolicy = 'no-referrer'");
     expect(html).not.toMatch(/name="(?:autoplay|autoDownload)"/);
     expect(html).not.toContain('proxy.url');
   });
@@ -1255,79 +1251,63 @@ describe('server-rendered pages', () => {
     const script = await getPublicScript('downloads.js');
 
     expect(html).toContain('id="download-list" class="download-list d-grid gap-3 mt-3"');
-    expect(script).toContain('article.className = "download-card border rounded-4"');
-    expect(script).toContain(
-      '"download-card-header d-flex flex-column flex-sm-row align-items-start justify-content-between gap-3"',
-    );
-    expect(script).toContain('metrics.className = "download-card-metrics d-grid gap-3 mt-3 border-top"');
-    expect(script).toContain('t("field.failureReason")');
-    expect(script).toContain('"download-card-failure border-top"');
-    expect(script).toContain('meta.className = "download-card-meta d-flex flex-wrap gap-2 mt-2"');
-    expect(script).toContain(
-      '"download-card-actions d-flex flex-wrap gap-2 flex-shrink-0"',
-    );
-    expect(script).toContain('const source = fieldElement("span", "badge download-source"');
-    expect(script).toContain('const platform = fieldElement("span", "badge download-platform"');
+    expect(script).toContain("article.className = 'download-card border rounded-4'");
+    expect(script).toContain("header.className = 'download-card-header d-flex flex-column flex-sm-row align-items-start justify-content-between gap-3'");
+    expect(script).toContain("metrics.className = 'download-card-metrics d-grid gap-3 mt-3 border-top'");
+    expect(script).toContain("failure = detail(t('field.failureReason'), 'failureReason', 'download-card-failure border-top')");
+    expect(script).toContain("meta.className = 'download-card-meta d-flex flex-wrap gap-2 mt-2'");
+    expect(script).toContain("actions.className = 'download-card-actions d-flex flex-wrap gap-2 flex-shrink-0'");
+    expect(script).toContain("const source = fieldElement('span', 'badge download-source'");
+    expect(script).toContain("const platform = fieldElement('span', 'badge download-platform'");
     expect(html).not.toContain('<thead>');
     expect(html).not.toContain('<th>标题</th>');
-    expect(script).toContain('pending: "status.download.pending"');
-    expect(script).toContain('running: "status.download.running"');
-    expect(script).toContain('downloading: "status.download.downloading"');
-    expect(script).toContain('completed: "status.download.completed"');
-    expect(script).toContain('failed: "status.download.failed"');
-    expect(script).toContain('canceled: "status.download.canceled"');
-    expect(script).toContain('interrupted: "status.download.interrupted"');
-    expect(script).toContain('download.sourceType === "channel"');
-    expect(script).toContain('"downloads.source.channel"');
-    expect(script).toContain('"downloads.source.direct"');
+    expect(script).toContain("pending: 'status.download.pending'");
+    expect(script).toContain("running: 'status.download.running'");
+    expect(script).toContain("downloading: 'status.download.downloading'");
+    expect(script).toContain("completed: 'status.download.completed'");
+    expect(script).toContain("failed: 'status.download.failed'");
+    expect(script).toContain("canceled: 'status.download.canceled'");
+    expect(script).toContain("interrupted: 'status.download.interrupted'");
+    expect(script).toContain("download.sourceType === 'channel' ? 'downloads.source.channel' : 'downloads.source.direct'");
     expect(script).toContain("platformLabels[download.platform] ?? download.platform");
     expect(script).toContain('download.title');
     expect(script).toContain('download.failureReason');
     expect(script).toContain('download.progressPercent');
     expect(script).toContain('download.speedText');
     expect(script).toContain('download.etaSeconds');
-    expect(script).toContain('new EventSource(downloadUrl("/api/downloads/events"))');
+    expect(script).toContain("new EventSource(downloadUrl('/api/downloads/events'))");
     expect(script).toContain('download.startedAt');
     expect(script).toContain('download.finishedAt');
     expect(script).toContain('download.outputSizeBytes');
-    expect(script).toContain('detail(t("downloads.totalDuration"), "durationSeconds")');
-    expect(script).toContain('detail(t("field.fileSize"), "outputSizeBytes")');
-    expect(script).toContain('detail(t("downloads.elapsed"), "downloadElapsedSeconds")');
-    expect(script).toContain('detail(t("field.finishedAt"), "finishedAt")');
-    expect(script).toContain(
-      'detail(t("field.storagePath"), "outputPath", "download-card-storage")',
-    );
+    expect(script).toContain("detail(t('downloads.totalDuration'), 'durationSeconds')");
+    expect(script).toContain("detail(t('field.fileSize'), 'outputSizeBytes')");
+    expect(script).toContain("detail(t('downloads.elapsed'), 'downloadElapsedSeconds')");
+    expect(script).toContain("detail(t('field.finishedAt'), 'finishedAt')");
+    expect(script).toContain("detail(t('field.storagePath'), 'outputPath', 'download-card-storage')");
     expect(script).toContain('download.proxyName');
-    expect(script).toContain(
-      'download.networkMode === "direct" ? t("common.direct") : download.proxyName',
-    );
-    expect(script).toContain('download.status === "pending" ||');
-    expect(script).toContain('download.status === "running" ||');
-    expect(script).toContain('download.status === "downloading"');
-    expect(script).toContain("`/api/downloads/${download.id}/cancel`");
-    expect(script).toContain('download.status === "failed" ||');
-    expect(script).toContain('download.status === "canceled" ||');
-    expect(script).toContain('download.status === "interrupted"');
-    expect(script).toContain("`/api/downloads/${download.id}/retry`");
+    expect(script).toContain("download.networkMode === 'direct' ? t('common.direct') : download.proxyName");
+    expect(script).toContain("download.status === 'pending' || download.status === 'running' || download.status === 'downloading'");
+    expect(script).toContain("mutateDownload(`/api/downloads/${download.id}/cancel`, 'POST', {}, cancel)");
+    expect(script).toContain("download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted'");
+    expect(script).toContain("mutateDownload(`/api/downloads/${download.id}/retry`, 'POST', {}, retry)");
     expect(script).toContain('if (trigger.disabled) return;');
     expect(script).toContain('trigger.disabled = true;');
     expect(script).toContain('if (trigger.isConnected) trigger.disabled = false;');
-    expect(script).toContain('download.status === "completed" ||');
-    expect(script).toContain('t("downloads.deleteConfirm", { title: download.title })');
-    expect(script).toContain("`/api/downloads/${download.id}`");
-    expect(script).toContain('"DELETE"');
+    expect(script).toContain("download.status === 'completed' || download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted'");
+    expect(script).toContain("confirm(t('downloads.deleteConfirm', { title: download.title }))");
+    expect(script).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
     expect(script).not.toContain('location.reload()');
     expect(script).not.toContain("list.textContent = ''");
     expect(script).toContain('if (field.textContent !== nextValue)');
-    expect(script).toContain('previous === undefined ||');
-    expect(script).toContain('JSON.stringify(previous) !== JSON.stringify(download)');
-    expect(script).toContain('downloadEvents.addEventListener("downloads"');
-    expect(script).toContain('if (download.status === "completed")');
+    expect(script).toContain('previous === undefined || JSON.stringify(previous) !== JSON.stringify(download)');
+    expect(script).toContain("downloadEvents.addEventListener('downloads'");
+    expect(script).toContain("if (download.status === 'completed')");
     expect(script).toContain('`/downloads/preview?id=${download.id}`');
     expect(script).toContain('`/api/downloads/${download.id}/file`');
+    expect(script).toContain("mutateDownload(`/api/downloads/${download.id}/move`, 'POST', { targetSubdirectory: nullableText(input) }, move)");
     expect(script).toContain('original.href = download.sourceUrl');
-    expect(script).toContain('original.target = "_blank"');
-    expect(script).toContain('original.rel = "noopener noreferrer"');
+    expect(script).toContain("original.target = '_blank'");
+    expect(script).toContain("original.rel = 'noopener noreferrer'");
     expect(html.replace(/<script id="vidharbor-i18n"[\s\S]*?<\/script>/, '')).not.toMatch(/自动下载|播放/);
 
     const requestSource = script.slice(
@@ -1417,8 +1397,8 @@ describe('server-rendered pages', () => {
     expect(html).toContain('class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="active"');
     expect(html).toContain('class="download-tab nav-link active" type="button" role="tab" aria-selected="true" aria-controls="download-list" data-download-tab="completed"');
     expect(html).toContain('class="download-tab nav-link" type="button" role="tab" aria-selected="false" aria-controls="download-list" data-download-tab="failed"');
-    expect(script).toContain('let selectedTab = "completed"');
-    expect(script).toContain('button.classList.toggle("active", active)');
+    expect(script).toContain("let selectedTab = 'completed'");
+    expect(script).toContain("button.classList.toggle('active', active)");
     expect(html).toContain('id="download-empty-state" class="download-empty-state position-relative overflow-hidden text-center mt-3"');
     expect(html).toContain('class="download-empty-mark d-inline-grid"');
     expect(html).toContain('data-empty-title');
@@ -1437,14 +1417,9 @@ describe('server-rendered pages', () => {
       emptyStateFor(tab: string, query: string, total: number): { title: string; action: string };
     };
 
-    expect(script).toContain('new URLSearchParams({');
-    expect(script).toContain('page: String(page),');
-    expect(script).toContain('tab: selectedTab,');
-    expect(script).toContain('parameters.set("q", searchQuery)');
-    expect(script).toContain('statusCounts.pending +');
-    expect(script).toContain('statusCounts.downloading +');
-    expect(script).toContain('statusCounts.running +');
-    expect(script).toContain('statusCounts.deleting;');
+    expect(script).toContain("new URLSearchParams({ page: String(page), tab: selectedTab })");
+    expect(script).toContain("parameters.set('q', searchQuery)");
+    expect(script).toContain('statusCounts.pending + statusCounts.downloading + statusCounts.running');
     expect(script).toContain('statusCounts.failed + statusCounts.canceled + statusCounts.interrupted');
     expect(helpers.emptyStateFor('active', '', 0)).toMatchObject({ title: '还没有下载任务', action: 'create' });
     expect(helpers.emptyStateFor('active', '测试', 2)).toMatchObject({ title: '没有找到“测试”', action: 'clear' });
@@ -1612,11 +1587,9 @@ describe('server-rendered pages', () => {
     expect(helpers.formatBytes(null)).toBe('—');
     expect(script).toContain('formatTimestamp(download.startedAt)');
     expect(script).toContain('formatTimestamp(download.finishedAt)');
-    expect(script).toContain('setField(article, "outputSizeBytes", formatBytes(download.outputSizeBytes))');
-    expect(script).toContain('setField(');
-    expect(script).toContain('"downloadElapsedSeconds"');
-    expect(script).toContain('downloadElapsedSeconds(download.startedAt, download.finishedAt)');
-    expect(script).toContain('setField(article, "outputPath", download.outputPath)');
+    expect(script).toContain("setField(article, 'outputSizeBytes', formatBytes(download.outputSizeBytes))");
+    expect(script).toContain("setField(article, 'downloadElapsedSeconds', formatDuration(downloadElapsedSeconds(download.startedAt, download.finishedAt)))");
+    expect(script).toContain("setField(article, 'outputPath', download.outputPath)");
   });
 
   it('uses China Standard Time for every visible timestamp', async () => {
@@ -1631,7 +1604,7 @@ describe('server-rendered pages', () => {
     expect(timeScript).toContain("timeZone: 'Asia/Shanghai'");
     expect(channelsScript).toContain("from '/public/time.js'");
     expect(channelDetailScript).toContain("from '/public/time.js'");
-    expect(downloadsScript).toContain('from "/public/time.js"');
+    expect(downloadsScript).toContain("from '/public/time.js'");
     expect(notificationsScript).toContain("from '/public/time.js'");
     expect(channelDetailScript).not.toContain('toLocaleString');
     expect(downloadsScript).not.toMatch(/get(?:FullYear|Month|Date|Hours|Minutes|Seconds)\(/);
@@ -1975,10 +1948,9 @@ describe('server-rendered pages', () => {
     expect(settingsScript).toContain('if (!confirmed) return;');
     expect(settingsScript).toContain("request(`/api/proxies/${proxy.id}`, 'DELETE')");
 
-    expect(downloadsScript).toContain('t("downloads.deleteConfirm", { title: download.title })');
+    expect(downloadsScript).toContain("confirm(t('downloads.deleteConfirm', { title: download.title }))");
     expect(downloadsScript).toContain('if (!confirmed) return;');
-    expect(downloadsScript).toContain("`/api/downloads/${download.id}`");
-    expect(downloadsScript).toContain('"DELETE"');
+    expect(downloadsScript).toContain("mutateDownload(`/api/downloads/${download.id}`, 'DELETE', undefined, remove)");
 
     expect(authorizationsScript).toContain("confirm(t('authorizations.deleteConfirm', { platform: label }))");
     expect(authorizationsScript).toContain('if (!confirmed) return;');

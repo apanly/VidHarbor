@@ -223,16 +223,12 @@ function parseChannelInput(input: unknown): ChannelDownloadInput {
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel download input');
   }
-  // The route only enforces the declared shape; the service guarantees the
-  // target_subdirectory value is a valid single-level path (plan §3.2 contract).
   if (
     value.targetSubdirectory !== null &&
     typeof value.targetSubdirectory !== 'string'
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid channel download input');
   }
-  // SAFETY: request body is untyped input; videoIds carries raw numbers from a
-  // client, validated above and promoted to an immutable readonly tuple.
   return {
     videoIds: videoIds as unknown as readonly number[],
     proxyId: value.proxyId as ChannelDownloadProxySelection,
@@ -241,7 +237,7 @@ function parseChannelInput(input: unknown): ChannelDownloadInput {
 }
 
 function parseMoveInput(input: unknown): {
-  readonly targetSubdirectory: string;
+  readonly targetSubdirectory: string | null;
 } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid move download input');
@@ -253,18 +249,14 @@ function parseMoveInput(input: unknown): {
   }
 
   const value = input as Record<string, unknown>;
-  // The route only enforces the declared shape; subdirectory string rules
-  // ('.' / '..' / empty segments) stay in the service.
   if (
     value.targetSubdirectory !== null &&
     typeof value.targetSubdirectory !== 'string'
   ) {
     throw new BusinessError('VALIDATION_ERROR', 'invalid move download input');
   }
-  // SAFETY: HTTP body allows string | null; MoveDownloadInput currently types
-  // the field as string, so null is passed through for the service to handle.
   return {
-    targetSubdirectory: value.targetSubdirectory as string,
+    targetSubdirectory: value.targetSubdirectory as string | null,
   };
 }
 
