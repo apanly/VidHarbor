@@ -232,3 +232,109 @@
   1. `grep -rn "validateTargetSubdirectory" test/unit/filesystem.test.ts` → 命中
   2. `grep -n "targetSubdirectory" test/integration/pages.test.ts` → 命中（含正向断言）
   3. `npx vitest run` → 全绿
+
+## task-10 · 补完 task-07 直下载页 targetSubdirectory / move / folders
+
+- 状态: done
+- 依赖: task-01, task-04, task-05, task-06
+- 文件范围:
+  - src/views/downloads.ejs
+  - src/public/downloads.js
+  - src/i18n.ts
+- 关键约束:
+  - 这是 task-07 的未完成部分：`src/views/downloads.ejs` 与 `src/public/downloads.js` 目前**零** targetSubdirectory / `/move` / `/folders` 逻辑（`grep -c` 结果均为 0），但 task-09 验收要求 `pages.test.ts` 断言**直下载表单含 `name="targetSubdirectory"`、直下载 POST 体含 `targetSubdirectory`**，故直下载页功能必须实际存在，测试才成立
+  - 参照 channel-detail.ejs（已实现）的做法：工具条加 `targetSubdirectory` 输入框 + datalist（`/api/downloads/folders` 填充）；`downloads.js` 提交体带 `targetSubdirectory`（空→null）、接 `/move`、`/folders`、subdir 删除
+  - 不能新增未在 i18n 定义的裸文案；新增文案写入 `src/i18n.ts` 的 zhCN/enUS
+- 任务目的: 对应 plan §3.2 UI（直下载页），补全 task-07 未实现的入口，使 task-09 验收可用的功能先存在
+- 实现入口: src/views/downloads.ejs 直下载工具条；src/public/downloads.js `form.addEventListener('submit')`、`load()`
+- 期望行为:
+  - 直下载页新增 `name="targetSubdirectory"` 输入框 + datalist；`load()` 拉 `/api/downloads/folders` 填充
+  - 提交体 `{ videoIds, targetSubdirectory }`（空→null）；实现 `/move`（生成归档 zip）、`/folders`（目录列表）、subdir 删除
+  - `src/i18n.ts` 补充对应 zhCN/enUS 文案
+- 范围边界:
+  - 必须: 空输入提交 null；直下载页可提交 targetSubdirectory
+  - 不能: 改动 proxyId 既有选择逻辑；直下载页加目录浏览对话框
+  - 不做: 不在本任务写测试（归 task-12）
+- 验收标准:
+  1. `grep -c 'name="targetSubdirectory"' src/views/downloads.ejs` → 命中
+  2. `grep -n "targetSubdirectory" src/public/downloads.js` → 命中提交体与 `/move` `/folders`
+
+## task-11 · 清理重格式漂移 + 补 i18n 错误码映射
+
+- 状态: pending
+- 依赖: task-09
+- 文件范围:
+  - src/public/channel-detail.js
+  - src/i18n.ts
+  - src/public/i18n.js
+- 关键约束:
+  - **重格式漂移**：`src/public/channel-detail.js` 的未提交改动几乎全部是单引号→双引号、长行换行的重格式化（`git diff -w` 仅余 targetSubdirectory 内容，而 HEAD 已含 targetSubdirectory → 整个改动即纯漂移）。它导致两处失败：① `i18n.test.ts` 的 `t()` 解析器在多行 `t(fixedValue(...))` 的换行中引入 depth-0 尾逗号而抛错；② `pages.test.ts` 以单引号字符模式 grep 该文件而失败。**修复方式**：`src/public/channel-detail.js` 直接回退到 HEAD（HEAD 已含 targetSubdirectory 且为干净单引号格式）。
+  - `src/i18n.ts` 同样存在单引号→双引号重格式漂移，需回退干净格式；并补全 task-02 漏接的错误码：zhCN/enUS 目录缺少 `error.DOWNLOAD_MOVE_FAILED` 与 `error.DOWNLOAD_MOVE_TARGET_EXISTS`（`git show HEAD:src/i18n.ts` grep 为 0）。
+  - **i18n 错误码映射缺口**（task-02 遗留、HEAD 即存在、与格式漂移无关）：`src/public/i18n.js` 的 `API_ERROR_KEYS` 缺 `DOWNLOAD_MOVE_FAILED`/`DOWNLOAD_MOVE_TARGET_EXISTS`，而 `src/errors.ts` 的 `ERROR_HTTP_STATUS` 含此二键（30 键）。`i18n.test.ts > maps every current API error code` 断言 `Object.keys(API_ERROR_KEYS).sort() === Object.keys(ERROR_HTTP_STATUS).sort()`。须在 `API_ERROR_KEYS` 补这两键，并在 `i18n.ts` 目录补对应文案，`formatApiError` 才不返回 undefined。
+- 任务目的: 对应 task-09 验收（清理非必要格式漂移 + 保证必要测试通过，i18n 相关）
+- 实现入口: src/public/channel-detail.js（回退 HEAD）；src/i18n.ts（回退重格式 + 补文案）；src/public/i18n.js `API_ERROR_KEYS`
+- 期望行为:
+  - `src/public/channel-detail.js` 回退 HEAD，`git diff` 清空
+  - `src/i18n.ts` 回退干净单引号格式并补 `error.DOWNLOAD_MOVE_*` 文案
+  - `src/public/i18n.js` 的 `API_ERROR_KEYS` 补 `DOWNLOAD_MOVE_FAILED`（422）与 `DOWNLOAD_MOVE_TARGET_EXISTS`（409）
+- 范围边界:
+  - 必须: 三重文件回归干净且保留 targetSubdirectory / 错误码
+  - 不能: 为回退改动任何实际功能
+  - 不做: 不在本任务改动测试文件
+- 验收标准:
+  1. `git diff --stat src/public/channel-detail.js` → 无改动
+  2. `npx vitest run test/unit/i18n.test.ts` → 全绿（含“maps every current API error code”）
+
+## task-12 · 补并修正 task-09 既有契约测试 + 新增用例
+
+- 状态: pending
+- 依赖: task-10, task-11
+- 文件范围:
+  - test/integration/pages.test.ts
+  - test/integration/download-service.test.ts
+  - test/integration/download-worker.test.ts
+  - test/unit/filesystem.test.ts
+- 关键约束:
+  - **task-09 未完成（根因）**：「在配置时间不到一分钟时线程池 worker 超时退出，任务被打断未完成（前端与 i18n 测试已部分提交但未完成，无 result.json）」。本次按同一需求补齐并保证通过。
+  - `pages.test.ts`：当前 2 个失败来自 channel-detail.js 重格式漂移（回退后自动修复，归 task-11）；其余按 task-09 期望行为修正 —— 断言直下载/频道表单含 `name="targetSubdirectory"`（需 task-10 功能已存在）、直下载提交体含 `targetSubdirectory`。
+  - `download-service.test.ts`：`directInput` 助手与 channel 输入补 `targetSubdirectory`；新增 move / folders / 含 subdir 删除用例；当前该文件虽因重格式漂移存在但**未测**新功能，需补齐。
+  - `download-worker.test.ts`：新增 subdir 目录自动创建、`downloadId` 目录已存在即失败的用例。
+  - `filesystem.test.ts`：新建（或在现有文件补）`validateTargetSubdirectory` 的**正向 + 负向**（`..`、空段、绝对路径、超长）。
+  - 必须包含负向用例证明“不支持什么”；不能为了让旧断言通过而回退功能（task-07 的直下载页功能先由 task-10 补齐）。
+- 任务目的: 对应 task-09 明确的需求——更新既有契约测试、补新用例、覆盖 targetSubdirectory
+- 实现入口: test/integration/pages.test.ts（约 1177、1210 行断言）；test/integration/download-service.test.ts `directInput` 助手（约 48 行）；test/integration/download-worker.test.ts；test/unit/filesystem.test.ts
+- 期望行为:
+  - 更新 pages.test.ts：直下载/频道表单含 `name="targetSubdirectory"`、直下载提交体含 `targetSubdirectory`
+  - 更新 download-service.test.ts：`directInput` 与 channel 输入补 `targetSubdirectory`；新增 move / folders / 含 subdir 删除用例
+  - 更新 download-worker.test.ts：subdir 目录自动创建、`downloadId` 目录已存在失败
+  - 新建/补 filesystem.test.ts：`validateTargetSubdirectory` 正向与负向
+- 范围边界:
+  - 必须: 负向用例；targetSubdirectory 在各层的覆盖
+  - 不能: 引入新测试框架 / fixture 体系
+  - 不做: 不做端到端浏览器测试；不动 download-api.test.ts / server-lifecycle.test.ts（归 task-13）
+- 验收标准:
+  1. `grep -rn "validateTargetSubdirectory" test/unit/filesystem.test.ts` → 命中
+  2. `grep -n "targetSubdirectory" test/integration/pages.test.ts` → 命中（含正向断言）
+  3. `npx vitest run` → 全绿
+
+## task-13 · 修正 parseChannelInput 契约导致的全局测试失败
+
+- 状态: pending
+- 依赖: task-06
+- 文件范围:
+  - test/integration/download-api.test.ts
+  - test/integration/server-lifecycle.test.ts
+- 关键约束:
+  - **同根因**：`src/routes/downloads.ts` 的 `parseChannelInput` 要求请求体**精确匹配三键集合 `[videoIds, proxyId, targetSubdirectory]`**（task-06 契约）。`download-api.test.ts`（11 失败）与 `server-lifecycle.test.ts`（2 失败）中的 channel 提交测试体缺少 `targetSubdirectory`，导致 `parseChannelInput` 先因形状不匹配返回 400，而非预期的 202；其中 `download-api.test.ts` 第 524 行（unknown proxy → 期望 404）也因此在代理校验之前先触发 400。
+  - 这是 task-06 契约变更（done）后**既有测试未同步**的遗留；task-09 未完成时未被补上。修复方向是**更新测试体**补 `targetSubdirectory`（空→null），而非削弱 `parseChannelInput` 契约（契约是 design 硬要求，task-06 §3.2）。
+  - 两文件的失败是同一根因（channel 提交体缺键），按“同根因合并”处理为单一任务。
+- 任务目的: 保证必要测试通过（task-09 验收之“全绿”），同步 task-06 契约
+- 实现入口: test/integration/download-api.test.ts（channel 提交助手、unknown proxy 用例）；test/integration/server-lifecycle.test.ts（channel 提交用例）
+- 期望行为:
+  - 两处 channel 提交测试体补 `targetSubdirectory`，故发送 202 且 unknown proxy 经代理校验返回 404
+- 范围边界:
+  - 必须: 三键集合契约不变，测试体对齐契约
+  - 不能: 改 `parseChannelInput` 放宽校验
+  - 不做: 不动非 contract 无关的失败项
+- 验收标准:
+  1. `npx vitest run test/integration/download-api.test.ts test/integration/server-lifecycle.test.ts` → 全绿

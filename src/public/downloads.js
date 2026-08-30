@@ -219,6 +219,9 @@ async function load() {
   const proxies = await request('/api/proxies');
   const proxySelect = form.elements.proxyId;
   for (const proxy of proxies.items) { const option = document.createElement('option'); option.value = String(proxy.id); option.textContent = proxy.name; proxySelect.append(option); }
+  const folders = await request('/api/downloads/folders');
+  const folderDatalist = form.querySelector('#direct-folder-list');
+  for (const folder of folders.folders) { const option = document.createElement('option'); option.value = folder; folderDatalist.append(option); }
   await refreshDownloads(1);
 }
 
@@ -229,5 +232,5 @@ emptyAction.addEventListener('click', () => {
   if (emptyAction.dataset.action === 'active') { setSelectedTab('active'); return; }
   directDownloadModal.show();
 });
-form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
+form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
 load().catch((error) => showError(pageError, error));
