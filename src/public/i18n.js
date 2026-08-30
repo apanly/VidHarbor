@@ -77,7 +77,9 @@ export function createI18n(language, translations) {
         throw new TypeError('invalid API error');
       }
       if (!Object.hasOwn(API_ERROR_KEYS, error.code)) throw new TypeError(`unknown API error code: ${error.code}`);
-      return translate(API_ERROR_KEYS[error.code]);
+      const summary = translate(API_ERROR_KEYS[error.code]);
+      const detail = error.message.trim();
+      return detail === '' || detail === summary ? summary : `${summary}: ${detail}`;
     },
   });
 }

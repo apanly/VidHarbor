@@ -74,6 +74,15 @@ interface DirectDownloadInput {
   readonly targetSubdirectory: string | null;
 }
 
+export interface DirectDownloadPreview {
+  readonly platform: string;
+  readonly platformVideoId: string;
+  readonly title: string;
+  readonly durationSeconds: number | null;
+  readonly suggestedSubdirectory: string | null;
+  readonly targetSubdirectory: string | null;
+}
+
 export type ChannelDownloadProxySelection = 'channel' | number | null;
 
 interface ProxySelection {
@@ -125,6 +134,13 @@ interface RetryDownloadRow {
   readonly advanced_options_json: string | null;
   readonly proxy_url_snapshot: string | null;
   readonly target_subdirectory: string | null;
+}
+
+interface DirectProbe {
+  readonly input: DirectDownloadInput;
+  readonly proxy: ProxySelection;
+  readonly cookieFilePath?: string;
+  readonly metadata: Omit<DirectDownloadPreview, 'targetSubdirectory'>;
 }
 
 function persistenceError(): BusinessError {
@@ -313,11 +329,26 @@ async function findRetryCookieFilePath(
       );
 }
 
+function suggestDirectSubdirectory(metadata: Record<string, unknown>): string | null {
+  for (const key of ['channel', 'uploader']) {
+    const value = metadata[key];
+    if (typeof value !== 'string' || value.trim() === '') continue;
+    try {
+      return validateTargetSubdirectory(value);
+    } catch (error) {
+      if (!(error instanceof BusinessError)) throw error;
+      continue;
+    }
+  }
+  return null;
+}
+
 function parseDirectVideoMetadata(value: unknown): {
   readonly platform: string;
   readonly platformVideoId: string;
   readonly title: string;
   readonly durationSeconds: number | null;
+  readonly suggestedSubdirectory: string | null;
 } {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new BusinessError('VIDEO_METADATA_INVALID', 'video metadata must be an object');
@@ -349,6 +380,7 @@ function parseDirectVideoMetadata(value: unknown): {
     platformVideoId: metadata.id,
     title: metadata.title,
     durationSeconds: metadata.duration === undefined ? null : Math.ceil(metadata.duration),
+    suggestedSubdirectory: suggestDirectSubdirectory(metadata),
   };
 }
 
@@ -644,20 +676,13 @@ export async function createChannelDownloads(
   return downloads;
 }
 
-export async function createDirectDownload(
+async function probeDirectDownload(
   database: DatabaseConnection,
   taskManager: YtDlpTaskManager,
-  downloadsMountPath: string,
   input: unknown,
-  queue: DownloadQueue,
-  now = new Date(),
   cookieAuthorizationService?: CookieAuthorizationService,
-): Promise<Download> {
+): Promise<DirectProbe> {
   const directInput = parseDirectInput(input);
-  const downloadRoot = await validateDownloadRoot(
-    downloadsMountPath,
-    downloadsMountPath,
-  );
   const proxy = loadProxy(database, directInput.proxyId);
   const cookieFilePath = await findDirectCookieFilePath(
     directInput.url,
@@ -681,24 +706,68 @@ export async function createDirectDownload(
     );
   }
   const metadata = parseDirectVideoMetadata(rawMetadata);
-
   assertNoExistingDownload(database, metadata.platform, metadata.platformVideoId);
+  return {
+    input: directInput,
+    proxy,
+    ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
+    metadata,
+  };
+}
+
+export async function previewDirectDownload(
+  database: DatabaseConnection,
+  taskManager: YtDlpTaskManager,
+  input: unknown,
+  cookieAuthorizationService?: CookieAuthorizationService,
+): Promise<DirectDownloadPreview> {
+  const probe = await probeDirectDownload(
+    database,
+    taskManager,
+    input,
+    cookieAuthorizationService,
+  );
+  return {
+    ...probe.metadata,
+    targetSubdirectory: probe.input.targetSubdirectory,
+  };
+}
+
+export async function createDirectDownload(
+  database: DatabaseConnection,
+  taskManager: YtDlpTaskManager,
+  downloadsMountPath: string,
+  input: unknown,
+  queue: DownloadQueue,
+  now = new Date(),
+  cookieAuthorizationService?: CookieAuthorizationService,
+): Promise<Download> {
+  const downloadRoot = await validateDownloadRoot(
+    downloadsMountPath,
+    downloadsMountPath,
+  );
+  const probe = await probeDirectDownload(
+    database,
+    taskManager,
+    input,
+    cookieAuthorizationService,
+  );
   const prepared: PreparedDownload = {
     sourceType: 'direct',
     channelId: null,
     videoId: null,
-    sourceUrl: directInput.url,
-    platform: metadata.platform,
-    platformVideoId: metadata.platformVideoId,
-    title: metadata.title,
+    sourceUrl: probe.input.url,
+    platform: probe.metadata.platform,
+    platformVideoId: probe.metadata.platformVideoId,
+    title: probe.metadata.title,
     publishedDate: null,
-    durationSeconds: metadata.durationSeconds,
-    networkMode: proxy.networkMode,
-    proxyName: proxy.proxyName,
-    ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
-    ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
-    advancedOptions: directInput.advancedOptions,
-    targetSubdirectory: directInput.targetSubdirectory,
+    durationSeconds: probe.metadata.durationSeconds,
+    networkMode: probe.proxy.networkMode,
+    proxyName: probe.proxy.proxyName,
+    ...(probe.proxy.proxyUrl === undefined ? {} : { proxyUrl: probe.proxy.proxyUrl }),
+    ...(probe.cookieFilePath === undefined ? {} : { cookieFilePath: probe.cookieFilePath }),
+    advancedOptions: probe.input.advancedOptions,
+    targetSubdirectory: probe.input.targetSubdirectory,
     downloadRoot,
   };
   const createdAt = now.toISOString();

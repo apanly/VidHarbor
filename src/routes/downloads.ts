@@ -22,6 +22,7 @@ import {
   getDownloadThumbnail,
   listDownloadFolders,
   moveDownload,
+  previewDirectDownload,
   retryDownload,
   type ChannelDownloadProxySelection,
   type DownloadQueue,
@@ -413,6 +414,16 @@ export function createDownloadsRouter(
       cookieAuthorizationService,
     );
     response.status(202).json({ download });
+  });
+
+  router.post('/direct/preview', async (request, response) => {
+    const preview = await previewDirectDownload(
+      database,
+      taskManager,
+      request.body,
+      cookieAuthorizationService,
+    );
+    response.json({ preview });
   });
 
   router.get('/', (request, response) => {

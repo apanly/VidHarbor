@@ -286,11 +286,12 @@ describe('server-rendered pages', () => {
       expect(html).toContain(`<title>${page.title[request.index]} · VidHarbor</title>`);
       expect(html).toContain(page.marker[request.index]);
       expect(html).toContain(`"language":"${request.language}"`);
-      expect(html).toContain(`data-language-switch="${request.language}" aria-pressed="true"`);
       if (!page.shell) {
         expect(html).not.toContain('class="app-shell d-flex"');
+        expect(html).not.toContain('data-language-switch=');
         return;
       }
+      expect(html).toContain(`data-language-switch="${request.language}" aria-pressed="true"`);
       expect(html).toContain('class="app-shell d-flex"');
       for (const [href, label] of [
         ['/', catalog['nav.dashboard']],
@@ -1186,7 +1187,12 @@ describe('server-rendered pages', () => {
     expect(script).toContain('format: null');
     expect(script).toContain('splitChapters: false');
     expect(script).not.toContain('filenamePreset');
-    expect(script).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) })");
+    expect(script).toContain("request('/api/downloads/direct/preview', 'POST', payload)");
+    expect(script).toContain('preview.suggestedSubdirectory !== null');
+    expect(script).toContain('directPreviewKey !== directPayloadKey()');
+    expect(script).toContain("request('/api/downloads/direct', 'POST', payload)");
+    expect(html).toContain('data-direct-preview');
+    expect(html).toContain('type="submit" disabled');
     expect(script).toContain("let selectedTab = 'completed'");
     expect(script).toContain("facebook: 'Facebook'");
     expect(script).toContain("douyin: '抖音'");
@@ -1446,6 +1452,8 @@ describe('server-rendered pages', () => {
     expect(script).toContain("t('preview.playbackFailed')");
     expect(script).toContain("error instanceof Error ? `${t('common.failed')}: ${error.message}`");
     expect(script).toContain("error.code === 'DOWNLOAD_NOT_FOUND' ? t('preview.notFound') : formatApiError(error)");
+    expect(html).not.toContain('data-language-switch=');
+    expect(html).not.toContain('/public/shell.js');
     expect(html).not.toContain('class="app-shell d-flex"');
     expect(html).not.toContain('class="app-sidebar d-flex');
     expect(html).not.toContain('class="app-topbar d-flex');

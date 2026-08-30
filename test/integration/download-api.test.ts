@@ -102,7 +102,8 @@ if (url === '${GENERIC_VIDEO_URL}') {
     extractor_key: 'Generic',
     id: '${GENERIC_VIDEO_ID}',
     title: 'Generic video',
-    duration: 125.2
+    duration: 125.2,
+    channel: 'Generic Channel'
   }) + '\\n');
   process.exit(0);
 }
@@ -440,6 +441,28 @@ describe('download API', () => {
     ]);
     expect(database.prepare('SELECT platform, duration_seconds FROM downloads').get())
       .toEqual({ platform: 'generic', duration_seconds: 126 });
+  });
+
+  it('previews direct download metadata without creating a download', async () => {
+    const response = await request(
+      '/downloads/direct/preview',
+      'POST',
+      directInput(GENERIC_VIDEO_URL, null, 'draft'),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      preview: {
+        platform: 'generic',
+        platformVideoId: GENERIC_VIDEO_ID,
+        title: 'Generic video',
+        durationSeconds: 126,
+        suggestedSubdirectory: 'Generic Channel',
+        targetSubdirectory: 'draft',
+      },
+    });
+    expect(database.prepare('SELECT COUNT(*) FROM downloads').pluck().get()).toBe(0);
+    expect(queued).toHaveLength(0);
   });
 
   it('keeps Vimeo URLs on the generic single-resource metadata path without a domain blacklist', async () => {

@@ -392,7 +392,7 @@ describe('browser i18n', () => {
     for (const language of LANGUAGES) {
       const i18n = createI18n(language, TRANSLATIONS[language]);
       for (const code of Object.keys(ERROR_HTTP_STATUS)) {
-        expect(i18n.formatApiError({ code, message: 'unchanged API detail' })).toBe(TRANSLATIONS[language][`error.${code}` as TranslationKey]);
+        expect(i18n.formatApiError({ code, message: 'unchanged API detail' })).toBe(`${TRANSLATIONS[language][`error.${code}` as TranslationKey]}: unchanged API detail`);
       }
     }
   });

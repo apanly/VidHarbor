@@ -96,11 +96,13 @@
                     </section>
                   </div>
                 </details>
+                <section class="alert alert-info" data-direct-preview-result hidden></section>
                 <div class="alert alert-danger" data-form-error hidden></div>
               </div>
               <div class="modal-footer">
                 <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal"><%= t('common.cancel') %></button>
-                <button class="btn btn-primary" type="submit"><%= t('downloads.start') %></button>
+                <button class="btn btn-outline-primary" type="button" data-direct-preview><%= t('downloads.fetchPreview') %></button>
+                <button class="btn btn-primary" type="submit" disabled><%= t('downloads.start') %></button>
               </div>
           </form>
         </div>

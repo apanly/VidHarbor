@@ -12,6 +12,9 @@ const emptyDescription = emptyState.querySelector('[data-empty-description]');
 const emptyAction = emptyState.querySelector('[data-empty-action]');
 const paginationContainer = document.querySelector('#download-pagination');
 const directDownloadModal = bootstrap.Modal.getOrCreateInstance(document.querySelector('#direct-download-modal'));
+const directPreviewResult = form.querySelector('[data-direct-preview-result]');
+const directPreviewButton = form.querySelector('[data-direct-preview]');
+const directSubmitButton = form.querySelector('[type="submit"]');
 const cards = new Map();
 const downloadState = new Map();
 let selectedTab = 'completed';
@@ -20,6 +23,7 @@ let currentPage = 1;
 let currentPagination = { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 };
 let downloadEvents = null;
 let searchTimer = null;
+let directPreviewKey = null;
 const labelKeys = { pending: 'status.download.pending', downloading: 'status.download.downloading', running: 'status.download.running', completed: 'status.download.completed', failed: 'status.download.failed', canceled: 'status.download.canceled', interrupted: 'status.download.interrupted', deleting: 'status.download.deleting' };
 const styles = { pending: 'text-bg-secondary', downloading: 'text-bg-primary', running: 'text-bg-primary', completed: 'text-bg-success', failed: 'text-bg-danger', canceled: 'text-bg-warning', interrupted: 'text-bg-warning', deleting: 'text-bg-secondary' };
 const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili', vimeo: 'Vimeo', twitter: 'X', facebook: 'Facebook', douyin: '抖音' };
@@ -27,6 +31,10 @@ const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili', vimeo: 'Vimeo
 function nullableNumber(value) { return value === '' ? null : Number(value); }
 function nullableText(value) { return value === '' ? null : value; }
 function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: null, quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, splitChapters: false, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value) }; }
+function directPayload() { return { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) }; }
+function directPayloadKey() { return JSON.stringify(directPayload()); }
+function resetDirectPreview() { directPreviewKey = null; directPreviewResult.hidden = true; directSubmitButton.disabled = true; }
+function renderDirectPreview(preview) { if (form.elements.targetSubdirectory.value === '' && preview.suggestedSubdirectory !== null) form.elements.targetSubdirectory.value = preview.suggestedSubdirectory; directPreviewResult.textContent = `${t('downloads.previewReady')}: ${preview.title} · ${preview.platform} · ${preview.platformVideoId} · ${formatDuration(preview.durationSeconds)}`; directPreviewResult.hidden = false; directSubmitButton.disabled = false; }
 function fixedValue(values, value) { if (!Object.hasOwn(values, value)) throw new TypeError(`unknown download status: ${String(value)}`); return values[value]; }
 function showError(region, error) { region.textContent = error instanceof Error ? `${t('common.failed')}: ${error.message}` : formatApiError(error); region.hidden = false; }
 async function request(path, method = 'GET', body) { const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); if (response.status === 204) return null; const text = await response.text(); if (response.status === 202 && text === '') return null; const result = JSON.parse(text); if (!response.ok) throw result.error; return result; }
@@ -234,5 +242,8 @@ emptyAction.addEventListener('click', () => {
   if (emptyAction.dataset.action === 'active') { setSelectedTab('active'); return; }
   directDownloadModal.show();
 });
-form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
+form.addEventListener('input', resetDirectPreview);
+form.addEventListener('change', resetDirectPreview);
+directPreviewButton.addEventListener('click', async () => { const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; resetDirectPreview(); directPreviewButton.disabled = true; try { const payload = directPayload(); const result = await request('/api/downloads/direct/preview', 'POST', payload); renderDirectPreview(result.preview); directPreviewKey = directPayloadKey(); } catch (error) { showError(errorRegion, error); } finally { directPreviewButton.disabled = false; } });
+form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; const payload = directPayload(); if (directPreviewKey !== directPayloadKey()) { errorRegion.textContent = t('downloads.previewFirst'); errorRegion.hidden = false; return; } try { await request('/api/downloads/direct', 'POST', payload); directDownloadModal.hide(); form.reset(); resetDirectPreview(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
 load().catch((error) => showError(pageError, error));
