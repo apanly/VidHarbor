@@ -416,7 +416,7 @@ function updateDownloadCard(article, previous, download) {
     t(
       download.sourceType === "channel"
         ? "downloads.source.channel"
-        : "downloads.source.direct",
+        : "downloads.source.direct"
     ),
   );
   setField(
