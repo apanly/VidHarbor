@@ -181,7 +181,7 @@
 
 ## task-08 · UI：频道详情页文件夹输入
 
-- 状态: pending
+- 状态: done
 - 依赖: task-06
 - 文件范围:
   - src/views/channel-detail.ejs

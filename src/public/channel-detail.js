@@ -40,6 +40,13 @@ async function request(path, method = 'GET', body) {
 function addProxyOptions(select, proxies) {
   for (const proxy of proxies) select.append(new Option(proxy.name, String(proxy.id)));
 }
+function populateFolderDatalist(folders) {
+  const datalist = document.querySelector('#channel-folder-list');
+  for (const folder of folders) datalist.append(new Option(folder, folder));
+}
+function targetSubdirectory() {
+  return form.elements.targetSubdirectory.value || null;
+}
 function formatDuration(seconds) {
   if (seconds === null) return t('channelDetail.durationUnknown');
   const minutes = Math.floor(seconds / 60);
@@ -213,11 +220,13 @@ async function loadChecks(page) {
   renderPagination(document.querySelector('#check-pagination'), checks.pagination, (nextPage) => void loadChecks(nextPage));
 }
 async function load() {
-  const [channelResponse, proxies] = await Promise.all([
+  const [channelResponse, proxies, folders] = await Promise.all([
     request(`/api/channels/${channelId}`),
     request('/api/proxies'),
+    request('/api/downloads/folders'),
   ]);
   addProxyOptions(form.elements.proxyId, proxies.items);
+  populateFolderDatalist(folders.folders);
   const channel = channelResponse.channel;
   document.querySelector('#channel-name').textContent = channel.customName;
   document.title = `${channel.customName} · VidHarbor`;
@@ -241,7 +250,7 @@ form.addEventListener('submit', async (event) => {
     return;
   }
   try {
-    await request('/api/downloads/channel', 'POST', { videoIds, proxyId: channelProxyId() });
+    await request('/api/downloads/channel', 'POST', { videoIds, proxyId: channelProxyId(), targetSubdirectory: targetSubdirectory() });
     location.reload();
   } catch (error) {
     showError(form.querySelector('[data-form-error]'), error);

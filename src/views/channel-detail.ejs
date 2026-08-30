@@ -29,11 +29,16 @@
                 <label class="form-label" for="channel-video-filter"><%= t('channelDetail.filter') %></label>
                 <input class="form-control" id="channel-video-filter" name="filter" placeholder="<%= t('channelDetail.filterPlaceholder') %>">
               </div>
+              <div class="channel-subdirectory-field">
+                <label class="form-label" for="channel-video-target-subdirectory"><%= t('channelDetail.targetSubdirectory') %></label>
+                <input class="form-control" id="channel-video-target-subdirectory" name="targetSubdirectory" placeholder="<%= t('channelDetail.targetSubdirectoryPlaceholder') %>" list="channel-folder-list">
+              </div>
               <div class="channel-selection-action d-grid">
                 <span id="selected-video-count"><%= t('channelDetail.selected', { count: 0 }) %></span>
                 <button class="btn btn-primary" type="submit" disabled><%= t('channelDetail.downloadSelected') %></button>
               </div>
             </div>
+            <datalist id="channel-folder-list"></datalist>
             <div class="alert alert-danger" data-form-error hidden></div>
             <div class="channel-table-shell table-responsive">
               <table class="table channel-detail-table align-middle mb-0">
