@@ -26,7 +26,7 @@
 
 ## task-02 · 新增移动相关错误码
 
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/errors.ts
