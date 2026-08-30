@@ -365,7 +365,7 @@
 
 ## task-15 · 回退 src/i18n.ts 重格式漂移并保留 DOWNLOAD_MOVE_* 文案
 
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/i18n.ts
