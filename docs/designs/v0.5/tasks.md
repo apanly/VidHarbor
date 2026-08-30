@@ -574,3 +574,27 @@
   1. `grep -n "'downloads.move': 'Move'" src/i18n.ts` → 命中 1 行且该行同时含 `'downloads.downloadFile'`
   2. `grep -n "'error.DOWNLOAD_MOVE_FAILED': 'Download move failed'" src/i18n.ts` → 命中 1 行且该行同时含 `'error.DOWNLOAD_DELETE_IN_PROGRESS'`；`grep -A1 "'error.PERSISTENCE_ERROR': 'Failed to save data'" src/i18n.ts` → 下一行是 `};`
   3. `npx vitest run test/unit/i18n.test.ts` → 全绿
+
+## task-24 · 恢复 moveDownload 前 ponytail 无跨进程锁注释
+
+- 状态: done
+- 依赖: 无
+- 文件范围:
+  - src/services/download.ts
+- 关键约束:
+  - 描述原文：`src/services/download.ts:1246` review-4 判定 moveDownload 前缺少 task-05 要求保留的 `ponytail:` 无跨进程锁边界注释，需要恢复该注释，说明当前移动依赖进程内串行化，外部 mutator 落地时再补跨进程锁。
+  - 旧 task: task-05，旧状态: done。旧约束：必须写 `ponytail:` 注释标注无跨进程锁的上限。旧范围：不做：不引入状态过渡列（deleting 式机制），以 ponytail 注释记录上限。旧验收：`grep -n "ponytail:" src/services/download.ts` → 命中 1 行。
+  - 源码确认：`export async function moveDownload` 在第 1246 行，其前无 `ponytail:` 注释；`grep ponytail:` 在 `src/services/download.ts` 为 0 命中。`bf3d945` 删除了原注释：`// ponytail: no cross-process lock. A concurrent delete or move of the same download directory from another process can race the rename; the manager serialises download operations in-process, so this is safe only while every owner is this process. Add a cross-process lock if external mutators land.`
+  - 不能改动 `moveDownload` 的实现逻辑（null 根目录、目标已存在预检查、rename 回滚）
+  - 不能引入跨进程锁或 deleting 式状态过渡列
+- 任务目的: 修复 bugfix-15 描述的问题
+- 实现入口: src/services/download.ts `export async function moveDownload`（约第 1246 行）
+- 期望行为: `moveDownload` 函数声明前恢复 `ponytail:` 注释，说明无跨进程锁、当前依赖进程内串行化、外部 mutator 落地时再补跨进程锁；`moveDownload` 行为与现状完全一致
+- 范围边界:
+  - 必须: `moveDownload` 前有 `ponytail:` 无跨进程锁边界注释
+  - 不能: 改动与本 bug 无关的模块；不能改 `moveDownload` 实现逻辑
+  - 不做: 不引入跨进程锁或 deleting 状态过渡；不改测试文件；不处理 `listDownloadFolders` 前曾被删除的另一条 ponytail 注释
+- 验收标准:
+  1. `grep -n "ponytail:" src/services/download.ts` → 命中，且命中行号早于 `export async function moveDownload`
+  2. `grep -n "no cross-process lock" src/services/download.ts` → 命中 1 行
+  3. `npx tsc -p tsconfig.json --noEmit` → 无新增错误

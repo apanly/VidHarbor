@@ -87,3 +87,9 @@
 - 关联 task: task-23
 - 来源 review: review-3.md
 - 描述: `src/i18n.ts:313` review-3 判定英文 catalog 仍有格式漂移，要求恢复原有排版并只保留本次翻译键增量。已人工复核并清理前端/服务端格式漂移，保留必要功能改动。
+
+## bugfix-15 · 恢复 moveDownload ponytail 边界注释
+
+- 关联 task: task-24
+- 来源 review: review-4.md
+- 描述: `src/services/download.ts:1246` review-4 判定 moveDownload 前缺少 task-05 要求保留的 `ponytail:` 无跨进程锁边界注释，需要恢复该注释，说明当前移动依赖进程内串行化，外部 mutator 落地时再补跨进程锁。

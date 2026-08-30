@@ -1243,6 +1243,7 @@ function isEExist(error: unknown): boolean {
   );
 }
 
+// ponytail: no cross-process lock. A concurrent delete or move of the same download directory from another process can race the rename; the manager serialises download operations in-process, so this is safe only while every owner is this process. Add a cross-process lock if external mutators land.
 export async function moveDownload(
   database: DatabaseConnection,
   downloadsMountPath: string,
