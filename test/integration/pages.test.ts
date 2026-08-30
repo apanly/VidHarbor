@@ -868,7 +868,7 @@ describe('server-rendered pages', () => {
     expect(html.match(/name="cookieFile"/g)).toHaveLength(1);
     expect(html).toContain('删除会立即移除文件且无法恢复');
     expect(html).toContain('使用范围');
-    expect(html).toContain('频道可选择同平台授权用于首次同步、手动检查和定时检查');
+    expect(html).toContain('频道可选择同平台授权用于首次同步、手动检查、定时检查和频道视频下载');
     expect(html).toContain('<script type="module" src="/public/authorizations.js"></script>');
     expect(html).not.toContain('Vimeo');
     expect(html.includes(sensitiveMarker)).toBe(false);
@@ -1093,13 +1093,14 @@ describe('server-rendered pages', () => {
     expect(script).toContain('`/api/downloads/${video.downloadId}/file`');
     expect(script).toContain('video.downloadFailureReason');
     expect(html).toContain('name="proxyId"');
+    expect(html).toContain('name="targetSubdirectory"');
     expect(script).toContain("request('/api/proxies')");
     expect(script).toContain("checkbox.name = 'videoIds'");
     expect(script).toContain(
       "form.querySelectorAll('input[name=\"videoIds\"]:checked')",
     );
     expect(script).toContain(
-      "request('/api/downloads/channel', 'POST', { videoIds, proxyId: channelProxyId() })",
+      "request('/api/downloads/channel', 'POST', { videoIds, proxyId: channelProxyId(), targetSubdirectory: targetSubdirectory() })",
     );
     expect(html.replace(/<script id="vidharbor-i18n"[\s\S]*?<\/script>/, '')).not.toMatch(/自动选择|自动下载|删除频道|手动检查/);
   });
@@ -1174,7 +1175,7 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain('Vimeo');
     expect(html).toContain('name="proxyId"');
     expect(script).toContain("request('/api/proxies')");
-    expect(html).not.toContain('name="targetSubdirectory"');
+    expect(html).toContain('name="targetSubdirectory"');
     expect(html).not.toContain('name="writeThumbnail"');
     expect(html).not.toContain('name="filenamePreset"');
     expect(html).toContain('name="mediaType"');
@@ -1185,7 +1186,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain('format: null');
     expect(script).toContain('splitChapters: false');
     expect(script).not.toContain('filenamePreset');
-    expect(script).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), advancedOptions: advancedOptions(form) })");
+    expect(script).toContain("request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) })");
     expect(script).toContain("let selectedTab = 'completed'");
     expect(script).toContain("facebook: 'Facebook'");
     expect(script).toContain("douyin: '抖音'");
@@ -1303,6 +1304,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain("if (download.status === 'completed')");
     expect(script).toContain('`/downloads/preview?id=${download.id}`');
     expect(script).toContain('`/api/downloads/${download.id}/file`');
+    expect(script).toContain("mutateDownload(`/api/downloads/${download.id}/move`, 'POST', { targetSubdirectory: nullableText(input) }, move)");
     expect(script).toContain('original.href = download.sourceUrl');
     expect(script).toContain("original.target = '_blank'");
     expect(script).toContain("original.rel = 'noopener noreferrer'");

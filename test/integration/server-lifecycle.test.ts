@@ -213,11 +213,16 @@ const DEFAULT_ADVANCED_OPTIONS = {
   timeRangeEnd: null,
 } as const;
 
-function directInput(url: string, proxyId: number | null) {
+function directInput(
+  url: string,
+  proxyId: number | null,
+  targetSubdirectory: string | null = null,
+) {
   return {
     url,
     proxyId,
     advancedOptions: DEFAULT_ADVANCED_OPTIONS,
+    targetSubdirectory,
   };
 }
 

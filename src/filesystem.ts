@@ -71,6 +71,10 @@ export function validateChannelName(customName: string): string {
   return customName;
 }
 
+export function validateTargetSubdirectory(input: string): string {
+  return input.split('/').map(validateChannelName).join('/');
+}
+
 export async function validateDownloadRoot(
   downloadRoot: string,
   downloadsMountPath: string,

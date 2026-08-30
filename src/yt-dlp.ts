@@ -405,6 +405,9 @@ export async function downloadMedia(options: DownloadOptions): Promise<string> {
     );
   }
   appendProxyArgument(args, options.proxyUrl);
+  if (options.cookieFilePath !== undefined) {
+    args.push('--cookies', options.cookieFilePath);
+  }
   args.push(options.url);
 
   const handleProgressLine = (line: string): boolean => {
@@ -455,6 +458,9 @@ export async function downloadThumbnail(
     options.outputTemplate,
   ];
   appendProxyArgument(args, options.proxyUrl);
+  if (options.cookieFilePath !== undefined) {
+    args.push('--cookies', options.cookieFilePath);
+  }
   args.push(options.url);
   await runProcess(
     options,

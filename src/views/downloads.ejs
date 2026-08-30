@@ -60,7 +60,12 @@
                       <label class="form-label" for="direct-media-type"><%= t('downloads.mediaType') %></label>
                       <select class="form-select" id="direct-media-type" name="mediaType"><option value="video"><%= t('downloads.mediaType.video') %></option><option value="audio"><%= t('downloads.mediaType.audio') %></option></select>
                     </div>
+                    <div class="col-12">
+                      <label class="form-label" for="direct-target-subdirectory"><%= t('channelDetail.targetSubdirectory') %></label>
+                      <input class="form-control" id="direct-target-subdirectory" name="targetSubdirectory" placeholder="<%= t('channelDetail.targetSubdirectoryPlaceholder') %>" list="direct-folder-list">
+                    </div>
                   </div>
+                  <datalist id="direct-folder-list"></datalist>
                 </section>
                 <details class="card direct-advanced-options border rounded-4 bg-white shadow-sm">
                   <summary class="d-flex align-items-start align-items-sm-center justify-content-between gap-3 py-3">

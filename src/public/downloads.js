@@ -100,7 +100,9 @@ function renderActions(article, download) {
   }
   if (download.status === 'completed') {
     const preview = document.createElement('a'); preview.className = 'btn btn-sm btn-outline-primary'; preview.href = `/downloads/preview?id=${download.id}`; preview.target = '_blank'; preview.rel = 'noopener noreferrer'; preview.textContent = t('common.preview');
-    const file = document.createElement('a'); file.className = 'btn btn-sm btn-outline-secondary'; file.href = `/api/downloads/${download.id}/file`; file.textContent = t('downloads.downloadFile'); actions.append(preview, file);
+    const file = document.createElement('a'); file.className = 'btn btn-sm btn-outline-secondary'; file.href = `/api/downloads/${download.id}/file`; file.textContent = t('downloads.downloadFile');
+    const move = document.createElement('button'); move.className = 'btn btn-sm btn-outline-secondary'; move.type = 'button'; move.textContent = t('downloads.move'); move.addEventListener('click', () => { const input = prompt(t('downloads.movePrompt', { title: download.title }), download.targetSubdirectory ?? ''); if (input === null) return; void mutateDownload(`/api/downloads/${download.id}/move`, 'POST', { targetSubdirectory: nullableText(input) }, move); });
+    actions.append(preview, file, move);
   }
   const original = document.createElement('a'); original.className = 'btn btn-sm btn-outline-secondary'; original.href = download.sourceUrl; original.target = '_blank'; original.rel = 'noopener noreferrer'; original.textContent = t('common.originalUrl'); actions.append(original);
   if (download.status === 'completed' || download.status === 'failed' || download.status === 'canceled' || download.status === 'interrupted') {
@@ -219,6 +221,9 @@ async function load() {
   const proxies = await request('/api/proxies');
   const proxySelect = form.elements.proxyId;
   for (const proxy of proxies.items) { const option = document.createElement('option'); option.value = String(proxy.id); option.textContent = proxy.name; proxySelect.append(option); }
+  const folders = await request('/api/downloads/folders');
+  const folderDatalist = form.querySelector('#direct-folder-list');
+  for (const folder of folders.folders) { const option = document.createElement('option'); option.value = folder; folderDatalist.append(option); }
   await refreshDownloads(1);
 }
 
@@ -229,5 +234,5 @@ emptyAction.addEventListener('click', () => {
   if (emptyAction.dataset.action === 'active') { setSelectedTab('active'); return; }
   directDownloadModal.show();
 });
-form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
+form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; try { await request('/api/downloads/direct', 'POST', { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) }); directDownloadModal.hide(); form.reset(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
 load().catch((error) => showError(pageError, error));

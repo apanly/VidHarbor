@@ -1,18 +1,23 @@
-import { chmod, mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
-import { BusinessError } from '../../src/errors.js';
+import type { BusinessError } from '../../src/errors.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import {
   createChannelDownloads,
   createDirectDownload,
   cancelDownload,
   getDownloadFile,
   retryDownload,
+  moveDownload,
+  listDownloadFolders,
+  deleteDownload,
   type DownloadQueue,
   type QueuedDownload,
 } from '../../src/services/download.js';
@@ -24,6 +29,13 @@ const FIRST_VIDEO_ID = 'aB_12-cD345';
 const SECOND_VIDEO_ID = 'eF_67-gH890';
 const GENERIC_VIDEO_ID = 'generic-123456789';
 const GENERIC_VIDEO_URL = `https://media.example/videos/${GENERIC_VIDEO_ID}`;
+const COOKIE_DIRECT_CASES = [
+  ['youtube', 'https://www.youtube.com/watch?v=yt-cookie', 'yt-cookie'],
+  ['bilibili', 'https://www.bilibili.com/video/BVcookie12345', 'BVcookie12345'],
+  ['x', 'https://x.com/user/status/123456789', 'x-cookie'],
+  ['facebook', 'https://www.facebook.com/watch/?v=123456789', 'facebook-cookie'],
+  ['douyin', 'https://www.douyin.com/video/123456789', 'douyin-cookie'],
+] as const;
 
 const DEFAULT_ADVANCED_OPTIONS = {
   mediaType: 'video',
@@ -36,11 +48,16 @@ const DEFAULT_ADVANCED_OPTIONS = {
   timeRangeEnd: null,
 } as const;
 
-function directInput(url: string, proxyId: number | null) {
+function directInput(
+  url: string,
+  proxyId: number | null,
+  targetSubdirectory: string | null = null,
+) {
   return {
     url,
     proxyId,
     advancedOptions: DEFAULT_ADVANCED_OPTIONS,
+    targetSubdirectory,
   };
 }
 
@@ -59,6 +76,19 @@ async function installFakeYtDlp(): Promise<void> {
     `#!/usr/bin/env node
 const args = process.argv.slice(2);
 const url = args.at(-1);
+const cookieIndex = args.indexOf('--cookies');
+const cookiePath = cookieIndex === -1 ? undefined : args[cookieIndex + 1];
+const cookieCases = ${JSON.stringify(COOKIE_DIRECT_CASES)};
+for (const [platform, expectedUrl, id] of cookieCases) {
+  if (url === expectedUrl && cookiePath?.endsWith(\`\${platform}.cookies.txt\`)) {
+    process.stdout.write(JSON.stringify({
+      extractor_key: platform === 'x' ? 'Twitter' : platform,
+      id,
+      title: \`\${platform} cookie title\`
+    }) + '\\n');
+    process.exit(0);
+  }
+}
 if (url === 'https://www.youtube.com/watch?v=${FIRST_VIDEO_ID}' || url === 'https://youtu.be/${FIRST_VIDEO_ID}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Youtube',
@@ -150,6 +180,76 @@ function downloadRows(): unknown[] {
   return database.prepare('SELECT * FROM downloads ORDER BY id').all();
 }
 
+function insertPendingFolderRow(
+  platformVideoId: string,
+  targetSubdirectory: string | null,
+): number {
+  const result = database
+    .prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, archive_layout, status, target_subdirectory, created_at
+      ) VALUES (
+        'direct', ?, 'generic', ?, ?, 'direct', 'download_directory',
+        'pending', ?, ?
+      )`,
+    )
+    .run(
+      `https://media.example/${platformVideoId}`,
+      platformVideoId,
+      `Folder ${platformVideoId}`,
+      targetSubdirectory,
+      NOW.toISOString(),
+    );
+  return Number(result.lastInsertRowid);
+}
+
+async function insertCompletedArchive(
+  platformVideoId: string,
+  targetSubdirectory: string | null,
+): Promise<{
+  readonly id: number;
+  readonly outputPath: string;
+  readonly directory: string;
+}> {
+  const result = database
+    .prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, archive_layout, status, output_path, output_size_bytes,
+        target_subdirectory, created_at, finished_at
+      ) VALUES (
+        'direct', ?, 'generic', ?, ?, 'direct', 'download_directory',
+        'completed', ?, 5, ?, ?, ?
+      )`,
+    )
+    .run(
+      `https://media.example/${platformVideoId}`,
+      platformVideoId,
+      `Archived ${platformVideoId}`,
+      join(downloadRoot, 'pending-path'),
+      targetSubdirectory,
+      NOW.toISOString(),
+      NOW.toISOString(),
+    );
+  const id = Number(result.lastInsertRowid);
+  const realDownloadRoot = await realpath(downloadRoot);
+  const directory = join(
+    realDownloadRoot,
+    targetSubdirectory ?? '',
+    String(id),
+  );
+  await mkdir(directory, { recursive: true });
+  const outputPath = join(directory, `${platformVideoId}.mp4`);
+  await writeFile(outputPath, 'media');
+  database
+    .prepare(
+      'UPDATE downloads SET output_path = ?, output_size_bytes = ? WHERE id = ?',
+    )
+    .run(outputPath, Buffer.byteLength('media'), id);
+  return { id, outputPath, directory };
+}
+
 function expectSingleConcurrentSuccess(
   results: readonly PromiseSettledResult<unknown>[],
 ): void {
@@ -168,6 +268,18 @@ async function expectBusinessError(
   code: BusinessError['code'],
 ): Promise<void> {
   await expect(operation).rejects.toMatchObject({ code });
+}
+
+function cookieText(domain: string): string {
+  return `# Netscape HTTP Cookie File\n.${domain}\tTRUE\t/\tTRUE\t1816784715\tauth_token\tvalue\n`;
+}
+
+async function saveCookie(
+  service: CookieAuthorizationService,
+  platform: string,
+  domain: string,
+): Promise<void> {
+  await service.createConfiguration(platform, Readable.from([cookieText(domain)]));
 }
 
 beforeEach(async () => {
@@ -232,6 +344,39 @@ describe('download creation service', () => {
     expect(downloadRows()).toEqual([
       expect.objectContaining({ platform: 'bilibili', platform_video_id: 'BV13x41117TL' }),
     ]);
+  });
+
+  it('uses selected channel authorization cookies for channel downloads', async () => {
+    const cookieDirectory = join(sandbox, 'cookies');
+    const cookieAuthorizationService = new CookieAuthorizationService(cookieDirectory);
+    await cookieAuthorizationService.initialize();
+    await saveCookie(cookieAuthorizationService, 'youtube', 'youtube.com');
+    const channelResult = database.prepare(
+      `INSERT INTO channels (
+        platform, platform_channel_id, source_url, custom_name,
+        custom_name_key, proxy_id, authorization_platform,
+        check_interval_minutes, initial_synced_at, created_at, updated_at
+      ) VALUES ('youtube', 'UC-downloads', 'https://www.youtube.com/@downloads',
+                'Saved channel', 'saved channel', NULL, 'youtube', NULL, ?, ?, ?)`,
+    ).run(NOW.toISOString(), NOW.toISOString(), NOW.toISOString());
+    const videoId = insertVideo(
+      Number(channelResult.lastInsertRowid),
+      FIRST_VIDEO_ID,
+      'Authorized channel video',
+      '2026-07-16',
+    );
+
+    await createChannelDownloads(
+      database,
+      downloadRoot,
+      [videoId],
+      queue,
+      NOW,
+      'channel',
+      cookieAuthorizationService,
+    );
+
+    expect(queued[0]?.cookieFilePath).toBe(join(cookieDirectory, 'youtube.cookies.txt'));
   });
 
   it('creates a channel batch atomically and enqueues proxy-bearing jobs in request order', async () => {
@@ -478,6 +623,35 @@ describe('download creation service', () => {
       eta_seconds: null,
       exit_code: null,
     });
+  });
+
+  it('uses configured same-platform cookies for direct downloads', async () => {
+    const cookieDirectory = join(sandbox, 'cookies');
+    const cookieAuthorizationService = new CookieAuthorizationService(cookieDirectory);
+    await cookieAuthorizationService.initialize();
+    await saveCookie(cookieAuthorizationService, 'youtube', 'youtube.com');
+    await saveCookie(cookieAuthorizationService, 'bilibili', 'bilibili.com');
+    await saveCookie(cookieAuthorizationService, 'x', 'x.com');
+    await saveCookie(cookieAuthorizationService, 'facebook', 'facebook.com');
+    await saveCookie(cookieAuthorizationService, 'douyin', 'douyin.com');
+
+    for (const [, url] of COOKIE_DIRECT_CASES) {
+      await createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        directInput(url, null),
+        queue,
+        NOW,
+        cookieAuthorizationService,
+      );
+    }
+
+    expect(queued.map((download) => download.cookieFilePath)).toEqual(
+      COOKIE_DIRECT_CASES.map(([platform]) =>
+        join(cookieDirectory, `${platform}.cookies.txt`),
+      ),
+    );
   });
 
   it('returns only a verified completed main file', async () => {
@@ -814,4 +988,306 @@ describe('download creation service', () => {
     expect(queued).toHaveLength(1);
   });
 
+  it('persists a valid direct target_subdirectory into the download row', async () => {
+    const result = await createDirectDownload(
+      database,
+      taskManager,
+      downloadRoot,
+      directInput(GENERIC_VIDEO_URL, null, 'season-01/episode-03'),
+      queue,
+      NOW,
+    );
+
+    expect(
+      database
+        .prepare('SELECT target_subdirectory FROM downloads WHERE id = ?')
+        .get(result.id),
+    ).toEqual({ target_subdirectory: 'season-01/episode-03' });
+  });
+
+  it('rejects a non-string target_subdirectory without creating a download', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        { ...directInput(GENERIC_VIDEO_URL, null), targetSubdirectory: 123 } as never,
+        queue,
+        NOW,
+      ),
+      'VALIDATION_ERROR',
+    );
+    expect(downloadRows()).toHaveLength(0);
+    expect(queued).toHaveLength(0);
+  });
+
+  it('rejects an empty-string target_subdirectory', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        directInput(GENERIC_VIDEO_URL, null, ''),
+        queue,
+        NOW,
+      ),
+      'VALIDATION_ERROR',
+    );
+    expect(downloadRows()).toHaveLength(0);
+  });
+
+  it('stores a null target_subdirectory for channel downloads', async () => {
+    const proxyId = insertProxy();
+    const channelId = insertChannel(proxyId);
+    const videoId = insertVideo(channelId, 'BV-001', 'Channel video', '2026-07-18');
+
+    const created = await createChannelDownloads(
+      database,
+      downloadRoot,
+      [videoId],
+      queue,
+      NOW,
+    );
+
+    expect(created).toHaveLength(1);
+    expect(
+      database
+        .prepare('SELECT target_subdirectory FROM downloads WHERE id = ?')
+        .get(created[0].id),
+    ).toEqual({ target_subdirectory: null });
+  });
+
+  it('carries target_subdirectory into the retry queue', async () => {
+    const result = await createDirectDownload(
+      database,
+      taskManager,
+      downloadRoot,
+      directInput(GENERIC_VIDEO_URL, null, 'season-01/episode-03'),
+      queue,
+      NOW,
+    );
+    database
+      .prepare(
+        `UPDATE downloads
+         SET status = 'failed', failure_reason = 'network error',
+             exit_code = 3, finished_at = ? WHERE id = ?`,
+      )
+      .run(NOW.toISOString(), result.id);
+
+    queued = [];
+    await retryDownload(database, downloadRoot, result.id, queue, NOW);
+
+    expect(queued[0]?.targetSubdirectory).toBe('season-01/episode-03');
+  });
+
+  it('rejects a direct input that omits targetSubdirectory', async () => {
+    await expectBusinessError(
+      createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        {
+          url: GENERIC_VIDEO_URL,
+          proxyId: null,
+          advancedOptions: DEFAULT_ADVANCED_OPTIONS,
+        },
+        queue,
+        NOW,
+      ),
+      'VALIDATION_ERROR',
+    );
+    expect(downloadRows()).toHaveLength(0);
+    expect(queued).toHaveLength(0);
+  });
+
+  it('stores a channel target_subdirectory on every download in the batch', async () => {
+    const channelId = insertChannel(null);
+    const firstId = insertVideo(channelId, FIRST_VIDEO_ID, 'First title', '2026-07-16');
+    const secondId = insertVideo(channelId, SECOND_VIDEO_ID, 'Second title', '2026-07-16');
+
+    const created = await createChannelDownloads(
+      database,
+      downloadRoot,
+      [firstId, secondId],
+      queue,
+      NOW,
+      'channel',
+      undefined,
+      'season-01/episode-03',
+    );
+
+    expect(created).toHaveLength(2);
+    expect(
+      database
+        .prepare(
+          'SELECT target_subdirectory FROM downloads WHERE id IN (?, ?) ORDER BY id',
+        )
+        .all(created[0].id, created[1].id),
+    ).toEqual([
+      { target_subdirectory: 'season-01/episode-03' },
+      { target_subdirectory: 'season-01/episode-03' },
+    ]);
+    expect(queued.map((job) => job.targetSubdirectory)).toEqual([
+      'season-01/episode-03',
+      'season-01/episode-03',
+    ]);
+  });
+});
+
+describe('download folder move and subdirectory delete', () => {
+  it('moves a completed download directory into a new subdirectory', async () => {
+    const archived = await insertCompletedArchive('move-source', null);
+    const realDownloadRoot = await realpath(downloadRoot);
+    const movedDirectory = join(
+      realDownloadRoot,
+      'season-01',
+      String(archived.id),
+    );
+    const movedPath = join(movedDirectory, 'move-source.mp4');
+
+    await moveDownload(database, downloadRoot, archived.id, {
+      targetSubdirectory: 'season-01',
+    });
+
+    expect(
+      database
+        .prepare(
+          'SELECT output_path, target_subdirectory, status FROM downloads WHERE id = ?',
+        )
+        .get(archived.id),
+    ).toEqual({
+      output_path: movedPath,
+      target_subdirectory: 'season-01',
+      status: 'completed',
+    });
+    await expect(readFile(movedPath, 'utf8')).resolves.toBe('media');
+    await expect(access(archived.directory)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('rejects moving onto an existing download directory', async () => {
+    const archived = await insertCompletedArchive('move-conflict', null);
+    const realDownloadRoot = await realpath(downloadRoot);
+    const targetDirectory = join(
+      realDownloadRoot,
+      'taken',
+      String(archived.id),
+    );
+    await mkdir(targetDirectory, { recursive: true });
+    await writeFile(join(targetDirectory, 'existing.mp4'), 'kept');
+
+    await expectBusinessError(
+      moveDownload(database, downloadRoot, archived.id, {
+        targetSubdirectory: 'taken',
+      }),
+      'DOWNLOAD_MOVE_TARGET_EXISTS',
+    );
+
+    expect(
+      database
+        .prepare('SELECT output_path, target_subdirectory FROM downloads WHERE id = ?')
+        .get(archived.id),
+    ).toEqual({
+      output_path: archived.outputPath,
+      target_subdirectory: null,
+    });
+    await expect(readFile(archived.outputPath, 'utf8')).resolves.toBe('media');
+    await expect(readFile(join(targetDirectory, 'existing.mp4'), 'utf8')).resolves.toBe(
+      'kept',
+    );
+  });
+
+  it('rejects moving onto an existing empty download directory', async () => {
+    const archived = await insertCompletedArchive('move-empty-conflict', null);
+    const realDownloadRoot = await realpath(downloadRoot);
+    const targetDirectory = join(
+      realDownloadRoot,
+      'taken-empty',
+      String(archived.id),
+    );
+    await mkdir(targetDirectory, { recursive: true });
+
+    await expectBusinessError(
+      moveDownload(database, downloadRoot, archived.id, {
+        targetSubdirectory: 'taken-empty',
+      }),
+      'DOWNLOAD_MOVE_TARGET_EXISTS',
+    );
+
+    expect(
+      database
+        .prepare('SELECT output_path, target_subdirectory FROM downloads WHERE id = ?')
+        .get(archived.id),
+    ).toEqual({
+      output_path: archived.outputPath,
+      target_subdirectory: null,
+    });
+    await expect(readFile(archived.outputPath, 'utf8')).resolves.toBe('media');
+    await expect(access(targetDirectory)).resolves.toBeUndefined();
+    await expect(
+      access(join(targetDirectory, 'move-empty-conflict.mp4')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('rejects moving a download that is not completed', async () => {
+    const pending = await createDirectDownload(
+      database,
+      taskManager,
+      downloadRoot,
+      directInput(GENERIC_VIDEO_URL, null),
+      queue,
+      NOW,
+    );
+
+    await expectBusinessError(
+      moveDownload(database, downloadRoot, pending.id, {
+        targetSubdirectory: 'season-01',
+      }),
+      'VALIDATION_ERROR',
+    );
+  });
+
+  it('lists distinct recent target subdirectories newest first', async () => {
+    insertPendingFolderRow('folder-old', 'folder-old');
+    insertPendingFolderRow('folder-new', 'folder-new');
+    insertPendingFolderRow('folder-old-again', 'folder-old');
+    insertPendingFolderRow('folder-null', null);
+
+    expect(listDownloadFolders(database)).toEqual(['folder-old', 'folder-new']);
+  });
+
+  it('caps the recent folder list at 20 entries', async () => {
+    for (let index = 1; index <= 21; index += 1) {
+      insertPendingFolderRow(
+        `folder-cap-${String(index).padStart(2, '0')}`,
+        `folder-${String(index).padStart(2, '0')}`,
+      );
+    }
+
+    expect(listDownloadFolders(database)).toEqual(
+      Array.from({ length: 20 }, (_, index) =>
+        `folder-${String(21 - index).padStart(2, '0')}`,
+      ),
+    );
+  });
+
+  it('deletes a completed download archived under a target subdirectory', async () => {
+    const archived = await insertCompletedArchive(
+      'delete-subdir',
+      'season-01/episode-03',
+    );
+
+    await deleteDownload(database, downloadRoot, archived.id);
+
+    expect(
+      database.prepare('SELECT id FROM downloads WHERE id = ?').get(archived.id),
+    ).toBeUndefined();
+    await expect(access(archived.directory)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expect(access(archived.outputPath)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
 });

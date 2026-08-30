@@ -265,6 +265,9 @@ async function tryDownloadThumbnail(
       url: download.sourceUrl,
       outputTemplate: join(thumbnailDirectory, '%(id)s.%(ext)s'),
       ...(download.proxyUrl === undefined ? {} : { proxyUrl: download.proxyUrl }),
+      ...(download.cookieFilePath === undefined
+        ? {}
+        : { cookieFilePath: download.cookieFilePath }),
     });
     const entries = await readdir(thumbnailDirectory, { withFileTypes: true });
     if (entries.length !== 1 || entries[0]?.isFile() !== true) return undefined;
@@ -466,6 +469,9 @@ export class DownloadWorker implements DownloadQueue {
         ...(download.proxyUrl === undefined
           ? {}
           : { proxyUrl: download.proxyUrl }),
+        ...(download.cookieFilePath === undefined
+          ? {}
+          : { cookieFilePath: download.cookieFilePath }),
       });
       let thumbnailFilename: string | undefined;
       try {
@@ -486,7 +492,23 @@ export class DownloadWorker implements DownloadQueue {
         reportedPath,
       );
       this.#throwIfCanceled(operations.signal);
-      const targetDirectory = join(realDownloadRoot, String(download.downloadId));
+      const targetSubdirectory = download.targetSubdirectory;
+      let realSubdirectory: string | undefined;
+      if (targetSubdirectory !== undefined) {
+        const subdirectory = join(realDownloadRoot, targetSubdirectory);
+        if (!isContained(realDownloadRoot, subdirectory)) {
+          throw new Error('target subdirectory is outside download root');
+        }
+        await mkdir(subdirectory, { recursive: true });
+        realSubdirectory = await ensureDirectoryWithin(
+          subdirectory,
+          realDownloadRoot,
+        );
+      }
+      const targetDirectory =
+        realSubdirectory === undefined
+          ? join(realDownloadRoot, String(download.downloadId))
+          : join(realSubdirectory, String(download.downloadId));
       try {
         await mkdir(targetDirectory);
       } catch (error) {
