@@ -76,3 +76,8 @@
 - 关联 task: task-22
 - 来源 review: review-1.md
 - 描述: `test/integration/download-service.test.ts:1184` move 目标目录已存在的负向用例断言为 DOWNLOAD_MOVE_FAILED，而 task-05 契约要求该场景必须是 DOWNLOAD_MOVE_TARGET_EXISTS。
+
+
+## review-2 说明
+
+- review-2 的 i18n 格式问题复核为误判：`main` 中英文目录本身为长行，本分支 `src/i18n.ts` 仅新增本需求所需翻译键；`npx vitest run test/unit/i18n.test.ts` 已通过。
