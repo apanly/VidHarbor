@@ -551,3 +551,26 @@
   1. `grep -n "rejects moving onto an existing download directory" -A 20 test/integration/download-service.test.ts` → 断言含 `DOWNLOAD_MOVE_TARGET_EXISTS` 且不含把该场景标成 `DOWNLOAD_MOVE_FAILED`
   2. `grep -n "DOWNLOAD_MOVE_TARGET_EXISTS" test/integration/download-service.test.ts` → ≥ 2（非空目标 + 空目标）
   3. `npx vitest run test/integration/download-service.test.ts` → 全绿
+
+## task-23 · 将 en catalog 新增键放回语义分组
+
+- 状态: done
+- 依赖: 无
+- 文件范围:
+  - src/i18n.ts
+- 关键约束:
+  - 描述原文：`src/i18n.ts:313` review-3 判定英文 catalog 仍有格式漂移，要求恢复原有排版并只保留本次翻译键增量。已人工复核并清理前端/服务端格式漂移，保留必要功能改动。
+  - 源码确认：`main` 的 `const en: Catalog` 本身即为按语义分组的超长单行（与 zhCN 逐键换行不同），review-2 已将该点复核为误判。相对 `main`，`src/i18n.ts` 仅新增 12 行翻译键。zhCN 已把 `downloads.move` / `downloads.movePrompt`、`channelDetail.targetSubdirectory*`、`error.DOWNLOAD_MOVE_*` 插入对应语义分组；en 把同一 6 键追加在 `'error.PERSISTENCE_ERROR'` 之后作为对象末尾补丁（约第 333–338 行）。前端/服务端其它文件的格式漂移已另行清理，本任务不回头改那些文件。
+  - 不能把 en catalog 从分组长行改写成逐键换行（那是相对 main 的无关整段重排）
+  - 不能删除或改写任何现有翻译键或译文含义（含 zhCN 已就位的 6 键）
+- 任务目的: 修复 bugfix-14 描述的问题
+- 实现入口: src/i18n.ts `const en: Catalog = {`（约第 313 行）与对象末尾第 333–338 行补丁块
+- 期望行为: en catalog 保持 `main` 既有的分组长行排版；6 个英文新键插入与 zhCN 相同的语义位置：`'downloads.downloadFile'` 与 `'downloads.deleteConfirm'` 之间、`'channelDetail.filterPlaceholder'` 与 `'channelDetail.selected'` 之间、`'error.DOWNLOAD_DELETE_IN_PROGRESS'` 与 `'error.DOWNLOAD_RANGE_NOT_SATISFIABLE'` 之间。对象在 `'error.PERSISTENCE_ERROR'` 之后直接结束，不再有末尾补丁块。键集合与译文含义与当前 HEAD 一致。
+- 范围边界:
+  - 必须: 6 个英文新键回到对应语义分组；en catalog 长行排版与 main 一致
+  - 不能: 改动与本 bug 无关的模块；不能删改其它翻译键或译文；不能把 en catalog 整段逐键换行化
+  - 不做: 不改 `src/public/i18n.js`、`src/public/downloads.js` 或其它已清理文件；不改测试文件
+- 验收标准:
+  1. `grep -n "'downloads.move': 'Move'" src/i18n.ts` → 命中 1 行且该行同时含 `'downloads.downloadFile'`
+  2. `grep -n "'error.DOWNLOAD_MOVE_FAILED': 'Download move failed'" src/i18n.ts` → 命中 1 行且该行同时含 `'error.DOWNLOAD_DELETE_IN_PROGRESS'`；`grep -A1 "'error.PERSISTENCE_ERROR': 'Failed to save data'" src/i18n.ts` → 下一行是 `};`
+  3. `npx vitest run test/unit/i18n.test.ts` → 全绿

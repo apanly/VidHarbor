@@ -81,3 +81,9 @@
 ## review-2 说明
 
 - review-2 的 i18n 格式问题复核为误判：`main` 中英文目录本身为长行，本分支 `src/i18n.ts` 仅新增本需求所需翻译键；`npx vitest run test/unit/i18n.test.ts` 已通过。
+
+## bugfix-14 · review-3 i18n 格式漂移复核
+
+- 关联 task: task-23
+- 来源 review: review-3.md
+- 描述: `src/i18n.ts:313` review-3 判定英文 catalog 仍有格式漂移，要求恢复原有排版并只保留本次翻译键增量。已人工复核并清理前端/服务端格式漂移，保留必要功能改动。
