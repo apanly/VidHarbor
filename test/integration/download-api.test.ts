@@ -44,11 +44,28 @@ const DEFAULT_ADVANCED_OPTIONS = {
   timeRangeEnd: null,
 } as const;
 
-function directInput(url: string, proxyId: number | null) {
+function directInput(
+  url: string,
+  proxyId: number | null,
+  targetSubdirectory: string | null = null,
+) {
   return {
     url,
     proxyId,
     advancedOptions: DEFAULT_ADVANCED_OPTIONS,
+    targetSubdirectory,
+  };
+}
+
+function channelInput(
+  videoIds: readonly number[],
+  proxyId: 'channel' | number | null = 'channel',
+  targetSubdirectory: string | null = null,
+) {
+  return {
+    videoIds,
+    proxyId,
+    targetSubdirectory,
   };
 }
 
@@ -346,10 +363,7 @@ describe('download API', () => {
 
   it('creates a channel batch with a 202 fixed response and enqueues without exposing proxy URLs', async () => {
     const videoId = insertChannelVideo();
-    const response = await request('/downloads/channel', 'POST', {
-      videoIds: [videoId],
-      proxyId: 'channel',
-    });
+    const response = await request('/downloads/channel', 'POST', channelInput([videoId]));
 
     expect(response.status).toBe(202);
     const text = await response.text();
@@ -487,11 +501,11 @@ describe('download API', () => {
     const videoId = insertChannelVideo();
     const invalidRequests: Array<[string, unknown]> = [
       ['/downloads/channel', { videoIds: [] }],
-      ['/downloads/channel', { videoIds: [videoId, videoId], proxyId: 'channel' }],
-      ['/downloads/channel', { videoIds: [videoId], proxyId: 'channel', quality: 'best' }],
+      ['/downloads/channel', { videoIds: [videoId, videoId], proxyId: 'channel', targetSubdirectory: null }],
+      ['/downloads/channel', { videoIds: [videoId], proxyId: 'channel', quality: 'best', targetSubdirectory: null }],
       ['/downloads/channel', { videos: [videoId] }],
       ['/downloads/channel', { videoIds: [videoId] }],
-      ['/downloads/channel', { videoIds: [videoId], proxyId: 'direct' }],
+      ['/downloads/channel', { videoIds: [videoId], proxyId: 'direct', targetSubdirectory: null }],
       [
         '/downloads/direct',
         { url: `https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}`, proxyId: null, quality: 'best' },
@@ -517,10 +531,11 @@ describe('download API', () => {
       });
     }
 
-    const atomicResponse = await request('/downloads/channel', 'POST', {
-      videoIds: [videoId, 999],
-      proxyId: 'channel',
-    });
+    const atomicResponse = await request(
+      '/downloads/channel',
+      'POST',
+      channelInput([videoId, 999]),
+    );
     expect(atomicResponse.status).toBe(404);
     await expect(atomicResponse.json()).resolves.toMatchObject({
       error: { code: 'VIDEO_NOT_FOUND' },
@@ -541,7 +556,7 @@ describe('download API', () => {
 
   it('lists the fixed persisted shape by createdAt and id descending', async () => {
     const videoId = insertChannelVideo();
-    await request('/downloads/channel', 'POST', { videoIds: [videoId], proxyId: 'channel' });
+    await request('/downloads/channel', 'POST', channelInput([videoId]));
     await request('/downloads/direct', 'POST', directInput(`https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}`, null));
     database
       .prepare('UPDATE downloads SET created_at = ?')
@@ -572,6 +587,7 @@ describe('download API', () => {
       'durationSeconds',
       'thumbnailUrl',
       'outputSizeBytes',
+      'targetSubdirectory',
     ]);
     expect(body.items[0]?.sourceUrl).toBe(
       `https://youtu.be/${SECOND_PLATFORM_VIDEO_ID}`,

@@ -319,7 +319,7 @@
 
 ## task-13 · 修正 parseChannelInput 契约导致的全局测试失败
 
-- 状态: pending
+- 状态: done
 - 依赖: task-06
 - 文件范围:
   - test/integration/download-api.test.ts
