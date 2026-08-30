@@ -265,6 +265,9 @@ async function tryDownloadThumbnail(
       url: download.sourceUrl,
       outputTemplate: join(thumbnailDirectory, '%(id)s.%(ext)s'),
       ...(download.proxyUrl === undefined ? {} : { proxyUrl: download.proxyUrl }),
+      ...(download.cookieFilePath === undefined
+        ? {}
+        : { cookieFilePath: download.cookieFilePath }),
     });
     const entries = await readdir(thumbnailDirectory, { withFileTypes: true });
     if (entries.length !== 1 || entries[0]?.isFile() !== true) return undefined;
@@ -466,6 +469,9 @@ export class DownloadWorker implements DownloadQueue {
         ...(download.proxyUrl === undefined
           ? {}
           : { proxyUrl: download.proxyUrl }),
+        ...(download.cookieFilePath === undefined
+          ? {}
+          : { cookieFilePath: download.cookieFilePath }),
       });
       let thumbnailFilename: string | undefined;
       try {

@@ -868,7 +868,7 @@ describe('server-rendered pages', () => {
     expect(html.match(/name="cookieFile"/g)).toHaveLength(1);
     expect(html).toContain('删除会立即移除文件且无法恢复');
     expect(html).toContain('使用范围');
-    expect(html).toContain('频道可选择同平台授权用于首次同步、手动检查和定时检查');
+    expect(html).toContain('频道可选择同平台授权用于首次同步、手动检查、定时检查和频道视频下载');
     expect(html).toContain('<script type="module" src="/public/authorizations.js"></script>');
     expect(html).not.toContain('Vimeo');
     expect(html.includes(sensitiveMarker)).toBe(false);

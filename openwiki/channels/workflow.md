@@ -40,7 +40,7 @@ YouTube 获取 `<channel>/videos`，对扁平条目缺日期时再探测单视�
 
 ## 授权、代理和测试
 
-频道同步/检查可传同平台 Cookie 文件与选定代理给 yt-dlp；直接下载与媒体下载不使用 Cookie。Cookie 生命周期见 [安全与配置](../operations/security-and-configuration.md)。调度条件和并发互斥见 [yt-dlp 与调度](../runtime/yt-dlp-and-scheduling.md)。
+频道同步/检查和频道视频下载可传同平台 Cookie 文件与选定代理给 yt-dlp；直接下载会在 URL 属于已配置平台时自动传同平台 Cookie。Cookie 生命周期见 [安全与配置](../operations/security-and-configuration.md)。调度条件和并发互斥见 [yt-dlp 与调度](../runtime/yt-dlp-and-scheduling.md)。
 
 - `npm test -- --run test/integration/channel-initial-sync.test.ts`：首次同步范围、失败与历史无提醒。
 - `npm test -- --run test/integration/channel-scheduled-check.test.ts`：去重、新提醒、Bilibili、代理与失败脱敏。

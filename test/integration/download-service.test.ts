@@ -1,12 +1,14 @@
 import { chmod, mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { openDatabase, type DatabaseConnection } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
 import { BusinessError } from '../../src/errors.js';
+import { CookieAuthorizationService } from '../../src/services/cookie-authorization.js';
 import {
   createChannelDownloads,
   createDirectDownload,
@@ -24,6 +26,13 @@ const FIRST_VIDEO_ID = 'aB_12-cD345';
 const SECOND_VIDEO_ID = 'eF_67-gH890';
 const GENERIC_VIDEO_ID = 'generic-123456789';
 const GENERIC_VIDEO_URL = `https://media.example/videos/${GENERIC_VIDEO_ID}`;
+const COOKIE_DIRECT_CASES = [
+  ['youtube', 'https://www.youtube.com/watch?v=yt-cookie', 'yt-cookie'],
+  ['bilibili', 'https://www.bilibili.com/video/BVcookie12345', 'BVcookie12345'],
+  ['x', 'https://x.com/user/status/123456789', 'x-cookie'],
+  ['facebook', 'https://www.facebook.com/watch/?v=123456789', 'facebook-cookie'],
+  ['douyin', 'https://www.douyin.com/video/123456789', 'douyin-cookie'],
+] as const;
 
 const DEFAULT_ADVANCED_OPTIONS = {
   mediaType: 'video',
@@ -59,6 +68,19 @@ async function installFakeYtDlp(): Promise<void> {
     `#!/usr/bin/env node
 const args = process.argv.slice(2);
 const url = args.at(-1);
+const cookieIndex = args.indexOf('--cookies');
+const cookiePath = cookieIndex === -1 ? undefined : args[cookieIndex + 1];
+const cookieCases = ${JSON.stringify(COOKIE_DIRECT_CASES)};
+for (const [platform, expectedUrl, id] of cookieCases) {
+  if (url === expectedUrl && cookiePath?.endsWith(\`\${platform}.cookies.txt\`)) {
+    process.stdout.write(JSON.stringify({
+      extractor_key: platform === 'x' ? 'Twitter' : platform,
+      id,
+      title: \`\${platform} cookie title\`
+    }) + '\\n');
+    process.exit(0);
+  }
+}
 if (url === 'https://www.youtube.com/watch?v=${FIRST_VIDEO_ID}' || url === 'https://youtu.be/${FIRST_VIDEO_ID}') {
   process.stdout.write(JSON.stringify({
     extractor_key: 'Youtube',
@@ -170,6 +192,18 @@ async function expectBusinessError(
   await expect(operation).rejects.toMatchObject({ code });
 }
 
+function cookieText(domain: string): string {
+  return `# Netscape HTTP Cookie File\n.${domain}\tTRUE\t/\tTRUE\t1816784715\tauth_token\tvalue\n`;
+}
+
+async function saveCookie(
+  service: CookieAuthorizationService,
+  platform: string,
+  domain: string,
+): Promise<void> {
+  await service.createConfiguration(platform, Readable.from([cookieText(domain)]));
+}
+
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-download-service-'));
   downloadRoot = join(sandbox, 'downloads');
@@ -232,6 +266,39 @@ describe('download creation service', () => {
     expect(downloadRows()).toEqual([
       expect.objectContaining({ platform: 'bilibili', platform_video_id: 'BV13x41117TL' }),
     ]);
+  });
+
+  it('uses selected channel authorization cookies for channel downloads', async () => {
+    const cookieDirectory = join(sandbox, 'cookies');
+    const cookieAuthorizationService = new CookieAuthorizationService(cookieDirectory);
+    await cookieAuthorizationService.initialize();
+    await saveCookie(cookieAuthorizationService, 'youtube', 'youtube.com');
+    const channelResult = database.prepare(
+      `INSERT INTO channels (
+        platform, platform_channel_id, source_url, custom_name,
+        custom_name_key, proxy_id, authorization_platform,
+        check_interval_minutes, initial_synced_at, created_at, updated_at
+      ) VALUES ('youtube', 'UC-downloads', 'https://www.youtube.com/@downloads',
+                'Saved channel', 'saved channel', NULL, 'youtube', NULL, ?, ?, ?)`,
+    ).run(NOW.toISOString(), NOW.toISOString(), NOW.toISOString());
+    const videoId = insertVideo(
+      Number(channelResult.lastInsertRowid),
+      FIRST_VIDEO_ID,
+      'Authorized channel video',
+      '2026-07-16',
+    );
+
+    await createChannelDownloads(
+      database,
+      downloadRoot,
+      [videoId],
+      queue,
+      NOW,
+      'channel',
+      cookieAuthorizationService,
+    );
+
+    expect(queued[0]?.cookieFilePath).toBe(join(cookieDirectory, 'youtube.cookies.txt'));
   });
 
   it('creates a channel batch atomically and enqueues proxy-bearing jobs in request order', async () => {
@@ -478,6 +545,35 @@ describe('download creation service', () => {
       eta_seconds: null,
       exit_code: null,
     });
+  });
+
+  it('uses configured same-platform cookies for direct downloads', async () => {
+    const cookieDirectory = join(sandbox, 'cookies');
+    const cookieAuthorizationService = new CookieAuthorizationService(cookieDirectory);
+    await cookieAuthorizationService.initialize();
+    await saveCookie(cookieAuthorizationService, 'youtube', 'youtube.com');
+    await saveCookie(cookieAuthorizationService, 'bilibili', 'bilibili.com');
+    await saveCookie(cookieAuthorizationService, 'x', 'x.com');
+    await saveCookie(cookieAuthorizationService, 'facebook', 'facebook.com');
+    await saveCookie(cookieAuthorizationService, 'douyin', 'douyin.com');
+
+    for (const [, url] of COOKIE_DIRECT_CASES) {
+      await createDirectDownload(
+        database,
+        taskManager,
+        downloadRoot,
+        directInput(url, null),
+        queue,
+        NOW,
+        cookieAuthorizationService,
+      );
+    }
+
+    expect(queued.map((download) => download.cookieFilePath)).toEqual(
+      COOKIE_DIRECT_CASES.map(([platform]) =>
+        join(cookieDirectory, `${platform}.cookies.txt`),
+      ),
+    );
   });
 
   it('returns only a verified completed main file', async () => {

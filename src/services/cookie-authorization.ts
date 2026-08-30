@@ -319,6 +319,13 @@ export class CookieAuthorizationService {
     return this.finalPath(definition);
   }
 
+  async findConfiguredFilePath(platform: string): Promise<string | undefined> {
+    const definition = getPlatformDefinition(platform);
+    return (await this.configurationExists(definition))
+      ? this.finalPath(definition)
+      : undefined;
+  }
+
   private async save(
     definition: PlatformDefinition,
     source: Readable,

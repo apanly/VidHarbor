@@ -10,6 +10,10 @@ import {
   validateDownloadRoot,
 } from '../filesystem.js';
 import type { YtDlpTaskManager } from '../yt-dlp-task-manager.js';
+import type {
+  CookieAuthorizationService,
+  CookiePlatform,
+} from './cookie-authorization.js';
 
 export interface Download {
   readonly id: number;
@@ -37,6 +41,7 @@ export interface QueuedDownload {
   readonly downloadRoot: string;
   readonly downloadsMountPath: string;
   readonly proxyUrl?: string;
+  readonly cookieFilePath?: string;
   readonly advancedOptions?: DownloadAdvancedOptions;
 }
 
@@ -79,6 +84,7 @@ interface ChannelVideoRow {
   readonly channel_id: number;
   readonly source_url: string;
   readonly platform: 'youtube' | 'bilibili';
+  readonly authorization_platform: 'youtube' | 'bilibili' | null;
   readonly platform_video_id: string;
   readonly title: string;
   readonly published_date: string;
@@ -101,13 +107,16 @@ interface PreparedDownload {
   readonly networkMode: 'direct' | 'proxy';
   readonly proxyName: string | null;
   readonly proxyUrl?: string;
+  readonly cookieFilePath?: string;
   readonly advancedOptions: DownloadAdvancedOptions | null;
   readonly downloadRoot: string;
 }
 
 interface RetryDownloadRow {
   readonly id: number;
+  readonly source_type: 'channel' | 'direct';
   readonly source_url: string;
+  readonly authorization_platform: 'youtube' | 'bilibili' | null;
   readonly platform_video_id: string;
   readonly advanced_options_json: string | null;
   readonly proxy_url_snapshot: string | null;
@@ -242,6 +251,48 @@ function validateDirectUrl(value: string): void {
   }
 }
 
+function hostMatches(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function directCookiePlatform(url: string): CookiePlatform | null {
+  const hostname = new URL(url).hostname.toLowerCase();
+  if (hostname === 'youtu.be' || hostMatches(hostname, 'youtube.com')) {
+    return 'youtube';
+  }
+  if (hostMatches(hostname, 'bilibili.com')) return 'bilibili';
+  if (hostMatches(hostname, 'x.com') || hostMatches(hostname, 'twitter.com')) {
+    return 'x';
+  }
+  if (hostMatches(hostname, 'facebook.com')) return 'facebook';
+  if (hostMatches(hostname, 'douyin.com')) return 'douyin';
+  return null;
+}
+
+async function findDirectCookieFilePath(
+  url: string,
+  cookieAuthorizationService: CookieAuthorizationService | undefined,
+): Promise<string | undefined> {
+  const platform = directCookiePlatform(url);
+  return platform === null
+    ? undefined
+    : await cookieAuthorizationService?.findConfiguredFilePath(platform);
+}
+
+async function findRetryCookieFilePath(
+  row: RetryDownloadRow,
+  cookieAuthorizationService: CookieAuthorizationService | undefined,
+): Promise<string | undefined> {
+  if (row.source_type === 'direct') {
+    return await findDirectCookieFilePath(row.source_url, cookieAuthorizationService);
+  }
+  return row.authorization_platform === null
+    ? undefined
+    : await cookieAuthorizationService?.getConfiguredFilePath(
+        row.authorization_platform,
+      );
+}
+
 function parseDirectVideoMetadata(value: unknown): {
   readonly platform: string;
   readonly platformVideoId: string;
@@ -317,7 +368,8 @@ function loadChannelVideos(
     const statement = database.prepare(
       `SELECT v.id AS video_id, v.channel_id, v.source_url, v.platform,
               v.platform_video_id, v.title, v.published_date,
-              v.duration_seconds, c.proxy_id, p.name AS proxy_name,
+              v.duration_seconds, c.proxy_id, c.authorization_platform,
+              p.name AS proxy_name,
               p.proxy_url
        FROM videos v
        JOIN channels c ON c.id = v.channel_id
@@ -379,6 +431,7 @@ async function prepareChannelDownloads(
   downloadsMountPath: string,
   videoIds: readonly number[],
   proxySelection: ChannelDownloadProxySelection,
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<readonly PreparedDownload[]> {
   validateVideoIds(videoIds);
   const downloadRoot = await validateDownloadRoot(
@@ -401,6 +454,12 @@ async function prepareChannelDownloads(
             proxyName: row.proxy_name,
             proxyUrl: row.proxy_url as string,
           });
+    const cookieFilePath =
+      row.authorization_platform === null
+        ? undefined
+        : await cookieAuthorizationService?.getConfiguredFilePath(
+            row.authorization_platform,
+          );
     downloads.push({
       sourceType: 'channel',
       channelId: row.channel_id,
@@ -416,6 +475,7 @@ async function prepareChannelDownloads(
       ...(selectedProxy.proxyUrl === undefined
         ? {}
         : { proxyUrl: selectedProxy.proxyUrl }),
+      ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
       advancedOptions: null,
       downloadRoot,
     });
@@ -517,6 +577,9 @@ function enqueueDownloads(
       downloadRoot: value.downloadRoot,
       downloadsMountPath,
       ...(value.proxyUrl === undefined ? {} : { proxyUrl: value.proxyUrl }),
+      ...(value.cookieFilePath === undefined
+        ? {}
+        : { cookieFilePath: value.cookieFilePath }),
       ...(value.advancedOptions === null
         ? {}
         : { advancedOptions: value.advancedOptions }),
@@ -531,12 +594,14 @@ export async function createChannelDownloads(
   queue: DownloadQueue,
   now = new Date(),
   proxySelection: ChannelDownloadProxySelection = 'channel',
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<Download[]> {
   const prepared = await prepareChannelDownloads(
     database,
     downloadsMountPath,
     videoIds,
     proxySelection,
+    cookieAuthorizationService,
   );
   const createdAt = now.toISOString();
   const downloads = insertDownloads(database, prepared, createdAt);
@@ -556,6 +621,7 @@ export async function createDirectDownload(
   input: unknown,
   queue: DownloadQueue,
   now = new Date(),
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<Download> {
   const directInput = parseDirectInput(input);
   const downloadRoot = await validateDownloadRoot(
@@ -563,6 +629,10 @@ export async function createDirectDownload(
     downloadsMountPath,
   );
   const proxy = loadProxy(database, directInput.proxyId);
+  const cookieFilePath = await findDirectCookieFilePath(
+    directInput.url,
+    cookieAuthorizationService,
+  );
 
   let rawMetadata: unknown;
   try {
@@ -571,6 +641,7 @@ export async function createDirectDownload(
       execute: (operations) => operations.fetchVideoMetadata({
         url: directInput.url,
         ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
+        ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
       }),
     }).result;
   } catch (error) {
@@ -595,6 +666,7 @@ export async function createDirectDownload(
     networkMode: proxy.networkMode,
     proxyName: proxy.proxyName,
     ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
+    ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
     advancedOptions: directInput.advancedOptions,
     downloadRoot,
   };
@@ -1048,6 +1120,7 @@ export async function retryDownload(
   downloadId: number,
   queue: DownloadQueue,
   now = new Date(),
+  cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<void> {
   validateDownloadId(downloadId);
   if (!Number.isFinite(now.getTime())) {
@@ -1056,9 +1129,11 @@ export async function retryDownload(
   try {
     const row = database
       .prepare(
-        `SELECT id, source_url, platform_video_id, advanced_options_json, proxy_url_snapshot
-         FROM downloads
-         WHERE id = ? AND status IN ('failed', 'canceled', 'interrupted')`,
+        `SELECT d.id, d.source_type, d.source_url, c.authorization_platform,
+                d.platform_video_id, d.advanced_options_json, d.proxy_url_snapshot
+         FROM downloads d
+         LEFT JOIN channels c ON c.id = d.channel_id
+         WHERE d.id = ? AND d.status IN ('failed', 'canceled', 'interrupted')`,
       )
       .get(downloadId) as RetryDownloadRow | undefined;
     if (row === undefined) {
@@ -1090,6 +1165,10 @@ export async function retryDownload(
     if (updated.changes !== 1) {
       throw new Error('download is missing');
     }
+    const cookieFilePath = await findRetryCookieFilePath(
+      row,
+      cookieAuthorizationService,
+    );
     const retryJob: QueuedDownload = {
       downloadId,
       sourceUrl: row.source_url,
@@ -1099,6 +1178,7 @@ export async function retryDownload(
       ...(row.proxy_url_snapshot === null
         ? {}
         : { proxyUrl: row.proxy_url_snapshot }),
+      ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
     };
     const advancedOptions = parseAdvancedOptionsJson(row.advanced_options_json);
     queue.enqueue(

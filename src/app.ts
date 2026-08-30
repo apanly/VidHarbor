@@ -158,6 +158,7 @@ export function createApiRouter(
       taskManager,
       downloadQueue,
       runtime,
+      cookieAuthorizationService,
     ),
   );
 

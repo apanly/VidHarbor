@@ -11,6 +11,7 @@ import {
   parseQuery,
 } from '../http/pagination.js';
 import type { RuntimeCoordinator } from '../runtime.js';
+import type { CookieAuthorizationService } from '../services/cookie-authorization.js';
 import type { YtDlpTaskManager } from '../yt-dlp-task-manager.js';
 import {
   cancelDownload,
@@ -340,6 +341,7 @@ export function createDownloadsRouter(
   taskManager: YtDlpTaskManager,
   queue: DownloadQueue,
   runtime: RuntimeCoordinator,
+  cookieAuthorizationService: CookieAuthorizationService,
 ): Router {
   const router = Router();
 
@@ -352,6 +354,7 @@ export function createDownloadsRouter(
       queue,
       new Date(),
       input.proxyId,
+      cookieAuthorizationService,
     );
     response.status(202).json({ downloads });
   });
@@ -363,6 +366,8 @@ export function createDownloadsRouter(
       downloadsMountPath,
       request.body,
       queue,
+      new Date(),
+      cookieAuthorizationService,
     );
     response.status(202).json({ download });
   });
@@ -466,6 +471,8 @@ export function createDownloadsRouter(
       downloadsMountPath,
       parseDownloadId(request.params.id),
       queue,
+      new Date(),
+      cookieAuthorizationService,
     );
     response.status(202).end();
   });

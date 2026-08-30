@@ -17,7 +17,7 @@ VidHarbor 没有登录、用户隔离或授权系统，只能部署到可信内�
 
 ## Cookie 授权存储
 
-`CookieAuthorizationService` 管理 youtube、bilibili、x、facebook、douyin 五个固定平台，每个平台最多一个 `*.cookies.txt`。只有 YouTube/Bilibili 频道可选择同平台授权；只有频道初始同步、手动检查和定时检查把 Cookie 文件路径传给 yt-dlp，直连元数据探测、媒体下载和未选择授权的频道绝不使用它。
+`CookieAuthorizationService` 管理 youtube、bilibili、x、facebook、douyin 五个固定平台，每个平台最多一个 `*.cookies.txt`。YouTube/Bilibili 频道可选择同平台授权；频道初始同步、手动检查、定时检查和频道视频下载会把 Cookie 文件路径传给 yt-dlp。直接下载会按 URL 所属平台自动使用已配置的同平台 Cookie，并把同一文件传给元数据探测、媒体下载和缩略图下载；未选择授权的频道不使用 Cookie。
 
 上传是未缓冲的 `application/octet-stream` 请求。服务流式验证 Netscape 格式：至少一条数据记录、恰好七个 tab 字段、有效域/布尔字段/数字过期字段，并支持 `#HttpOnly_`。它以 `wx` 创建每平台固定临时文件、权限 `0600`、同步后 rename 原子替换；目录权限为 `0700`。启动会删除遗留临时文件并收紧已有文件权限，每个平台的写操作在进程内串行化。API 只返回 `configured` 和更新时间，永不回读内容；授权被频道引用时拒绝删除。
 
