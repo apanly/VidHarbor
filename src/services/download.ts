@@ -1,4 +1,4 @@
-import { mkdir, realpath, rename, rm, rmdir } from "node:fs/promises";
+import { lstat, mkdir, realpath, rename, rm, rmdir } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 import type { DatabaseConnection } from "../db/client.js";
@@ -1443,6 +1443,22 @@ export async function moveDownload(
   if (targetSubdirectory !== null) {
     await mkdir(join(realDownloadRoot, targetSubdirectory), { recursive: true });
   }
+
+  // macOS/Node rename onto an existing empty directory succeeds; do not rely
+  // on EEXIST. Any inode at the target downloadId path is a conflict.
+  try {
+    await lstat(newArchiveDir);
+    throw new BusinessError(
+      "DOWNLOAD_MOVE_TARGET_EXISTS",
+      "move target already exists",
+    );
+  } catch (error) {
+    if (error instanceof BusinessError) throw error;
+    if (!isEnoent(error)) {
+      throw new BusinessError("DOWNLOAD_MOVE_FAILED", "download move failed");
+    }
+  }
+
   try {
     await rename(currentArchiveDir, newArchiveDir);
   } catch (error) {

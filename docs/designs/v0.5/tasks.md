@@ -506,7 +506,7 @@
 
 ## task-21 · rename 前显式拒绝已存在的目标 downloadId 目录
 
-- 状态: pending
+- 状态: done
 - 依赖: task-20
 - 文件范围:
   - src/services/download.ts
