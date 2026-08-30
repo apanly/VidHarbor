@@ -435,7 +435,7 @@
 
 ## task-18 · channel 路径在服务层校验 targetSubdirectory
 
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/services/download.ts

@@ -509,6 +509,10 @@ async function prepareChannelDownloads(
   targetSubdirectory: string | null = null,
 ): Promise<readonly PreparedDownload[]> {
   validateVideoIds(videoIds);
+  const validatedTargetSubdirectory =
+    targetSubdirectory === null
+      ? null
+      : validateTargetSubdirectory(targetSubdirectory);
   const downloadRoot = await validateDownloadRoot(
     downloadsMountPath,
     downloadsMountPath,
@@ -554,7 +558,7 @@ async function prepareChannelDownloads(
         : { proxyUrl: selectedProxy.proxyUrl }),
       ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
       advancedOptions: null,
-      targetSubdirectory,
+      targetSubdirectory: validatedTargetSubdirectory,
       downloadRoot,
     });
   }
