@@ -46,7 +46,7 @@
 
 ## task-03 · 下载 worker 归档到子目录
 
-- 状态: pending
+- 状态: done
 - 依赖: task-01
 - 文件范围:
   - src/download-worker.ts

@@ -23,9 +23,9 @@ import {
   isYtDlpTaskCancellationError,
   YtDlpTaskCancellationError,
 } from './yt-dlp-task-cancellation.js';
-import {
-  type YtDlpOperations,
-  type YtDlpTaskManager,
+import type {
+  YtDlpOperations,
+  YtDlpTaskManager,
 } from './yt-dlp-task-manager.js';
 
 const RESTART_FAILURE_REASON = 'service restarted before task completed';
@@ -492,7 +492,18 @@ export class DownloadWorker implements DownloadQueue {
         reportedPath,
       );
       this.#throwIfCanceled(operations.signal);
-      const targetDirectory = join(realDownloadRoot, String(download.downloadId));
+      const targetSubdirectory = download.targetSubdirectory;
+      if (targetSubdirectory !== undefined) {
+        const realSubdirectory = join(realDownloadRoot, targetSubdirectory);
+        if (!isContained(realDownloadRoot, realSubdirectory)) {
+          throw new Error('target subdirectory is outside download root');
+        }
+        await mkdir(realSubdirectory, { recursive: true });
+      }
+      const targetDirectory =
+        targetSubdirectory === undefined
+          ? join(realDownloadRoot, String(download.downloadId))
+          : join(realDownloadRoot, targetSubdirectory, String(download.downloadId));
       try {
         await mkdir(targetDirectory);
       } catch (error) {

@@ -139,6 +139,7 @@ function job(
   sourceUrl: string,
   _targetDirectory = downloadRoot,
   proxyUrl?: string,
+  targetSubdirectory?: string,
 ): QueuedDownload {
   return {
     downloadId,
@@ -147,6 +148,9 @@ function job(
     downloadRoot,
     downloadsMountPath: downloadRoot,
     ...(proxyUrl === undefined ? {} : { proxyUrl }),
+    ...(targetSubdirectory === undefined
+      ? {}
+      : { targetSubdirectory }),
   };
 }
 
@@ -883,6 +887,73 @@ if (args.includes('--skip-download')) {
       status: 'failed',
       output_path: null,
       failure_reason: 'final target already exists',
+    });
+    await expectTaskDirectoryRemoved(downloadId);
+  });
+
+  it('archives to a configured target subdirectory', async () => {
+    const realDownloadRoot = await realpath(downloadRoot);
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const worker = createWorker();
+    worker.enqueue(
+      job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success', downloadRoot, undefined, 'Saved channel'),
+    );
+    await worker.waitForIdle();
+
+    const expectedPath = join(
+      realDownloadRoot,
+      'Saved channel',
+      String(downloadId),
+      `${FIRST_VIDEO_ID}.mp4`,
+    );
+    expect(row(downloadId)).toMatchObject({
+      status: 'completed',
+      output_path: expectedPath,
+    });
+    await expect(
+      readdir(join(downloadRoot, 'Saved channel', String(downloadId))),
+    ).resolves.toEqual(expect.arrayContaining([`${FIRST_VIDEO_ID}.mp4`]));
+    await expect(readFile(expectedPath, 'utf8')).resolves.toBe('media');
+    await expectTaskDirectoryRemoved(downloadId);
+  });
+
+  it('does not silently reuse an existing download ID directory inside the subdirectory', async () => {
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const existingDirectory = join(downloadRoot, 'Saved channel', String(downloadId));
+    await mkdir(existingDirectory, { recursive: true });
+    const existingPath = join(existingDirectory, 'existing.webm');
+    await writeFile(existingPath, 'existing');
+    const worker = createWorker();
+    worker.enqueue(
+      job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success', downloadRoot, undefined, 'Saved channel'),
+    );
+    await worker.waitForIdle();
+
+    await expect(readFile(existingPath, 'utf8')).resolves.toBe('existing');
+    expect(row(downloadId)).toMatchObject({
+      status: 'failed',
+      output_path: null,
+      failure_reason: 'final download directory already exists',
+    });
+    await expectTaskDirectoryRemoved(downloadId);
+  });
+
+  it('rejects a target subdirectory that escapes the download root', async () => {
+    const realDownloadRoot = await realpath(downloadRoot);
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const worker = createWorker();
+    worker.enqueue(
+      job(downloadId, FIRST_VIDEO_ID, 'fixture://worker-success', downloadRoot, undefined, '../escape'),
+    );
+    await worker.waitForIdle();
+
+    expect(row(downloadId)).toMatchObject({
+      status: 'failed',
+      output_path: null,
+      failure_reason: 'target subdirectory is outside download root',
+    });
+    await expect(readdir(join(realDownloadRoot, '..', 'escape'))).rejects.toMatchObject({
+      code: 'ENOENT',
     });
     await expectTaskDirectoryRemoved(downloadId);
   });

@@ -43,6 +43,7 @@ export interface QueuedDownload {
   readonly proxyUrl?: string;
   readonly cookieFilePath?: string;
   readonly advancedOptions?: DownloadAdvancedOptions;
+  readonly targetSubdirectory?: string;
 }
 
 export interface DownloadQueue {
