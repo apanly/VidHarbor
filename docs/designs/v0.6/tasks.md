@@ -101,7 +101,7 @@
   3. `npx tsc -p tsconfig.json --noEmit` → 无类型错误
 
 ## task-05 · 下载页视频号模式与中英文契约文案
-- 状态: pending
+- 状态: done
 - 依赖: task-02, task-03
 - 文件范围:
   - src/views/downloads.ejs
