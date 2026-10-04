@@ -53,7 +53,7 @@
   3. `npx tsc -p tsconfig.json --noEmit` → 无类型错误
 
 ## task-03 · 直连服务接入视频号预览、创建与重试
-- 状态: pending
+- 状态: done
 - 依赖: task-01, task-02
 - 文件范围:
   - src/services/download.ts

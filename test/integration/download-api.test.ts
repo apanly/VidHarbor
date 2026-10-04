@@ -2,6 +2,7 @@ import { access, chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/p
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApiRouter, createApp } from '../../src/app.js';
@@ -13,12 +14,20 @@ import type {
   DownloadQueue,
   QueuedDownload,
 } from '../../src/services/download.js';
+import { resolveWeixinVideo } from '../../src/weixin.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
+
+vi.mock('../../src/weixin.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/weixin.js')>();
+  return { ...actual, resolveWeixinVideo: vi.fn() };
+});
 
 const FIRST_PLATFORM_VIDEO_ID = 'aB_12-cD345';
 const SECOND_PLATFORM_VIDEO_ID = 'eF_67-gH890';
 const GENERIC_VIDEO_ID = 'generic-123456789';
 const GENERIC_VIDEO_URL = `https://media.example/videos/${GENERIC_VIDEO_ID}`;
+const WEIXIN_VIDEO_ID = 'AVIerfY9nv';
+const WEIXIN_VIDEO_URL = `https://weixin.qq.com/sph/${WEIXIN_VIDEO_ID}`;
 const VIMEO_COMPATIBILITY_VIDEO_ID = '123456789';
 const VIMEO_COMPATIBILITY_VIDEO_URL = `https://vimeo.com/${VIMEO_COMPATIBILITY_VIDEO_ID}`;
 const BILIBILI_VIDEO_ID = 'BV13x41117TL';
@@ -79,6 +88,7 @@ let queued: QueuedDownload[];
 let stopServer: (() => Promise<void>) | undefined;
 let runtimeErrors: unknown[];
 let taskManager: YtDlpTaskManager;
+let cookieAuthorizationService: CookieAuthorizationService;
 
 async function installFakeYtDlp(): Promise<void> {
   executablePath = join(sandbox, 'fake-yt-dlp.mjs');
@@ -233,6 +243,16 @@ async function request(
   });
 }
 
+async function configureYuanbaoCookies(): Promise<void> {
+  await cookieAuthorizationService.createConfiguration(
+    'yuanbao',
+    Readable.from([
+      '# Netscape HTTP Cookie File\n' +
+      '.yuanbao.tencent.com\tTRUE\t/\tTRUE\t1816784715\tauth_token\tvalue\n',
+    ]),
+  );
+}
+
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'vidharbor-download-api-'));
   mountPath = join(sandbox, 'downloads');
@@ -244,11 +264,19 @@ beforeEach(async () => {
   queued = [];
   runtimeErrors = [];
   taskManager = new YtDlpTaskManager(executablePath, 1, (message) => message);
+  vi.mocked(resolveWeixinVideo).mockReset();
+  vi.mocked(resolveWeixinVideo).mockResolvedValue({
+    platform: 'weixin',
+    platformVideoId: WEIXIN_VIDEO_ID,
+    title: 'Weixin description',
+    authorNickname: 'Weixin Author',
+    videoUrl: 'https://finder.video.example/video.mp4',
+  });
   const queue: DownloadQueue = {
     enqueue: (download) => queued.push(download),
     cancel: async () => undefined,
   };
-  const cookieAuthorizationService = new CookieAuthorizationService(
+  cookieAuthorizationService = new CookieAuthorizationService(
     join(sandbox, 'cookies'),
   );
   await cookieAuthorizationService.initialize();
@@ -463,6 +491,166 @@ describe('download API', () => {
     });
     expect(database.prepare('SELECT COUNT(*) FROM downloads').pluck().get()).toBe(0);
     expect(queued).toHaveLength(0);
+  });
+
+  it('previews Weixin metadata without submitting a yt-dlp probe', async () => {
+    await configureYuanbaoCookies();
+
+    const response = await request(
+      '/downloads/direct/preview',
+      'POST',
+      directInput(WEIXIN_VIDEO_URL, null, 'chosen'),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      preview: {
+        platform: 'weixin',
+        platformVideoId: WEIXIN_VIDEO_ID,
+        title: 'Weixin description',
+        durationSeconds: null,
+        suggestedSubdirectory: 'Weixin Author',
+        targetSubdirectory: 'chosen',
+      },
+    });
+    expect(resolveWeixinVideo).toHaveBeenCalledWith({
+      shareUrl: WEIXIN_VIDEO_URL,
+      cookieFilePath: join(sandbox, 'cookies', 'yuanbao.cookies.txt'),
+    });
+    expect(taskManager.getSnapshot()).toEqual([]);
+    expect(database.prepare('SELECT COUNT(*) FROM downloads').pluck().get()).toBe(0);
+  });
+
+  it('creates a Weixin download with its dedicated queue marker', async () => {
+    await configureYuanbaoCookies();
+
+    const response = await request(
+      '/downloads/direct',
+      'POST',
+      directInput(WEIXIN_VIDEO_URL, null, 'chosen'),
+    );
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      download: {
+        sourceType: 'direct',
+        title: 'Weixin description',
+        status: 'pending',
+        durationSeconds: null,
+      },
+    });
+    expect(database.prepare(
+      `SELECT source_url, platform, platform_video_id, advanced_options_json,
+              target_subdirectory
+       FROM downloads`,
+    ).get()).toEqual({
+      source_url: WEIXIN_VIDEO_URL,
+      platform: 'weixin',
+      platform_video_id: WEIXIN_VIDEO_ID,
+      advanced_options_json: null,
+      target_subdirectory: 'chosen',
+    });
+    expect(queued).toEqual([
+      expect.objectContaining({
+        sourceUrl: WEIXIN_VIDEO_URL,
+        platformVideoId: WEIXIN_VIDEO_ID,
+        weixinCookieFilePath: join(
+          sandbox,
+          'cookies',
+          'yuanbao.cookies.txt',
+        ),
+      }),
+    ]);
+    expect(queued[0]).not.toHaveProperty('cookieFilePath');
+    expect(queued[0]).not.toHaveProperty('advancedOptions');
+  });
+
+  it('returns the dedicated error when Yuanbao cookies are not configured', async () => {
+    const response = await request(
+      '/downloads/direct/preview',
+      'POST',
+      directInput(WEIXIN_VIDEO_URL, null),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Yuanbao cookie configuration is not configured',
+      },
+    });
+    expect(resolveWeixinVideo).not.toHaveBeenCalled();
+  });
+
+  it('rejects Weixin advanced options with the dedicated error', async () => {
+    await configureYuanbaoCookies();
+
+    const response = await request('/downloads/direct', 'POST', {
+      ...directInput(WEIXIN_VIDEO_URL, null),
+      advancedOptions: {
+        ...DEFAULT_ADVANCED_OPTIONS,
+        quality: '1080p',
+      },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Weixin video downloads do not support advanced options',
+      },
+    });
+    expect(resolveWeixinVideo).not.toHaveBeenCalled();
+    expect(database.prepare('SELECT COUNT(*) FROM downloads').pluck().get()).toBe(0);
+  });
+
+  it.each([
+    'https://weixin.qq.com/not-a-share',
+    `https://channels.weixin.qq.com/sph/${WEIXIN_VIDEO_ID}`,
+  ])('returns NOT_A_VIDEO_URL for unsupported Weixin URL %s', async (url) => {
+    const response = await request(
+      '/downloads/direct/preview',
+      'POST',
+      directInput(url, null),
+    );
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'NOT_A_VIDEO_URL' },
+    });
+    expect(resolveWeixinVideo).not.toHaveBeenCalled();
+    expect(taskManager.getSnapshot()).toEqual([]);
+  });
+
+  it('keeps a failed Weixin row failed when retry has no Yuanbao cookies', async () => {
+    const result = database.prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, status, failure_reason, created_at, finished_at
+      ) VALUES (
+        'direct', ?, 'weixin', ?, 'Weixin description', 'direct',
+        'failed', 'network error', ?, ?
+      )`,
+    ).run(
+      WEIXIN_VIDEO_URL,
+      WEIXIN_VIDEO_ID,
+      '2026-07-17T09:00:00.000Z',
+      '2026-07-17T09:01:00.000Z',
+    );
+    const id = Number(result.lastInsertRowid);
+
+    const response = await request(`/downloads/${id}/retry`, 'POST', {});
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Yuanbao cookie configuration is not configured',
+      },
+    });
+    expect(database.prepare('SELECT status FROM downloads WHERE id = ?').pluck()
+      .get(id)).toBe('failed');
+    expect(queued).toEqual([]);
   });
 
   it('keeps Vimeo URLs on the generic single-resource metadata path without a domain blacklist', async () => {
