@@ -7,7 +7,7 @@ const platformLabels = Object.freeze({
   x: 'X',
   facebook: 'Facebook',
   douyin: 'Douyin',
-  yuanbao: 'Yuanbao',
+  yuanbao: 'platform.yuanbao',
 });
 const platforms = Object.freeze(Object.keys(platformLabels));
 
@@ -35,7 +35,7 @@ function platformLabel(platform) {
   if (!Object.hasOwn(platformLabels, platform)) {
     throw new TypeError(`unknown authorization platform: ${String(platform)}`);
   }
-  return platformLabels[platform];
+  return platform === 'yuanbao' ? t('platform.yuanbao') : platformLabels[platform];
 }
 
 function statusLabel(configured) {

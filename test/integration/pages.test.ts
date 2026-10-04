@@ -506,6 +506,25 @@ describe('server-rendered pages', () => {
     expect(deleteRequests).toBe(0);
   });
 
+  it.each([
+    ['zh-CN', '微信视频号'],
+    ['en', 'WeChat Channels'],
+  ] as const)('renders the WeChat Channels platform label in %s', async (language, expected) => {
+    const script = await getPublicScript('downloads.js');
+    const source = script.slice(
+      script.indexOf('const platformLabels'),
+      script.indexOf('const WEIXIN_VIDEO_URL_PATTERN'),
+    );
+    const platformLabel = new Function(
+      't',
+      `${source}; return platformLabel;`,
+    )(browserI18n(language).t) as (platform: string) => string;
+
+    expect(platformLabel('weixin')).toBe(expected);
+    expect(platformLabel('youtube')).toBe('YouTube');
+    expect(platformLabel('unknown-platform')).toBe('unknown-platform');
+  });
+
   it.each(['zh-CN', 'en'] as const)('executes channel detail states without translating business content in %s', async (language) => {
     const script = await getPublicScript('channel-detail.js');
     const functionSource = script.slice(
@@ -808,7 +827,6 @@ describe('server-rendered pages', () => {
       statusLabel(value: boolean): string;
     };
     expect(authorization.platformLabel('youtube')).toBe('YouTube');
-    expect(authorization.platformLabel('yuanbao')).toBe('Yuanbao');
     expect(authorization.statusLabel(true)).toBe(i18n.t('authorizations.status.configured'));
     expect(() => authorization.statusLabel(false)).toThrow('unknown authorization configuration status: false');
 
@@ -827,6 +845,28 @@ describe('server-rendered pages', () => {
     ) as (error: Error | { code: string }) => string;
     expect(errorMessage(new Error('raw failure'))).toBe(`${i18n.t('common.failed')}: raw failure`);
     expect(errorMessage({ code: 'PERSISTENCE_ERROR' })).toBe(i18n.t('error.PERSISTENCE_ERROR'));
+  });
+
+  it.each([
+    ['zh-CN', '元宝'],
+    ['en', 'Yuanbao'],
+  ] as const)('renders the Yuanbao platform label in %s', async (language, expected) => {
+    const script = await getPublicScript('authorizations.js');
+    const source = script.slice(
+      script.indexOf('const platformLabels'),
+      script.indexOf('const form'),
+    ) + script.slice(
+      script.indexOf('function platformLabel'),
+      script.indexOf('function statusLabel'),
+    );
+    const platformLabel = new Function(
+      't',
+      `${source}; return platformLabel;`,
+    )(browserI18n(language).t) as (platform: string) => string;
+
+    expect(platformLabel('yuanbao')).toBe(expected);
+    expect(platformLabel('youtube')).toBe('YouTube');
+    expect(() => platformLabel('unknown-platform')).toThrow('unknown authorization platform: unknown-platform');
   });
 
   it('explains the complete current project contract on the guide page', async () => {
@@ -1252,7 +1292,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain("let selectedTab = 'completed'");
     expect(script).toContain("facebook: 'Facebook'");
     expect(script).toContain("douyin: '抖音'");
-    expect(script).toContain("weixin: '微信视频号'");
+    expect(script).toContain("t('platform.weixin')");
     expect(script).toContain("thumbnail.referrerPolicy = 'no-referrer'");
     expect(html).not.toMatch(/name="(?:autoplay|autoDownload)"/);
     expect(html).not.toContain('proxy.url');
@@ -1398,7 +1438,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain("canceled: 'status.download.canceled'");
     expect(script).toContain("interrupted: 'status.download.interrupted'");
     expect(script).toContain("download.sourceType === 'channel' ? 'downloads.source.channel' : 'downloads.source.direct'");
-    expect(script).toContain("platformLabels[download.platform] ?? download.platform");
+    expect(script).toContain('platformLabel(download.platform)');
     expect(script).toContain('download.title');
     expect(script).toContain('download.failureReason');
     expect(script).toContain('download.progressPercent');

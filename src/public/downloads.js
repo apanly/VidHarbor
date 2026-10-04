@@ -28,7 +28,8 @@ let searchTimer = null;
 let directPreviewKey = null;
 const labelKeys = { pending: 'status.download.pending', downloading: 'status.download.downloading', running: 'status.download.running', completed: 'status.download.completed', failed: 'status.download.failed', canceled: 'status.download.canceled', interrupted: 'status.download.interrupted', deleting: 'status.download.deleting' };
 const styles = { pending: 'text-bg-secondary', downloading: 'text-bg-primary', running: 'text-bg-primary', completed: 'text-bg-success', failed: 'text-bg-danger', canceled: 'text-bg-warning', interrupted: 'text-bg-warning', deleting: 'text-bg-secondary' };
-const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili', vimeo: 'Vimeo', twitter: 'X', facebook: 'Facebook', douyin: '抖音', weixin: '微信视频号' };
+const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili', vimeo: 'Vimeo', twitter: 'X', facebook: 'Facebook', douyin: '抖音' };
+function platformLabel(platform) { return platform === 'weixin' ? t('platform.weixin') : (platformLabels[platform] ?? platform); }
 const WEIXIN_VIDEO_URL_PATTERN = /^https:\/\/weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+$/;
 const DEFAULT_ADVANCED_OPTIONS = Object.freeze({ mediaType: 'video', format: null, quality: null, codec: null, writeSubtitles: false, splitChapters: false, timeRangeStart: null, timeRangeEnd: null });
 const advancedControlNames = ['quality', 'codec', 'writeSubtitles', 'timeRangeStart', 'timeRangeEnd'];
@@ -171,7 +172,7 @@ function updateDownloadCard(article, previous, download) {
   setField(article, 'title', download.title);
   const thumbnail = article.querySelector('.download-card-thumbnail'); thumbnail.hidden = download.thumbnailUrl === null; if (download.thumbnailUrl !== null && thumbnail.src !== download.thumbnailUrl) thumbnail.src = download.thumbnailUrl;
   setField(article, 'sourceType', t(download.sourceType === 'channel' ? 'downloads.source.channel' : 'downloads.source.direct'));
-  setField(article, 'platform', platformLabels[download.platform] ?? download.platform);
+  setField(article, 'platform', platformLabel(download.platform));
   setField(article, 'progressPercent', download.progressPercent === null ? null : `${download.progressPercent}%`);
   setField(article, 'speedText', download.speedText);
   setField(article, 'etaSeconds', download.etaSeconds === null ? null : `${download.etaSeconds}s`);

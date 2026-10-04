@@ -8,6 +8,8 @@ export const I18N_ELEMENT_ID = 'vidharbor-i18n';
 const zhCN = {
   'language.zh-CN': '中文',
   'language.en': 'English',
+  'platform.weixin': '微信视频号',
+  'platform.yuanbao': '元宝',
   'nav.main': '主导航',
   'nav.dashboard': '总览',
   'nav.downloads': '下载管理',
@@ -316,7 +318,7 @@ export type TranslationKey = keyof typeof zhCN;
 type Catalog = Readonly<Record<TranslationKey, string>>;
 
 const en: Catalog = {
-  'language.zh-CN': '中文', 'language.en': 'English', 'nav.main': 'Main navigation', 'nav.dashboard': 'Dashboard', 'nav.downloads': 'Downloads', 'nav.channels': 'Channels', 'nav.notifications': 'Notifications', 'nav.authorizations': 'Authorizations', 'nav.settings': 'Settings', 'nav.database': 'Database', 'nav.guide': 'Guide',
+  'language.zh-CN': '中文', 'language.en': 'English', 'platform.weixin': 'WeChat Channels', 'platform.yuanbao': 'Yuanbao', 'nav.main': 'Main navigation', 'nav.dashboard': 'Dashboard', 'nav.downloads': 'Downloads', 'nav.channels': 'Channels', 'nav.notifications': 'Notifications', 'nav.authorizations': 'Authorizations', 'nav.settings': 'Settings', 'nav.database': 'Database', 'nav.guide': 'Guide',
   'common.menu': 'Menu', 'common.close': 'Close', 'common.closeMenu': 'Close menu', 'common.cancel': 'Cancel', 'common.save': 'Save', 'common.edit': 'Edit', 'common.delete': 'Delete', 'common.retry': 'Retry', 'common.preview': 'Preview', 'common.download': 'Download', 'common.originalUrl': 'Original URL', 'common.direct': 'Direct', 'common.none': '—', 'common.loading': 'Loading', 'common.inProgress': 'In progress', 'common.failed': 'Failed', 'common.optional': 'Optional', 'common.required': 'Required',
   'field.actions': 'Actions', 'field.status': 'Status', 'field.type': 'Type', 'field.platform': 'Platform', 'field.name': 'Name', 'field.createdAt': 'Created at', 'field.startedAt': 'Started at', 'field.finishedAt': 'Finished at', 'field.failureReason': 'Failure reason', 'field.publishedDate': 'Published date', 'field.duration': 'Duration', 'field.fileSize': 'File size', 'field.storagePath': 'Storage path', 'field.network': 'Network route', 'field.progress': 'Progress', 'field.speed': 'Speed', 'field.result': 'Result', 'field.video': 'Video', 'field.channel': 'Channel', 'field.updatedAt': 'Updated at',
   'page.dashboard.title': 'Dashboard', 'page.downloads.title': 'Downloads', 'page.channels.title': 'Channels', 'page.channelDetail.title': 'Channel details', 'page.notifications.title': 'New video notifications', 'page.authorizations.title': 'Authorizations', 'page.settings.title': 'Settings', 'page.database.title': 'Database', 'page.guide.title': 'Guide', 'page.preview.title': 'Download preview',

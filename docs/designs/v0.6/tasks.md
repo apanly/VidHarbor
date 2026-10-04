@@ -173,7 +173,7 @@
   3. `npx tsc -p tsconfig.json --noEmit` → 无类型错误
 
 ## task-08 · 本地化视频号与元宝平台标签
-- 状态: pending
+- 状态: done
 - 依赖: task-02, task-05
 - 文件范围:
   - src/public/downloads.js
