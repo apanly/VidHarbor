@@ -183,6 +183,11 @@ function postJson(
       'Content-Type': 'application/json',
     };
     if (cookieHeader !== undefined) headers.Cookie = cookieHeader;
+    if (endpoint === WEIXIN_FEED_ENDPOINT) {
+      headers.Origin = 'https://channels.weixin.qq.com';
+      headers.Referer =
+        'https://channels.weixin.qq.com/finder-preview/pages/feed';
+    }
 
     const request = https.request(
       endpoint,

@@ -17,3 +17,9 @@
 - 来源 review: review-1.md
 - 关联 task: task-08
 - 描述: `src/public/downloads.js:31` platformLabels 写死 `weixin: '微信视频号'`，`src/public/authorizations.js:10` 写死 `yuanbao: 'Yuanbao'`，违反契约中「微信视频号 / WeChat Channels」「元宝 / Yuanbao」的中英文展示名要求。修复要求：在 src/i18n.ts 为这两个平台标签增加中英文键，前端通过 t() 取值，并在 pages.test.ts 按语言断言；不改动现有其他平台标签。
+
+## bugfix-04 · get_feed_info 请求缺少 Origin / Referer，真实接口返回 401
+
+- 来源: 合入前真实接口端到端验证（review-2 通过后）
+- 关联 task: task-09
+- 描述: `src/weixin.ts` postJson 只发送 `Content-Type`（元宝请求另带 `Cookie`）。用真实元宝 Cookie 调用 resolveWeixinVideo，元宝步骤成功，但 `POST https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info` 返回 HTTP 401 `{"errCode":-1,"errMsg":"permission verification failed"}`，最终抛出 VIDEO_FETCH_FAILED，视频号下载在真实环境完全不可用。已用 curl 二分验证：该请求必须同时带 `Origin: https://channels.weixin.qq.com` 与 `Referer: https://channels.weixin.qq.com/finder-preview/pages/feed`，缺任一即 401；两者都带时返回 HTTP 201 且含 videoUrl；URL query（`_rid`、`_pageUrl`）与 User-Agent 均不需要；元宝请求只需 Cookie，不需要这两个头。修复要求：仅为 get_feed_info 请求增加这两个固定请求头，元宝请求保持不变，不添加 query、User-Agent 或其他请求头；在 test/unit/weixin.test.ts 断言 feed 请求携带这两个头、元宝请求不携带。

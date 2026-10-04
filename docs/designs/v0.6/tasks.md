@@ -197,3 +197,26 @@
   1. `npx vitest run test/integration/pages.test.ts test/unit/i18n.test.ts` → 中英文平台标签及翻译键完整性用例通过
   2. `rg -n "platform\\.(weixin|yuanbao)" src/i18n.ts src/public/downloads.js src/public/authorizations.js` → 命中新 i18n 键及两个前端调用点
   3. `npm run build` → TypeScript、Sass、静态资源复制全部成功
+
+## task-09 · 补全微信 feed 请求的来源校验头
+- 状态: done
+- 依赖: task-01
+- 文件范围:
+  - src/weixin.ts
+  - test/unit/weixin.test.ts
+- 关键约束:
+  - 只能为 `get_feed_info` 请求增加固定的 `Origin: https://channels.weixin.qq.com` 与 `Referer: https://channels.weixin.qq.com/finder-preview/pages/feed`；不能把这两个头发送给元宝请求
+  - 元宝请求必须继续只发送 `Content-Type` 与 Cookie，feed 请求不能携带 Cookie；不能添加 `_rid`、`_pageUrl` query、`User-Agent` 或其他未确认请求头
+  - 必须保留现有请求 body、代理、AbortSignal、30 秒超时、错误脱敏及响应解析契约；不能增加 fallback、重试或宽松解析
+- 原始描述: `src/weixin.ts` postJson 只发送 `Content-Type`（元宝请求另带 `Cookie`）。用真实元宝 Cookie 调用 resolveWeixinVideo，元宝步骤成功，但 `POST https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info` 返回 HTTP 401 `{"errCode":-1,"errMsg":"permission verification failed"}`，最终抛出 VIDEO_FETCH_FAILED，视频号下载在真实环境完全不可用。已用 curl 二分验证：该请求必须同时带 `Origin: https://channels.weixin.qq.com` 与 `Referer: https://channels.weixin.qq.com/finder-preview/pages/feed`，缺任一即 401；两者都带时返回 HTTP 201 且含 videoUrl；URL query（`_rid`、`_pageUrl`）与 User-Agent 均不需要；元宝请求只需 Cookie，不需要这两个头。修复要求：仅为 get_feed_info 请求增加这两个固定请求头，元宝请求保持不变，不添加 query、User-Agent 或其他请求头；在 test/unit/weixin.test.ts 断言 feed 请求携带这两个头、元宝请求不携带。
+- 任务目的: 修复 bugfix-04 描述的问题
+- 实现入口: `src/weixin.ts` 的 `postJson` 请求头构造及 `resolveWeixinVideo` 内 `WEIXIN_FEED_ENDPOINT` 调用；`test/unit/weixin.test.ts` 的 `resolveWeixinVideo transport` 请求选项断言
+- 期望行为: `resolveWeixinVideo` 调用 `get_feed_info` 时同时发送两个固定来源头并可通过真实接口权限校验；元宝解析请求的现有请求头保持不变
+- 范围边界:
+  - 必须: 单元测试分别机械断言 feed 请求包含固定 `Origin`/`Referer`，且元宝请求不包含这两个头
+  - 不能: 不能改动与本 bug 无关的模块，不能改变两个 endpoint、请求 body、Cookie 隔离、代理或错误契约
+  - 不做: 不增加 URL query、`User-Agent`、其它请求头、接口 fallback 或自动重试
+- 验收标准:
+  1. `npx vitest run test/unit/weixin.test.ts` → 两个请求的精确请求头、传输与负向契约用例通过
+  2. `rg -n "Origin|Referer" src/weixin.ts test/unit/weixin.test.ts` → 命中 feed 固定来源头及对应测试断言
+  3. `npx tsc -p tsconfig.json --noEmit` → 无类型错误

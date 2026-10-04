@@ -353,7 +353,11 @@ describe('resolveWeixinVideo transport', () => {
     );
     expect(feedRequest?.options).toEqual({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://channels.weixin.qq.com',
+        Referer: 'https://channels.weixin.qq.com/finder-preview/pages/feed',
+      },
       signal: abortController.signal,
     });
     expect(feedRequest?.body).toBe(
