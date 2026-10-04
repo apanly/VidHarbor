@@ -905,6 +905,34 @@ if (args.includes('--skip-download')) {
     expect(invocation).not.toContain('--cookies');
   });
 
+  it('names Weixin media by the share short ID instead of the yt-dlp id', async () => {
+    const sourceUrl = `https://weixin.qq.com/sph/${FIRST_VIDEO_ID}`;
+    const downloadId = insertWeixinPending(FIRST_VIDEO_ID, sourceUrl);
+    vi.mocked(resolveWeixinVideo).mockResolvedValue({
+      platform: 'weixin',
+      platformVideoId: FIRST_VIDEO_ID,
+      title: 'Title',
+      authorNickname: 'Author',
+      videoUrl: 'fixture://worker-success',
+    });
+    const worker = createWorker();
+
+    worker.enqueue(weixinJob(
+      downloadId,
+      FIRST_VIDEO_ID,
+      sourceUrl,
+      join(sandbox, 'yuanbao.cookies.txt'),
+    ));
+    await worker.waitForIdle();
+
+    const invocation = JSON.parse(
+      (await readFile(join(sandbox, 'argv.log'), 'utf8')).trimEnd(),
+    ) as string[];
+    const outputTemplate = invocation[invocation.indexOf('--output') + 1];
+    expect(outputTemplate?.endsWith(`/${FIRST_VIDEO_ID}.%(ext)s`)).toBe(true);
+    expect(outputTemplate).not.toContain('%(id)s');
+  });
+
   it('skips thumbnail download for Weixin tasks', async () => {
     const sourceUrl = `https://weixin.qq.com/sph/${FIRST_VIDEO_ID}`;
     const downloadId = insertWeixinPending(FIRST_VIDEO_ID, sourceUrl);

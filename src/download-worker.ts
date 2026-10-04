@@ -480,9 +480,14 @@ export class DownloadWorker implements DownloadQueue {
       const ytDlpCookieFilePath = weixinCookieFilePath === undefined
         ? download.cookieFilePath
         : undefined;
+      // yt-dlp's generic id for a Weixin CDN URL includes the signed query and
+      // exceeds filename limits, so name the file by the share short ID.
+      const outputName = weixinCookieFilePath === undefined
+        ? '%(id)s'
+        : download.platformVideoId;
       const reportedPath = await operations.downloadMedia({
         url: mediaUrl,
-        outputTemplate: join(taskDirectory, '%(id)s.%(ext)s'),
+        outputTemplate: join(taskDirectory, `${outputName}.%(ext)s`),
         onProgress: persistProgress,
         ...(download.advancedOptions === undefined
           ? {}
