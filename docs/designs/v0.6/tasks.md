@@ -78,7 +78,7 @@
   3. `npx tsc -p tsconfig.json --noEmit` → 无类型错误
 
 ## task-04 · Worker 每次重解析并跳过缩略图
-- 状态: failed
+- 状态: done
 - 依赖: task-01, task-03
 - 文件范围:
   - src/download-worker.ts

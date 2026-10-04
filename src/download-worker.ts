@@ -23,6 +23,7 @@ import {
   isYtDlpTaskCancellationError,
   YtDlpTaskCancellationError,
 } from './yt-dlp-task-cancellation.js';
+import { resolveWeixinVideo } from './weixin.js';
 import {
   type YtDlpOperations,
   type YtDlpTaskManager,
@@ -459,8 +460,22 @@ export class DownloadWorker implements DownloadQueue {
             download.downloadId,
           );
       };
+      const weixinCookieFilePath = download.weixinCookieFilePath;
+      const mediaUrl = weixinCookieFilePath === undefined
+        ? download.sourceUrl
+        : (await resolveWeixinVideo({
+            shareUrl: download.sourceUrl,
+            cookieFilePath: weixinCookieFilePath,
+            signal: operations.signal,
+            ...(download.proxyUrl === undefined
+              ? {}
+              : { proxyUrl: download.proxyUrl }),
+          })).videoUrl;
+      const ytDlpCookieFilePath = weixinCookieFilePath === undefined
+        ? download.cookieFilePath
+        : undefined;
       const reportedPath = await operations.downloadMedia({
-        url: download.sourceUrl,
+        url: mediaUrl,
         outputTemplate: join(taskDirectory, '%(id)s.%(ext)s'),
         onProgress: persistProgress,
         ...(download.advancedOptions === undefined
@@ -469,22 +484,24 @@ export class DownloadWorker implements DownloadQueue {
         ...(download.proxyUrl === undefined
           ? {}
           : { proxyUrl: download.proxyUrl }),
-        ...(download.cookieFilePath === undefined
+        ...(ytDlpCookieFilePath === undefined
           ? {}
-          : { cookieFilePath: download.cookieFilePath }),
+          : { cookieFilePath: ytDlpCookieFilePath }),
       });
       let thumbnailFilename: string | undefined;
-      try {
-        thumbnailFilename = await tryDownloadThumbnail(
-          operations,
-          taskDirectory,
-          download,
-        );
-      } catch (error) {
-        if (!isYtDlpTaskCancellationError(error)) {
-          boundaryFailure = new Error(failureMessage(error, download.proxyUrl));
+      if (weixinCookieFilePath === undefined) {
+        try {
+          thumbnailFilename = await tryDownloadThumbnail(
+            operations,
+            taskDirectory,
+            download,
+          );
+        } catch (error) {
+          if (!isYtDlpTaskCancellationError(error)) {
+            boundaryFailure = new Error(failureMessage(error, download.proxyUrl));
+          }
+          throw error;
         }
-        throw error;
       }
       this.#throwIfCanceled(operations.signal);
       const downloadedFiles = await validateDownloadedFiles(
