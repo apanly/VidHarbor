@@ -1,7 +1,7 @@
 # Tasks - v0.6
 
 ## task-01 · 微信视频号解析器与代理传输
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - package.json
