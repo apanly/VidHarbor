@@ -124,3 +124,76 @@
   1. `npx vitest run test/integration/pages.test.ts test/unit/i18n.test.ts` → 视频号表单状态与中英文文案用例通过
   2. `npm run build` → TypeScript、Sass、静态资源复制全部成功
   3. `npx vitest run` → 全量测试通过
+
+## task-06 · 修复视频号解析阶段的取消边界
+- 状态: failed
+- 依赖: task-04
+- 文件范围:
+  - src/download-worker.ts
+  - test/integration/download-worker.test.ts
+- 关键约束:
+  - 视频号解析期间只有 `operations.signal` 已中止时才转换为既有 `YtDlpTaskCancellationError` 取消边界；不能把普通解析失败误判为取消
+  - 必须保持 `resolveWeixinVideo` 对中止请求返回 `VIDEO_FETCH_FAILED` 的既有契约，不能在 `src/weixin.ts` 扩大或改变解析器错误类型
+  - 取消后下载行必须收敛为 `canceled`，`waitForIdle()` 正常完成且 worker 可继续执行后续任务；不能触发 `DownloadWorkerBoundaryError` 或永久设置 worker failure
+  - 不能吞掉解析错误、增加解析重试或改变普通媒体下载的取消、清理、归档状态转换
+- 原始描述: `src/download-worker.ts:466` Worker 在 media_download 任务内 await resolveWeixinVideo 并传入 operations.signal；用户取消或服务停止时 signal 被 abort，`src/weixin.ts:222`（及 200 行 response 'error'）统一 reject(fetchFailed())，抛出 BusinessError('VIDEO_FETCH_FAILED') 而非 YtDlpTaskCancellationError，#run 判定为 failed，又因 signal.aborted 且无 boundaryFailure 走边界异常路径，经 #reportFailure 抛出 DownloadWorkerBoundaryError，worker 进入永久故障直到重启。修复要求：保持 VIDEO_FETCH_FAILED 契约，解析阶段 signal 已中止时回到既有取消边界（如 await 失败路径先 this.#throwIfCanceled(operations.signal)，否则原样抛出解析错误，不吞错）；在 download-worker.test.ts 增加用例：resolveWeixinVideo 挂起期间调用 worker.cancel，断言行状态为 canceled、worker.waitForIdle() 正常 resolve、后续任务仍能执行。
+- 任务目的: 修复 bugfix-01 描述的问题
+- 实现入口: `src/download-worker.ts` 的 `DownloadWorker.#run` 视频号 `resolveWeixinVideo` 调用（当前第 466 行）、catch 状态判定（当前第 588-650 行）与 `#throwIfCanceled`（当前第 724 行）
+- 期望行为: `resolveWeixinVideo` 挂起期间取消任务时，解析 await 失败后按已中止 signal 进入既有取消路径，记录 `canceled` 而非 `failed`，worker 保持可用；signal 未中止的解析错误仍原样记录为失败
+- 范围边界:
+  - 必须: 增加集成测试覆盖解析挂起时取消、`waitForIdle()` 正常完成以及同一 worker 后续任务成功执行
+  - 不能: 不能改动与本 bug 无关的模块，不能改变 `VIDEO_FETCH_FAILED`、错误脱敏、并发限制或非视频号任务行为
+  - 不做: 不修改元宝请求协议，不增加自动重试，不重构下载状态机
+- 验收标准:
+  1. `npx vitest run test/integration/download-worker.test.ts` → 视频号解析阶段取消、后续任务可执行及既有 worker 回归用例通过
+  2. `npx tsc -p tsconfig.json --noEmit` → 无类型错误
+
+## task-07 · 移除元宝 Cookie 的 yt-dlp 路由
+- 状态: pending
+- 依赖: task-03
+- 文件范围:
+  - src/services/download.ts
+  - test/integration/download-service.test.ts
+- 关键约束:
+  - `directCookiePlatform` 只能返回实际交给 yt-dlp 的普通直连平台 Cookie；不能返回 `yuanbao`
+  - 元宝 Cookie 只能由 `findWeixinCookieFilePath` 取得并通过 `weixinCookieFilePath` 进入专用解析器，不能进入 `cookieFilePath` 或 yt-dlp options
+  - 必须保留视频号预览、创建和重试的专用分支以及普通平台 Cookie 自动选择行为
+  - 不能为异常或历史数据增加新的 fallback、平台推断或兼容分支
+- 原始描述: `src/services/download.ts:325` directCookiePlatform 只服务于传给 yt-dlp 的 cookieFilePath，新增的 `if (isWeixinVideoHost(url)) return 'yuanbao';` 在视频号路径中不可达，唯一可达情形会把元宝 Cookie 作为 cookieFilePath 交给 yt-dlp，违反「元宝 Cookie 只用于 get_parse_result，不传给 yt-dlp」。修复要求：删除该行，元宝 Cookie 只经 findWeixinCookieFilePath → weixinCookieFilePath 获取。
+- 任务目的: 修复 bugfix-02 描述的问题
+- 实现入口: `src/services/download.ts` 的 `directCookiePlatform`（当前第 309-328 行）、`findWeixinCookieFilePath`（当前第 344 行）与 `findDirectCookieFilePath`（当前第 358 行）
+- 期望行为: 普通直连 Cookie 路由永不选择 `yuanbao`；视频号任务仍仅通过 `weixinCookieFilePath` 使用元宝 Cookie，并且队列任务不携带传给 yt-dlp 的 `cookieFilePath`
+- 范围边界:
+  - 必须: 删除 `directCookiePlatform` 中的 weixin→yuanbao 映射，并保持现有视频号创建/重试 Cookie 隔离断言通过
+  - 不能: 不能改动与本 bug 无关的模块，不能改变普通平台 Cookie 映射、视频号 URL 判断或缺少元宝授权时的错误契约
+  - 不做: 不修改数据库记录，不新增平台，不处理非契约历史数据
+- 验收标准:
+  1. `! rg -n "isWeixinVideoHost\\(url\\).*return 'yuanbao'" src/services/download.ts` → 普通直连 Cookie 路由不再包含元宝映射
+  2. `npx vitest run test/integration/download-service.test.ts` → 视频号创建/重试 Cookie 隔离及普通平台 Cookie 回归用例通过
+  3. `npx tsc -p tsconfig.json --noEmit` → 无类型错误
+
+## task-08 · 本地化视频号与元宝平台标签
+- 状态: pending
+- 依赖: task-02, task-05
+- 文件范围:
+  - src/public/downloads.js
+  - src/public/authorizations.js
+  - src/i18n.ts
+  - test/integration/pages.test.ts
+- 关键约束:
+  - 必须为视频号和元宝平台标签增加中英文 i18n 键，并分别显示“微信视频号 / WeChat Channels”与“元宝 / Yuanbao”
+  - `src/public/downloads.js` 与 `src/public/authorizations.js` 必须通过现有 `t()` 读取新增键；不能继续写死这两个平台的单一语言标签
+  - 只本地化 `weixin` 和 `yuanbao`；不能顺带改动现有其他平台标签、平台顺序或未知平台处理边界
+  - 页面测试必须按 `zh-CN` 和 `en` 分别断言两个标签，不能只检查源码字符串存在
+- 原始描述: `src/public/downloads.js:31` platformLabels 写死 `weixin: '微信视频号'`，`src/public/authorizations.js:10` 写死 `yuanbao: 'Yuanbao'`，违反契约中「微信视频号 / WeChat Channels」「元宝 / Yuanbao」的中英文展示名要求。修复要求：在 src/i18n.ts 为这两个平台标签增加中英文键，前端通过 t() 取值，并在 pages.test.ts 按语言断言；不改动现有其他平台标签。
+- 任务目的: 修复 bugfix-03 描述的问题
+- 实现入口: `src/public/downloads.js` 的 `platformLabels`（当前第 31 行）和下载卡片平台渲染；`src/public/authorizations.js` 的 `platformLabels`/`platformLabel`（当前第 4-39 行）；`src/i18n.ts` 的 `zh-CN`、`en` 翻译表
+- 期望行为: 中文界面显示“微信视频号”和“元宝”，英文界面显示“WeChat Channels”和“Yuanbao”；其它平台标签与未知平台行为保持不变
+- 范围边界:
+  - 必须: 使用现有浏览器 i18n `t()` 通道，并在页面集成测试中机械验证两种语言的两个平台标签
+  - 不能: 不能改动与本 bug 无关的模块，不能修改现有其他平台标签、授权平台集合或下载数据契约
+  - 不做: 不统一重构全站平台标签，不新增语言，不修改页面布局
+- 验收标准:
+  1. `npx vitest run test/integration/pages.test.ts test/unit/i18n.test.ts` → 中英文平台标签及翻译键完整性用例通过
+  2. `rg -n "platform\\.(weixin|yuanbao)" src/i18n.ts src/public/downloads.js src/public/authorizations.js` → 命中新 i18n 键及两个前端调用点
+  3. `npm run build` → TypeScript、Sass、静态资源复制全部成功
