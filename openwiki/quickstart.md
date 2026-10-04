@@ -13,7 +13,8 @@ VidHarbor 是部署在可信内网的单用户视频管理服务：订阅 YouTub
 
 - [运行时架构](architecture/overview.md)：启动装配、恢复、故障升级、关闭和单实例约束。
 - [SQLite 模式与状态](architecture/persistence.md)：实体、迁移、事务、升级与重启恢复。
-- [下载工作流](downloads/workflow.md)：直连/频道创建、worker、归档、删除、媒体流。
+- [下载工作流](downloads/workflow.md)：直连/频道创建、目标文件夹、worker、归档、移动、删除和媒体流。
+- [微信视频号直连下载](downloads/weixin.md)：分享 URL、元宝 Cookie、代理解析、取消和短 ID 命名。
 - [频道工作流](channels/workflow.md)：首次同步、定时发现、提醒和平台元数据。
 - [yt-dlp 与调度](runtime/yt-dlp-and-scheduling.md)：任务队列、子进程、超时、取消和到期检查。
 - [安全与配置](operations/security-and-configuration.md)：可信内网、挂载、代理、Cookie 和文件路径安全。
@@ -26,7 +27,8 @@ VidHarbor 是部署在可信内网的单用户视频管理服务：订阅 YouTub
 
 | 要改什么 | 先读 | 主要入口/符号 | 聚焦测试 | 最小验证 |
 | --- | --- | --- | --- | --- |
-| 下载创建、状态、归档或删除 | [下载工作流](downloads/workflow.md) | `createDirectDownload`、`DownloadWorker`、`deleteDownload` | `download-service`、`download-worker` | `npm test -- --run test/integration/download-worker.test.ts` |
+| 下载创建、目标文件夹、状态、归档、移动或删除 | [下载工作流](downloads/workflow.md) | `createDirectDownload`、`moveDownload`、`DownloadWorker`、`deleteDownload` | `download-service`、`download-worker`、`download-api` | `npm test -- --run test/integration/download-service.test.ts test/integration/download-worker.test.ts` |
+| 微信视频号分享、元宝授权、解析或媒体命名 | [微信视频号直连下载](downloads/weixin.md) | `parseWeixinShareUrl`、`resolveWeixinVideo`、`DownloadWorker` | `weixin`、`download-worker` | `npm test -- --run test/unit/weixin.test.ts test/integration/download-worker.test.ts` |
 | 频道平台、同步或提醒 | [频道工作流](channels/workflow.md) | `parseChannelSource`、`completeScheduledCheck` | `channel-initial-sync`、`channel-scheduled-check` | `npm test -- --run test/integration/channel-scheduled-check.test.ts` |
 | yt-dlp 参数、队列或调度 | [yt-dlp 与调度](runtime/yt-dlp-and-scheduling.md) | `YtDlpTaskManager`、`ChannelScheduler` | `yt-dlp-task-manager`、`scheduler` | `npm test -- --run test/unit/yt-dlp-task-manager.test.ts test/unit/scheduler.test.ts` |
 | SQL/迁移/恢复 | [SQLite 模式与状态](architecture/persistence.md) | `migrateDatabase`、`recoverInterruptedChannelSyncs` | `database`、`restart-recovery` | `npm test -- --run test/integration/database.test.ts` |
@@ -39,7 +41,8 @@ VidHarbor 是部署在可信内网的单用户视频管理服务：订阅 YouTub
 
 - 频道发现不自动下载；历史同步不创建提醒，后续检查只为新平台视频 ID 创建提醒。
 - 下载根和媒体文件必须经真实路径、包含关系和安全打开验证；完成删除是可恢复的 `deleting` 协议。
-- Cookie 与代理凭据是敏感数据：不回读 Cookie，不在错误中暴露代理凭据，只限可信内网。
+- Cookie 与代理凭据是敏感数据：不回读 Cookie，不在错误中暴露代理凭据，只限可信内网；视频号的元宝 Cookie 只用于解析，不能传给 yt-dlp。
+- 目标子目录既要服务层验证，也要在 worker 创建后验证真实路径包含性；完成下载的移动依赖单进程串行化，不可在外部写入者存在时假定安全。
 - SQLite 模式必须精确匹配内置迁移；下载并发在服务器启动时读取，修改设置后需重启生效。
 - Docker 仅支持 amd64/arm64，且运行期需要模板、静态资源、迁移和两份 README。
 

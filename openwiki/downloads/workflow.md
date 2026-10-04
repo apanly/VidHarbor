@@ -31,17 +31,23 @@ sequenceDiagram
 
 ## 创建与去重
 
-`POST /api/downloads/channel` 接受不重复的 `videoIds` 和 `proxyId`（`channel`、明确代理或直连），从频道视频加载平台、标题、URL 与频道代理。`POST /api/downloads/direct` 仅接受 HTTPS URL、可选代理及完整高级选项对象；它先提交 `metadata_probe`，要求恰好一个结果且包含非空 `extractor_key`、标题和安全 ID。两种路径都验证下载根，并拒绝同一 `(platform, platform_video_id)` 已处于 pending/running/completed/deleting 的记录；失败、取消和中断记录可以重试。
+`POST /api/downloads/channel` 接受不重复的 `videoIds`、`proxyId`（`channel`、明确代理或直连）和 `targetSubdirectory`（字符串或 `null`），从频道视频加载平台、标题、URL 与频道代理。`POST /api/downloads/direct` 接受 HTTPS URL、可选代理、完整高级选项对象及目标子目录；普通平台先提交 `metadata_probe`，要求恰好一个结果且包含非空 `extractor_key`、标题和安全 ID。[微信视频号](weixin.md)是专用直连分支：创建和预览用元宝 Cookie 解析分享链接，不使用 yt-dlp 元数据探测或高级选项。两种路径都验证下载根，并拒绝同一 `(platform, platform_video_id)` 已处于 pending/running/completed/deleting 的记录；失败、取消和中断记录可以重试。
 
-创建在 SQLite 中插入 `pending` 并保存代理 URL 快照。快照意味着以后编辑/删除代理不改变已创建任务。频道下载不带高级选项；直连任务保存媒体类型、格式、质量、转码、字幕、章节和时间段选项。
+创建在 SQLite 中插入 `pending` 并保存代理 URL 快照和目标子目录。快照意味着以后编辑/删除代理不改变已创建任务。频道下载不带高级选项；普通直连任务保存媒体类型、格式、质量、转码、字幕、章节和时间段选项。`validateTargetSubdirectory()` 是服务层的唯一输入边界，worker 仍要在实际 `mkdir` 后做真实路径包含性检查。
 
 ## worker、归档与失败
 
 `DownloadWorker.#run()` 仅原子地将 pending 转为 running。它在 `<root>/.vidharbor-tmp/<id>` 创建受目录边界验证的临时目录，接收 yt-dlp 的 `after_move:filepath`，要求任务目录只有非空普通文件，并可选下载一个缩略图。缩略图失败不影响主媒体；取消会中断全部后续工作。
 
-完成时 worker 在 `<root>/<id>/` 创建归档目录，对每个产物创建硬链接，删除临时目录，然后将主输出路径、缩略图、字节数、完成时间与 `completed` 一次写入。归档或清理失败会移除已链接文件并记录 `failed`；worker 自身无法安全收敛的边界故障会向运行时报告。路径校验使用 `realpath`、包含关系、`O_NOFOLLOW` 及 inode/dev 对账，详见 [安全与配置](../operations/security-and-configuration.md)。
+完成时 worker 在 `<root>/<targetSubdirectory>/<id>/` 或未指定子目录时 `<root>/<id>/` 创建归档目录，对每个产物创建硬链接，删除临时目录，然后将主输出路径、缩略图、字节数、完成时间与 `completed` 一次写入。归档或清理失败会移除已链接文件并记录 `failed`；worker 自身无法安全收敛的边界故障会向运行时报告。视频号 worker 会在实际执行前重新解析临时媒体 URL、跳过缩略图，并以分享短 ID 命名产物，详细约束见[微信视频号直连下载](weixin.md)。路径校验使用 `realpath`、包含关系、`O_NOFOLLOW` 及 inode/dev 对账，详见 [安全与配置](../operations/security-and-configuration.md)。
 
 取消只允许 pending/running/downloading，服务先写 `canceled` 再请求队列取消。重试只允许 failed/canceled/interrupted，清空产物、进度和时间戳，恢复 `pending` 后重新入队。进程重启不续传，活动记录变 `interrupted`，用户必须重试。
+
+## 已完成归档的移动
+
+`GET /api/downloads/folders` 从已保存的非空 `target_subdirectory` 返回最近 20 个文件夹名，供界面复用；它不是对文件系统的目录遍历。`POST /api/downloads/:id/move` 的请求体必须恰有 `targetSubdirectory`，其中 `null` 表示下载根。`moveDownload()` 只处理 `completed` 且 `archive_layout = 'download_directory'` 的记录，拒绝当前文件夹、异常归档目录和已有目标 `<root>/<target>/<id>`。
+
+移动先验证下载根和当前归档的真实路径，以 `rename` 移动整个下载 ID 目录，再在 SQLite 更新主媒体路径、缩略图路径和 `target_subdirectory`；数据库更新未命中时会尝试回滚 rename。此协议依赖进程内下载操作串行化，**没有跨进程锁**：若引入外部文件管理器或多进程写入者，必须先设计跨进程锁，不能假定现有 rename 安全。移动的 HTTP 编排属于 [HTTP API](../api/http-contract.md)，路径包含性约束属于[安全与配置](../operations/security-and-configuration.md)。
 
 ## 文件服务与删除
 
@@ -51,7 +57,8 @@ sequenceDiagram
 
 ## 聚焦验证
 
-- `npm test -- --run test/integration/download-service.test.ts`：创建、取消、重试和状态约束。
-- `npm test -- --run test/integration/download-worker.test.ts`：归档、进度、取消和 worker 边界。
+- `npm test -- --run test/integration/download-service.test.ts`：创建、目标子目录、移动、取消、重试和状态约束。
+- `npm test -- --run test/integration/download-api.test.ts`：文件夹、移动和请求体形状的 HTTP 契约。
+- `npm test -- --run test/integration/download-worker.test.ts`：归档、进度、取消、子目录真实路径检查及视频号 worker 边界。
 - `npm test -- --run test/integration/download-delete-recovery.test.ts`：删除隔离、部分失败和恢复。
 - `npm test -- --run test/unit/filesystem.test.ts test/unit/file-stream.test.ts`：路径和流关闭安全。

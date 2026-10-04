@@ -21,4 +21,8 @@ tags: [web, i18n]
 
 这建立了明确的信任边界：README 内容会成为未额外净化的 HTML，只有仓库受信任维护者应修改它；标记错误会使页面路由创建/启动失败。两份 README 必须随发布产物放在 `dist` 的上级运行目录，`Dockerfile` 专门复制它们。`test/integration/server-lifecycle.test.ts` 对 clean build 的双语 guide、缺少/重复/乱序标记和打包 README 行为做验证。
 
-页面结构和导航行为由 `test/integration/pages.test.ts` 覆盖。修改模板、静态模块或翻译后，优先运行 `npm test -- --run test/integration/pages.test.ts test/unit/i18n.test.ts`；修改 README 标记或构建复制规则时再运行 `test/integration/server-lifecycle.test.ts`。
+## 下载界面与平台提示
+
+下载页模板 `src/views/downloads.ejs` 与模块 `src/public/downloads.js` 负责目标文件夹输入、预览和完成下载的移动入口；它们调用 `GET /api/downloads/folders`、`POST /api/downloads/:id/move` 及直连预览/创建 API，而不复制服务层的路径校验。视频号预览模式会展示其专用限制和元宝 Cookie 前置条件；平台显示名称来自 `platform.weixin` 与 `platform.yuanbao`，授权页模块 `src/public/authorizations.js` 使用同一翻译目录。用户可见契约应与[微信视频号直连下载](../downloads/weixin.md)和[HTTP API](../api/http-contract.md)同步，而不是把 Cookie 或代理实现细节带入浏览器。
+
+页面结构和导航行为由 `test/integration/pages.test.ts` 覆盖。修改模板、静态模块或翻译后，优先运行 `npm test -- --run test/integration/pages.test.ts test/unit/i18n.test.ts`；修改下载请求或移动交互时再运行 `npm test -- --run test/integration/download-api.test.ts`；修改 README 标记或构建复制规则时再运行 `test/integration/server-lifecycle.test.ts`。

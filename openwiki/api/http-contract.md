@@ -19,11 +19,13 @@ tags: [api, http]
 | `/api/authorizations/cookies` | 已配置列表、流式创建/替换、引用安全删除 | `CookieAuthorizationService` |
 | `/api/channels` | 频道 CRUD、首次同步、检查、暂停/恢复、视频/检查分页 | `services/channel.ts` |
 | `/api/notifications` | 分页、单条/批量/全部标已读 | `services/notification.ts` |
-| `/api/downloads` | 直连/频道创建、列表/详情、取消、重试、删除、媒体 | `services/download.ts` |
+| `/api/downloads` | 直连/频道创建与预览、最近目标文件夹、列表/详情、取消、重试、已完成归档移动、删除、媒体 | `services/download.ts` |
 | `/api/yt-dlp/tasks` | 进程内任务快照 | `YtDlpTaskManager` |
 | `/api/database` | 表列表和 prepared statement 只读 SQL | `routes/database.ts` |
 
 列表分页统一用 `page` 正整数和 `PAGE_SIZE = 20`。频道视频、下载列表可用 `q` 做服务端标题筛选；下载 `tab` 是 active、completed、failed，分别映射活动、完成和失败终态集合。
+
+下载的创建面包括 `POST /api/downloads/direct/preview`（返回预览）和 `POST /api/downloads/direct`（202 创建），以及 `POST /api/downloads/channel`（202 批量创建）。频道请求精确包含 `videoIds`、`proxyId`、`targetSubdirectory`；移动请求 `POST /api/downloads/:id/move` 精确包含 `{ "targetSubdirectory": string | null }` 并返回 204，`null` 指下载根；`GET /api/downloads/folders` 返回最近使用的持久化子目录。路由只做请求形状和 ID 校验，创建与移动的状态、路径和并发约束由[下载工作流](../downloads/workflow.md)拥有。直连视频号的预览/创建额外要求元宝授权，见[微信视频号直连下载](../downloads/weixin.md)。
 
 ## 实时与文件接口
 
