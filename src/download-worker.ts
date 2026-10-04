@@ -461,9 +461,10 @@ export class DownloadWorker implements DownloadQueue {
           );
       };
       const weixinCookieFilePath = download.weixinCookieFilePath;
-      const mediaUrl = weixinCookieFilePath === undefined
-        ? download.sourceUrl
-        : (await resolveWeixinVideo({
+      let mediaUrl = download.sourceUrl;
+      if (weixinCookieFilePath !== undefined) {
+        try {
+          mediaUrl = (await resolveWeixinVideo({
             shareUrl: download.sourceUrl,
             cookieFilePath: weixinCookieFilePath,
             signal: operations.signal,
@@ -471,6 +472,11 @@ export class DownloadWorker implements DownloadQueue {
               ? {}
               : { proxyUrl: download.proxyUrl }),
           })).videoUrl;
+        } catch (error) {
+          this.#throwIfCanceled(operations.signal);
+          throw error;
+        }
+      }
       const ytDlpCookieFilePath = weixinCookieFilePath === undefined
         ? download.cookieFilePath
         : undefined;

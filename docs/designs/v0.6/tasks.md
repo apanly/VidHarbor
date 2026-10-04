@@ -126,7 +126,7 @@
   3. `npx vitest run` → 全量测试通过
 
 ## task-06 · 修复视频号解析阶段的取消边界
-- 状态: failed
+- 状态: done
 - 依赖: task-04
 - 文件范围:
   - src/download-worker.ts

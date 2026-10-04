@@ -92,6 +92,7 @@ import {
   type Statement,
 } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { BusinessError } from '../../src/errors.js';
 import { formatFailureReason } from '../../src/redaction.js';
 import type { QueuedDownload } from '../../src/services/download.js';
 import { resolveWeixinVideo } from '../../src/weixin.js';
@@ -958,6 +959,63 @@ if (args.includes('--skip-download')) {
       code: 'ENOENT',
     });
     await expectTaskDirectoryRemoved(downloadId);
+  });
+
+  it('keeps the worker usable after canceling a pending Weixin resolution', async () => {
+    const sourceUrl = `https://weixin.qq.com/sph/${FIRST_VIDEO_ID}`;
+    const canceledId = insertWeixinPending(FIRST_VIDEO_ID, sourceUrl);
+    const successfulId = insertPending(SECOND_VIDEO_ID);
+    let markResolutionStarted!: () => void;
+    const resolutionStarted = new Promise<void>((resolve) => {
+      markResolutionStarted = resolve;
+    });
+    vi.mocked(resolveWeixinVideo).mockImplementation(({ signal }) => {
+      if (signal === undefined) throw new Error('expected a cancellation signal');
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          'abort',
+          () => reject(new BusinessError(
+            'VIDEO_FETCH_FAILED',
+            'Weixin video fetch failed',
+          )),
+          { once: true },
+        );
+        markResolutionStarted();
+      });
+    });
+    const worker = createWorker();
+
+    worker.enqueue(weixinJob(
+      canceledId,
+      FIRST_VIDEO_ID,
+      sourceUrl,
+      join(sandbox, 'yuanbao.cookies.txt'),
+    ));
+    await resolutionStarted;
+    await worker.cancel(canceledId);
+    await worker.waitForIdle();
+
+    expect(row(canceledId)).toMatchObject({
+      status: 'canceled',
+      failure_reason: 'yt-dlp task canceled',
+    });
+    expect(taskManager?.getSnapshot()[0]).toMatchObject({
+      type: 'media_download',
+      status: 'canceled',
+    });
+
+    worker.enqueue(job(
+      successfulId,
+      SECOND_VIDEO_ID,
+      'fixture://worker-second',
+    ));
+    await worker.waitForIdle();
+
+    expect(row(successfulId)).toMatchObject({ status: 'completed' });
+    expect(taskManager?.getSnapshot()[1]).toMatchObject({
+      type: 'media_download',
+      status: 'succeeded',
+    });
   });
 
   it('preserves ordinary task download options', async () => {
