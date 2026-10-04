@@ -11,6 +11,8 @@ All notable user-visible changes are documented here. The project follows Semant
 - Added automated bilingual contract coverage and isolated-browser acceptance for all 10 pages, including language selection, dynamic UI states, README sources, and localized date and number display.
 - Added a public GHCR deployment path alongside local source builds.
 - Added authorization management for one strictly validated Netscape Cookie file per YouTube, Bilibili, X, Facebook, and Douyin platform, with upload, full replacement, status, and deletion controls.
+- Added WeChat Channels single-video direct downloads for `https://weixin.qq.com/sph/<ID>` share links, resolved through Yuanbao and the Channels preview endpoint, re-resolved on every download run and retry, without advanced options or thumbnails.
+- Added Yuanbao as the sixth authorization platform; its Cookie is used only to resolve WeChat Channels videos and is never passed to yt-dlp.
 - Added durable download status `deleting` for completed-archive removal, with startup recovery and HTTP `DOWNLOAD_DELETE_IN_PROGRESS` (409) when another delete already owns the row.
 - Documented the unreleased download-delete state machine and direct-download field contract in `docs/designs/unreleased/download-delete-and-direct-options.md`.
 
@@ -28,11 +30,12 @@ All notable user-visible changes are documented here. The project follows Semant
 
 ### Security
 
-- Treat saved Cookie files as account login credentials. They persist under `/data`, are included in `/data` backups, and are not yet used by channel synchronization, metadata probing, or media downloads.
+- Treat saved Cookie files as account login credentials. They persist under `/data` and are included in `/data` backups.
 
 ### Fixed
 
 - Fixed the published AMD64 image containing ARM64 binaries because the Node base image was pinned to a single-platform digest.
+- Fixed WeChat Channels downloads failing with "File name too long" by naming the main media with the share short ID instead of yt-dlp's generic ID.
 - Fixed interrupted scheduled checks remaining active after restart and permanently blocking channel deletion.
 - Fixed completed-download deletion so failed recursive cleanup restores `completed` only when the persisted main media path is still a non-empty regular file; otherwise the row stays `deleting` for recovery.
 

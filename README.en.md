@@ -12,10 +12,10 @@ The project is licensed under GNU AGPL v3.0. See `LICENSE` for the full text.
 
 - Follow YouTube and Bilibili channels, manually synchronize historical videos, and check for new videos on a schedule.
 - Discover updates through in-app notifications. Neither historical synchronization nor subsequent checks download videos automatically.
-- Create download tasks in batches from a channel's video list, or submit a supported single-video URL directly.
+- Create download tasks in batches from a channel's video list, or submit a supported single-video URL directly, including WeChat Channels share links resolved through Yuanbao.
 - View download progress, failure reasons, and archive details, and cancel, retry, preview, save, or delete tasks.
 - View the fixed download directory and configure check intervals, download concurrency, and named proxies.
-- Save one Netscape Cookie file for each of YouTube, Bilibili, X, Facebook, and Douyin under Authorization Management, with upload, full replacement, and deletion support.
+- Save one Netscape Cookie file for each of YouTube, Bilibili, X, Facebook, Douyin, and Yuanbao under Authorization Management, with upload, full replacement, and deletion support.
 - Browse current SQLite data with read-only SQL for local diagnostics and verification.
 
 <!-- APP_GUIDE_EXCLUDE_START -->
@@ -72,19 +72,22 @@ VidHarbor never decides what to download automatically. Channel checks only crea
 | Capability | Currently supported | Explicit limitations |
 | --- | --- | --- |
 | Channel subscriptions | YouTube `/channel/<id>` and `/@handle`; Bilibili `https://space.bilibili.com/<numeric-UID>` | YouTube excludes Shorts, live streams, and live replays. Bilibili includes only regular creator uploads and excludes posts, live streams, series, favorites, collection entry points, and audio. |
-| Direct downloads | Verified for public single videos or Reels from YouTube, Bilibili, X, and Facebook; public single-video Douyin URLs can be submitted | Home pages, playlists, and collections are not expanded. A resource must resolve to exactly one entry. Private or login-required content is unsupported. |
+| Direct downloads | Verified for public single videos or Reels from YouTube, Bilibili, X, and Facebook; public single-video Douyin URLs can be submitted; WeChat Channels share links are downloaded after Yuanbao resolution | Home pages, playlists, and collections are not expanded. A resource must resolve to exactly one entry. Login-required content needs a Cookie for the same platform. |
 | Generic HTTPS probing | Any HTTPS URL enters the existing yt-dlp single-resource probe | This does not make the site officially supported or verified. The URL must still resolve to exactly one entry and satisfy the required metadata contract. |
 | Bilibili | Regular videos; use `?p=<number>` to select a part in a multi-part video | The first part is selected when no part is specified. |
 | X | A specific video URL | Posts with multiple videos must include `/video/<number>`. |
 | Facebook | Public single videos and public Reels | Private, friends-only, age-restricted, and login-required content is unsupported. |
-| Douyin | Public single videos at `https://www.douyin.com/video/<numeric-ID>` | yt-dlp may require fresh cookies. Saved Cookies are not connected to probing or downloads, so success depends on the outbound network and platform controls. User profiles and collections are unsupported. |
-| Authorization management | YouTube, Bilibili, X, Facebook, and Douyin are fixed supported platforms | At most one Netscape `cookies.txt` file per platform. Other platforms, multiple accounts, and other authorization formats are unsupported. |
+| Douyin | Public single videos at `https://www.douyin.com/video/<numeric-ID>` | yt-dlp may require fresh cookies. Once a Douyin Cookie is configured, direct downloads pass it to yt-dlp automatically. User profiles and collections are unsupported. |
+| WeChat Channels | Single videos from `https://weixin.qq.com/sph/<ID>` share links only | A Yuanbao Cookie must be configured first. Advanced options and thumbnails are unsupported. Following Channels accounts, live streams, live replays, image posts, and other Channels URL forms are unsupported. Resolution depends on undocumented Yuanbao and Channels endpoints, so endpoint changes or an expired Cookie cause failures. |
+| Authorization management | YouTube, Bilibili, X, Facebook, Douyin, and Yuanbao are fixed supported platforms | At most one Netscape `cookies.txt` file per platform. The Yuanbao Cookie is used only to resolve WeChat Channels videos. Other platforms, multiple accounts, and other authorization formats are unsupported. |
 
 A direct-download resource must provide a non-empty `extractor_key`, a title, and an ID safe for archive filenames. The ID may contain only letters, digits, underscores, and hyphens. HTTP URLs, resources missing required metadata, and resources requiring unavailable login information fail explicitly.
 
 Authorization Management only validates and stores Netscape `cookies.txt` files. After blank and comment lines are removed, the file must contain at least one data record, and every data record must contain exactly seven tab-separated columns. Passing validation only means the file was saved and is structurally valid; it does not prove that the login session is currently valid. The system does not display or download raw Cookie contents. Cookies are equivalent to account login credentials and must only be obtained and uploaded on trusted devices. Never send raw Cookie contents through chat, issues, screenshots, logs, or public files.
 
-When adding or editing a channel, authorization for the same platform can be selected. Once selected, the current Cookie file is used for the initial sync, manual checks, scheduled checks, and per-video detail requests. Direct-download metadata probing and media downloading do not use saved Cookies.
+When adding or editing a channel, authorization for the same platform can be selected. Once selected, the current Cookie file is used for the initial sync, manual checks, scheduled checks, per-video detail requests, and channel video downloads. Direct-download metadata probing and media downloading automatically use the current Cookie file when the URL belongs to YouTube, Bilibili, X, Facebook, or Douyin and the matching authorization is configured.
+
+WeChat Channels does not use yt-dlp metadata probing. The system uses the Yuanbao Cookie to obtain a playback token from Yuanbao, requests the title, author, and video URL from the Channels preview endpoint, and then hands the video URL to yt-dlp for download. The Yuanbao Cookie is never passed to yt-dlp. Tasks store only the share link, not the expiring video URL, so every download run and retry resolves it again. The same share short ID is treated as the same video.
 
 ## How Channels Discover Videos
 
@@ -102,11 +105,11 @@ New videos usually appear after the next scheduled check completes. Discovery la
 
 ## Downloads, Success Criteria, and Files
 
-Downloads support video or audio, maximum resolution, transcoding formats, subtitles, and time ranges. Both probing and downloading operate on a single resource and never expand playlists.
+Downloads support video or audio, maximum resolution, transcoding formats, subtitles, and time ranges; WeChat Channels supports only the default options. Both probing and downloading operate on a single resource and never expand playlists.
 
 - **Success criteria:** A task succeeds once the main media file is downloaded and validated. New tasks also store the main media file size.
-- **Thumbnails:** Each task attempts to save one automatically. A missing or failed thumbnail does not affect main-media success.
-- **Directory structure:** New tasks are archived under `<downloads-mount>/<download-ID>/`. A directory may contain the main media, thumbnail, and subtitle files.
+- **Thumbnails:** Each task except WeChat Channels attempts to save one automatically. A missing or failed thumbnail does not affect main-media success.
+- **Directory structure:** New tasks are archived under `<downloads-mount>/<download-ID>/`. A directory may contain the main media, thumbnail, and subtitle files. WeChat Channels main media is named by the share short ID.
 - **Deletion:** Deleting a completed task using the new layout removes the entire download-ID directory and its database record. Records created before the layout upgrade retain their original file paths.
 
 Downloads do not retry or resume automatically. Failed, canceled, and interrupted tasks can be retried explicitly by the user. A new submission is rejected without creating a duplicate when the same platform and video ID already has a pending, running, or completed record. The user may explicitly recreate a task after failure, cancellation, or interruption. Download records store and display the source platform. The Downloads page has fixed Completed, Active, and Failed views and opens Completed by default. Completed records show only the thumbnail, title, total duration, file size, total download time, completion time, storage path, and actions. Older records whose historical size cannot be determined reliably display `—`.
@@ -128,7 +131,7 @@ Dates and human-readable numbers follow the current interface language, while ti
 | Channels | Add and configure YouTube or Bilibili channels, and trigger the initial sync, check now, pause, resume, or delete actions. |
 | Channel Details | Filter and select videos for download; view current download state, file size, completion time, failure reason, and file actions; and inspect initial-sync and subsequent-check records. |
 | Notifications | View new videos found by subsequent checks, open the original video or channel, and mark one or all notifications as read. |
-| Authorization Management | Upload, fully replace, or delete a Netscape Cookie file for YouTube, Bilibili, X, Facebook, or Douyin, and view configuration state and update time. |
+| Authorization Management | Upload, fully replace, or delete a Netscape Cookie file for YouTube, Bilibili, X, Facebook, Douyin, or Yuanbao, and view configuration state and update time. |
 | Settings | View the fixed download root, configure the global check interval and download concurrency, and manage HTTP, HTTPS, or SOCKS5 proxies. |
 | Database | View tables and run read-only SQL for local diagnostics. Writes are unsupported. |
 | System Guide | Display this README without the interface preview. The System Guide link at the bottom of the sidebar points to `/guide`. |
@@ -180,7 +183,7 @@ First-use sequence:
 6. Manually select 1, 3, 6, or 12 months for the initial sync.
 7. Select videos from a notification or channel page for subsequent downloads, or submit a single-video URL on the Downloads page.
 
-Direct mode never switches automatically to a proxy, and a failed named proxy never falls back to a direct connection. Cookies are used only by channel sync and checks that explicitly select same-platform authorization. They are not applied automatically to direct downloads or media downloads. The project does not provide automatic proxy selection or proxy pools.
+Direct mode never switches automatically to a proxy, and a failed named proxy never falls back to a direct connection. Cookies are used by channel sync, checks, and channel video downloads that explicitly select same-platform authorization, and are applied automatically to direct-download metadata probing and media downloading when the URL belongs to a configured platform. The project does not provide automatic proxy selection or proxy pools.
 
 ## Data and Operations
 
@@ -243,7 +246,7 @@ Database migrations run automatically at startup. The project does not guarantee
 - If a file is missing or deletion fails, the database record is retained and an explicit error is returned, avoiding a deleted record with unknown file state.
 - A full disk, lost mount, existing target, zero-byte output, out-of-bounds path, or non-zero yt-dlp/FFmpeg exit makes the corresponding task fail explicitly.
 
-Currently unavailable: automatic downloads, automatic retries, external push notifications, notification deletion, channel URL changes, connecting saved Cookies to channel/probe/download operations beyond explicitly authorized channel sync and checks, remote Cookie validity checks, proxy pools, automatic proxy selection, and secure public-internet access.
+Currently unavailable: automatic downloads, automatic retries, external push notifications, notification deletion, channel URL changes, remote Cookie validity checks, proxy pools, automatic proxy selection, and secure public-internet access.
 
 ## Local Verification
 
@@ -255,7 +258,7 @@ npm test -- --run --maxWorkers=1
 npm run build
 ```
 
-Real-site smoke tests are not part of the default test suite. Before upgrading pinned yt-dlp, FFmpeg, the Node.js base image, or native dependencies, verify YouTube and Bilibili channel metadata; single resources from YouTube, Bilibili, X, Facebook, and Douyin; downloads requiring FFmpeg merges; atomic archiving; and proxy and direct paths on each target CPU architecture and deployment network.
+Real-site smoke tests are not part of the default test suite. Before upgrading pinned yt-dlp, FFmpeg, the Node.js base image, or native dependencies, verify YouTube and Bilibili channel metadata; single resources from YouTube, Bilibili, X, Facebook, and Douyin; WeChat Channels share links with a Yuanbao Cookie configured; downloads requiring FFmpeg merges; atomic archiving; and proxy and direct paths on each target CPU architecture and deployment network.
 
 ## Project Documentation
 
