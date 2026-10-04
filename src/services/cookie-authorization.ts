@@ -38,6 +38,11 @@ export const COOKIE_PLATFORMS = [
     fileName: 'douyin.cookies.txt',
     temporaryFileName: '.douyin.cookies.txt.pending',
   },
+  {
+    platform: 'yuanbao',
+    fileName: 'yuanbao.cookies.txt',
+    temporaryFileName: '.yuanbao.cookies.txt.pending',
+  },
 ] as const;
 
 export type CookiePlatform = (typeof COOKIE_PLATFORMS)[number]['platform'];

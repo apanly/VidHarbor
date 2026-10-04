@@ -7,6 +7,7 @@ const platformLabels = Object.freeze({
   x: 'X',
   facebook: 'Facebook',
   douyin: 'Douyin',
+  yuanbao: 'Yuanbao',
 });
 const platforms = Object.freeze(Object.keys(platformLabels));
 

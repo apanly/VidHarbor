@@ -27,7 +27,7 @@
   3. `npx tsc -p tsconfig.json --noEmit` → 无类型错误
 
 ## task-02 · 元宝 Cookie 授权平台
-- 状态: pending
+- 状态: done
 - 依赖: 无
 - 文件范围:
   - src/services/cookie-authorization.ts
