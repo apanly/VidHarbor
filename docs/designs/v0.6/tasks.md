@@ -149,7 +149,7 @@
   2. `npx tsc -p tsconfig.json --noEmit` → 无类型错误
 
 ## task-07 · 移除元宝 Cookie 的 yt-dlp 路由
-- 状态: pending
+- 状态: done
 - 依赖: task-03
 - 文件范围:
   - src/services/download.ts

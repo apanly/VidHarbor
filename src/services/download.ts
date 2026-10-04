@@ -322,7 +322,6 @@ function directCookiePlatform(url: string): CookiePlatform | null {
   }
   if (hostMatches(hostname, 'facebook.com')) return 'facebook';
   if (hostMatches(hostname, 'douyin.com')) return 'douyin';
-  if (isWeixinVideoHost(url)) return 'yuanbao';
   return null;
 }
 
