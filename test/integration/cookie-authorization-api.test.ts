@@ -98,9 +98,9 @@ describe('Cookie authorization API', () => {
     await expect(response.json()).resolves.toEqual({ configurations: [] });
   });
 
-  it('uploads, replaces, rebuilds, and deletes one platform without exposing content', async () => {
+  it('uploads, replaces, rebuilds, and deletes Yuanbao without exposing sensitive data', async () => {
     const upload = await writeRequest(
-      '/api/authorizations/cookies/youtube',
+      '/api/authorizations/cookies/yuanbao',
       'POST',
       VALID_COOKIE,
     );
@@ -116,14 +116,16 @@ describe('Cookie authorization API', () => {
       'updatedAt',
     ]);
     expect(uploaded.configuration).toMatchObject({
-      platform: 'youtube',
+      platform: 'yuanbao',
       configured: true,
     });
     expect(typeof uploaded.configuration.updatedAt).toBe('string');
     expect(uploadText.includes(SENSITIVE_MARKER)).toBe(false);
+    expect(uploadText.includes(storage)).toBe(false);
+    expect(uploadText.includes('yuanbao.cookies.txt')).toBe(false);
 
     const duplicate = await writeRequest(
-      '/api/authorizations/cookies/youtube',
+      '/api/authorizations/cookies/yuanbao',
       'POST',
       VALID_COOKIE,
     );
@@ -137,7 +139,7 @@ describe('Cookie authorization API', () => {
 
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
     const replacement = await writeRequest(
-      '/api/authorizations/cookies/youtube',
+      '/api/authorizations/cookies/yuanbao',
       'PUT',
       VALID_COOKIE.replace('session', 'replacement'),
     );
@@ -164,14 +166,16 @@ describe('Cookie authorization API', () => {
         }
       ).configurations[0],
     ).toEqual({
-      platform: 'youtube',
+      platform: 'yuanbao',
       configured: true,
       updatedAt: replacementBody.configuration.updatedAt,
     });
     expect(rebuiltText.includes(SENSITIVE_MARKER)).toBe(false);
+    expect(rebuiltText.includes(storage)).toBe(false);
+    expect(rebuiltText.includes('yuanbao.cookies.txt')).toBe(false);
 
     const deleteResponse = await fetch(
-      `${rebuiltBaseUrl}/api/authorizations/cookies/youtube`,
+      `${rebuiltBaseUrl}/api/authorizations/cookies/yuanbao`,
       {
         method: 'DELETE',
         headers: { origin: rebuiltBaseUrl },
@@ -180,7 +184,7 @@ describe('Cookie authorization API', () => {
     expect(deleteResponse.status).toBe(200);
     await expect(deleteResponse.json()).resolves.toEqual({
       configuration: {
-        platform: 'youtube',
+        platform: 'yuanbao',
         configured: false,
         updatedAt: null,
       },

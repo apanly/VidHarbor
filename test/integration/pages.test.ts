@@ -166,6 +166,52 @@ function getPublicScript(name: string): Promise<string> {
   return readFile(join(process.cwd(), 'src/public', name), 'utf8');
 }
 
+function directModeHarness(script: string) {
+  const elements = {
+    url: { value: '' },
+    proxyId: { value: '7', disabled: false },
+    targetSubdirectory: { value: 'archive', disabled: false },
+    mediaType: { value: 'audio', disabled: false },
+    quality: { value: '1080', disabled: false },
+    codec: { value: 'mp4', disabled: false },
+    writeSubtitles: { checked: true, disabled: false },
+    timeRangeStart: { value: '00:01:00', disabled: false },
+    timeRangeEnd: { value: '00:02:00', disabled: false },
+  };
+  const form = { elements };
+  const advancedDetails = { open: true };
+  const modeHelp = { hidden: true };
+  const previewResult = { hidden: false };
+  const submitButton = { disabled: false };
+  const source = script.slice(
+    script.indexOf('const WEIXIN_VIDEO_URL_PATTERN'),
+    script.indexOf('function renderDirectPreview'),
+  );
+  const behavior = new Function(
+    'form',
+    'directAdvancedOptions',
+    'weixinModeHelp',
+    'directPreviewResult',
+    'directSubmitButton',
+    'directPreviewKey',
+    `${source}; return { isWeixinVideoUrl, advancedOptions, updateDirectFormMode, previewKey: () => directPreviewKey, setPreviewKey: (value) => { directPreviewKey = value; } };`,
+  )(
+    form,
+    advancedDetails,
+    modeHelp,
+    previewResult,
+    submitButton,
+    'existing-preview',
+  ) as {
+    isWeixinVideoUrl(value: string): boolean;
+    advancedOptions(value: typeof form): Record<string, unknown>;
+    updateDirectFormMode(): void;
+    previewKey(): unknown;
+    setPreviewKey(value: unknown): void;
+  };
+  return { behavior, elements, form, advancedDetails, modeHelp, previewResult, submitButton };
+}
+
 async function schedulingTurn(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -458,6 +504,25 @@ describe('server-rendered pages', () => {
     expect(() => helpers.createDownloadCard({ ...baseDownload, status: 'unknown' }))
       .toThrow('unknown download status: unknown');
     expect(deleteRequests).toBe(0);
+  });
+
+  it.each([
+    ['zh-CN', '微信视频号'],
+    ['en', 'WeChat Channels'],
+  ] as const)('renders the WeChat Channels platform label in %s', async (language, expected) => {
+    const script = await getPublicScript('downloads.js');
+    const source = script.slice(
+      script.indexOf('const platformLabels'),
+      script.indexOf('const WEIXIN_VIDEO_URL_PATTERN'),
+    );
+    const platformLabel = new Function(
+      't',
+      `${source}; return platformLabel;`,
+    )(browserI18n(language).t) as (platform: string) => string;
+
+    expect(platformLabel('weixin')).toBe(expected);
+    expect(platformLabel('youtube')).toBe('YouTube');
+    expect(platformLabel('unknown-platform')).toBe('unknown-platform');
   });
 
   it.each(['zh-CN', 'en'] as const)('executes channel detail states without translating business content in %s', async (language) => {
@@ -782,6 +847,28 @@ describe('server-rendered pages', () => {
     expect(errorMessage({ code: 'PERSISTENCE_ERROR' })).toBe(i18n.t('error.PERSISTENCE_ERROR'));
   });
 
+  it.each([
+    ['zh-CN', '元宝'],
+    ['en', 'Yuanbao'],
+  ] as const)('renders the Yuanbao platform label in %s', async (language, expected) => {
+    const script = await getPublicScript('authorizations.js');
+    const source = script.slice(
+      script.indexOf('const platformLabels'),
+      script.indexOf('const form'),
+    ) + script.slice(
+      script.indexOf('function platformLabel'),
+      script.indexOf('function statusLabel'),
+    );
+    const platformLabel = new Function(
+      't',
+      `${source}; return platformLabel;`,
+    )(browserI18n(language).t) as (platform: string) => string;
+
+    expect(platformLabel('yuanbao')).toBe(expected);
+    expect(platformLabel('youtube')).toBe('YouTube');
+    expect(() => platformLabel('unknown-platform')).toThrow('unknown authorization platform: unknown-platform');
+  });
+
   it('explains the complete current project contract on the guide page', async () => {
     const [html, englishHtml, chineseReadme, englishReadme] = await Promise.all([
       getPage('/guide', { Cookie: 'vidharbor_language=zh-CN' }),
@@ -890,6 +977,7 @@ describe('server-rendered pages', () => {
       upload: '新增授权时选择平台并上传文件；编辑授权时重新上传完整文件。系统不会读取浏览器资料目录、代替你登录、转换其他授权格式或验证远端有效性。',
       credential: 'Cookie 等同账号登录凭据。不要通过聊天、工单、截图、日志或公开文件传递原文；不再需要或怀疑泄露时，请删除授权或重新导出后替换。',
       disclaimer: '“已配置”仅表示文件已保存且格式正确，不代表登录态当前有效。',
+      scope: '频道可选择同平台授权用于首次同步、手动检查、定时检查和频道视频下载；直接下载会在 URL 属于已配置平台时自动使用同平台 Cookie；未选择授权的频道不会使用 Cookie。元宝授权仅用于微信视频号解析。',
     },
     {
       language: 'en',
@@ -898,8 +986,9 @@ describe('server-rendered pages', () => {
       upload: 'Choose a platform and upload a file when adding an authorization; upload the complete file again when editing. The system does not read browser profile directories, sign in on your behalf, convert other authorization formats, or validate the authorization remotely.',
       credential: 'Cookie data is equivalent to account sign-in credentials. Do not share its contents through chats, issues, screenshots, logs, or public files. Delete the authorization when it is no longer needed, or replace it with a fresh export if exposure is suspected.',
       disclaimer: '“Configured” only means the file was saved and its format is valid; it does not mean the sign-in session remains valid.',
+      scope: 'Channels may use same-platform authorization for initial syncs and manual or scheduled checks. Channel downloads use the selected same-platform authorization. Direct downloads automatically use same-platform Cookie files when the URL belongs to a configured platform. Channels without authorization do not use Cookie files. Yuanbao authorization is used only for WeChat Channels video parsing.',
     },
-  ] as const)('renders $language authorization safety copy from the catalog', async ({ language, beforeLink, afterLink, upload, credential, disclaimer }) => {
+  ] as const)('renders $language authorization safety copy from the catalog', async ({ language, beforeLink, afterLink, upload, credential, disclaimer, scope }) => {
     const html = await getPage('/authorizations', { Cookie: `vidharbor_language=${language}` });
     const link = '<a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener noreferrer">Get cookies.txt LOCALLY</a>';
 
@@ -907,6 +996,7 @@ describe('server-rendered pages', () => {
     expect(html).toContain(`<li>${upload}</li>`);
     expect(html).toContain(`<li>${credential}</li>`);
     expect(html).toContain(`<strong>${disclaimer}</strong>`);
+    expect(html).toContain(`<p class="mb-0">${scope}</p>`);
   });
 
   it('keeps authorization safety translations as plain text', () => {
@@ -948,17 +1038,23 @@ describe('server-rendered pages', () => {
   it.each([
     {
       language: 'zh-CN',
-      rule: '当前官方范围包括 YouTube、Bilibili、X、Facebook 公开单视频或 Reel，以及抖音公开单视频；其他 HTTPS URL 仍按通用单资源契约探测，但不属于官方支持或验证范围。Bilibili 用 <code>?p=序号</code> 选择分 P，X 一帖多视频用 <code>/video/序号</code> 选择。',
+      rule: '当前官方范围包括 YouTube、Bilibili、X、Facebook 公开单视频或 Reel、抖音公开单视频，以及上方说明的微信视频号精确链接；其他 HTTPS URL 仍按通用单资源契约探测，但不属于官方支持或验证范围。Bilibili 用 <code>?p=序号</code> 选择分 P，X 一帖多视频用 <code>/video/序号</code> 选择。',
+      weixinHelp: '微信视频号仅支持精确地址 https://weixin.qq.com/sph/&lt;id&gt;，并需要在授权管理中配置元宝 Cookie。',
+      modeHelp: '已进入视频号模式：只允许默认视频下载，媒体类型与高级选项已重置并禁用。',
     },
     {
       language: 'en',
-      rule: 'The current official scope includes public single-video or Reel URLs from YouTube, Bilibili, X, and Facebook, plus public single-video URLs from Douyin. Other HTTPS URLs are still probed under the generic single-resource contract, but are not officially supported or verified. Use <code>?p=number</code> to select a Bilibili part and <code>/video/number</code> to select one video from an X post with multiple videos.',
+      rule: 'The current official scope includes public single-video or Reel URLs from YouTube, Bilibili, X, and Facebook, public single-video URLs from Douyin, and the exact WeChat Channels URL described above. Other HTTPS URLs are still probed under the generic single-resource contract, but are not officially supported or verified. Use <code>?p=number</code> to select a Bilibili part and <code>/video/number</code> to select one video from an X post with multiple videos.',
+      weixinHelp: 'WeChat Channels supports only exact URLs in the form https://weixin.qq.com/sph/&lt;id&gt; and requires a Yuanbao Cookie configured under Authorizations.',
+      modeHelp: 'WeChat Channels mode is active: only the default video download is allowed, and media type and advanced options have been reset and disabled.',
     },
-  ] as const)('renders safe download URL rule structure in $language', async ({ language, rule }) => {
+  ] as const)('renders safe download URL rule structure in $language', async ({ language, rule, weixinHelp, modeHelp }) => {
     const html = await getPage('/downloads', { Cookie: `vidharbor_language=${language}` });
     const keys = ['downloads.urlRulesBeforeBilibiliPart', 'downloads.urlRulesIndex', 'downloads.urlRulesBetweenSelectors', 'downloads.urlRulesAfterXVideo'] as const;
 
     expect(html).toContain(`<p>${rule}</p>`);
+    expect(html).toContain(`<div class="form-text">${weixinHelp}</div>`);
+    expect(html).toContain(`<div class="form-text" data-weixin-mode-help hidden>${modeHelp}</div>`);
     for (const key of keys) expect(TRANSLATIONS[language][key]).not.toMatch(/<|\?p=|\/video\//);
   });
 
@@ -1196,9 +1292,76 @@ describe('server-rendered pages', () => {
     expect(script).toContain("let selectedTab = 'completed'");
     expect(script).toContain("facebook: 'Facebook'");
     expect(script).toContain("douyin: '抖音'");
+    expect(script).toContain("t('platform.weixin')");
     expect(script).toContain("thumbnail.referrerPolicy = 'no-referrer'");
     expect(html).not.toMatch(/name="(?:autoplay|autoDownload)"/);
     expect(html).not.toContain('proxy.url');
+  });
+
+  it('enables WeChat Channels mode only for the exact backend URL form', async () => {
+    const script = await getPublicScript('downloads.js');
+    const { behavior } = directModeHarness(script);
+
+    expect(behavior.isWeixinVideoUrl('https://weixin.qq.com/sph/Abc_123-xyz')).toBe(true);
+    for (const value of [
+      'https://weixin.qq.com/sph/Abc_123-xyz/',
+      'https://weixin.qq.com/sph/Abc_123-xyz?from=share',
+      'https://weixin.qq.com/sph/Abc_123-xyz#video',
+      'https://example.com/watch/weixin',
+    ]) expect(behavior.isWeixinVideoUrl(value)).toBe(false);
+  });
+
+  it('resets and disables unsupported fields when entering WeChat Channels mode', async () => {
+    const script = await getPublicScript('downloads.js');
+    const state = directModeHarness(script);
+    state.elements.url.value = 'https://weixin.qq.com/sph/Abc_123-xyz';
+
+    state.behavior.updateDirectFormMode();
+
+    expect(state.behavior.advancedOptions(state.form)).toEqual({
+      mediaType: 'video',
+      format: null,
+      quality: null,
+      codec: null,
+      writeSubtitles: false,
+      splitChapters: false,
+      timeRangeStart: null,
+      timeRangeEnd: null,
+    });
+    expect(state.elements.mediaType.disabled).toBe(true);
+    for (const name of ['quality', 'codec', 'writeSubtitles', 'timeRangeStart', 'timeRangeEnd'] as const) {
+      expect(state.elements[name].disabled).toBe(true);
+    }
+    expect(state.elements.proxyId.disabled).toBe(false);
+    expect(state.elements.targetSubdirectory.disabled).toBe(false);
+    expect(state.advancedDetails.open).toBe(false);
+    expect(state.modeHelp.hidden).toBe(false);
+    expect(state.behavior.previewKey()).toBeNull();
+    expect(state.previewResult.hidden).toBe(true);
+    expect(state.submitButton.disabled).toBe(true);
+  });
+
+  it('restores controls and invalidates preview after leaving the exact URL form', async () => {
+    const script = await getPublicScript('downloads.js');
+    const state = directModeHarness(script);
+    state.elements.url.value = 'https://weixin.qq.com/sph/Abc_123-xyz';
+    state.behavior.updateDirectFormMode();
+    state.behavior.setPreviewKey('weixin-preview');
+    state.previewResult.hidden = false;
+    state.submitButton.disabled = false;
+
+    state.elements.url.value = 'https://example.com/watch/weixin';
+    state.behavior.updateDirectFormMode();
+
+    expect(state.elements.mediaType.disabled).toBe(false);
+    for (const name of ['quality', 'codec', 'writeSubtitles', 'timeRangeStart', 'timeRangeEnd'] as const) {
+      expect(state.elements[name].disabled).toBe(false);
+    }
+    expect(state.advancedDetails.open).toBe(false);
+    expect(state.modeHelp.hidden).toBe(true);
+    expect(state.behavior.previewKey()).toBeNull();
+    expect(state.previewResult.hidden).toBe(true);
+    expect(state.submitButton.disabled).toBe(true);
   });
 
   it('renders proxy create and edit forms in the requested grouped layout', async () => {
@@ -1275,7 +1438,7 @@ describe('server-rendered pages', () => {
     expect(script).toContain("canceled: 'status.download.canceled'");
     expect(script).toContain("interrupted: 'status.download.interrupted'");
     expect(script).toContain("download.sourceType === 'channel' ? 'downloads.source.channel' : 'downloads.source.direct'");
-    expect(script).toContain("platformLabels[download.platform] ?? download.platform");
+    expect(script).toContain('platformLabel(download.platform)');
     expect(script).toContain('download.title');
     expect(script).toContain('download.failureReason');
     expect(script).toContain('download.progressPercent');

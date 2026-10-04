@@ -179,6 +179,7 @@ describe('CookieAuthorizationService', () => {
       'x',
       'facebook',
       'douyin',
+      'yuanbao',
     ]);
     const { service } = await createService();
 
@@ -207,11 +208,11 @@ describe('CookieAuthorizationService', () => {
     const storage = join(sandbox, 'cookies');
     await mkdir(storage, { mode: 0o777 });
     await chmod(storage, 0o777);
-    await writeFile(join(storage, 'youtube.cookies.txt'), VALID_COOKIE_A, {
+    await writeFile(join(storage, 'yuanbao.cookies.txt'), VALID_COOKIE_A, {
       mode: 0o666,
     });
-    await chmod(join(storage, 'youtube.cookies.txt'), 0o666);
-    await writeFile(join(storage, '.youtube.cookies.txt.pending'), 'stale', {
+    await chmod(join(storage, 'yuanbao.cookies.txt'), 0o666);
+    await writeFile(join(storage, '.yuanbao.cookies.txt.pending'), 'stale', {
       mode: 0o666,
     });
     await writeFile(join(storage, '.unrelated.pending'), 'keep', {
@@ -223,10 +224,10 @@ describe('CookieAuthorizationService', () => {
     const entries = await readdir(storage);
 
     expect(mode((await stat(storage)).mode)).toBe(0o700);
-    expect(mode((await stat(join(storage, 'youtube.cookies.txt'))).mode)).toBe(
+    expect(mode((await stat(join(storage, 'yuanbao.cookies.txt'))).mode)).toBe(
       0o600,
     );
-    expect(entries.includes('.youtube.cookies.txt.pending')).toBe(false);
+    expect(entries.includes('.yuanbao.cookies.txt.pending')).toBe(false);
     expect(entries.includes('.unrelated.pending')).toBe(true);
   });
 
@@ -270,10 +271,11 @@ describe('CookieAuthorizationService', () => {
     },
   );
 
-  it('lists all five isolated states in fixed order and persists them across instances', async () => {
+  it('lists all six isolated states in fixed order and persists them across instances', async () => {
     const { storage, service } = await createService();
     const initial = await service.listConfigurations();
     expect(initial.map(({ configured }) => configured)).toEqual([
+      false,
       false,
       false,
       false,
@@ -304,6 +306,7 @@ describe('CookieAuthorizationService', () => {
       true,
       true,
       true,
+      true,
     ]);
     expect(persisted.every(({ updatedAt }) => updatedAt !== null)).toBe(true);
 
@@ -318,6 +321,7 @@ describe('CookieAuthorizationService', () => {
       true,
       true,
       false,
+      true,
       true,
       true,
     ]);

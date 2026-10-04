@@ -47,6 +47,7 @@
                       <label class="form-label" for="direct-url"><%= t('downloads.videoUrl') %></label>
                       <input class="form-control" id="direct-url" type="url" name="url" placeholder="https://" required>
                       <div class="form-text"><%= t('downloads.urlHelp') %></div>
+                      <div class="form-text"><%= t('downloads.weixinUrlHelp') %></div>
                       <details class="direct-url-help">
                         <summary><%= t('downloads.urlRules') %></summary>
                         <p><%= t('downloads.urlRulesBeforeBilibiliPart') %> <code>?p=<%= t('downloads.urlRulesIndex') %></code> <%= t('downloads.urlRulesBetweenSelectors') %> <code>/video/<%= t('downloads.urlRulesIndex') %></code> <%= t('downloads.urlRulesAfterXVideo') %></p>
@@ -59,6 +60,7 @@
                     <div class="col-12 col-sm-6">
                       <label class="form-label" for="direct-media-type"><%= t('downloads.mediaType') %></label>
                       <select class="form-select" id="direct-media-type" name="mediaType"><option value="video"><%= t('downloads.mediaType.video') %></option><option value="audio"><%= t('downloads.mediaType.audio') %></option></select>
+                      <div class="form-text" data-weixin-mode-help hidden><%= t('downloads.weixinModeHelp') %></div>
                     </div>
                     <div class="col-12">
                       <label class="form-label" for="direct-target-subdirectory"><%= t('channelDetail.targetSubdirectory') %></label>

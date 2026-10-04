@@ -78,6 +78,13 @@ vi.mock('node:fs/promises', async () => {
   };
 });
 
+vi.mock('../../src/weixin.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/weixin.js')>(
+    '../../src/weixin.js',
+  );
+  return { ...actual, resolveWeixinVideo: vi.fn() };
+});
+
 import { DownloadWorker } from '../../src/download-worker.js';
 import {
   openDatabase,
@@ -85,8 +92,10 @@ import {
   type Statement,
 } from '../../src/db/client.js';
 import { migrateDatabase } from '../../src/db/migrate.js';
+import { BusinessError } from '../../src/errors.js';
 import { formatFailureReason } from '../../src/redaction.js';
 import type { QueuedDownload } from '../../src/services/download.js';
+import { resolveWeixinVideo } from '../../src/weixin.js';
 import { YtDlpTaskManager } from '../../src/yt-dlp-task-manager.js';
 
 const FIRST_VIDEO_ID = 'aB_12-cD345';
@@ -133,6 +142,18 @@ function insertPending(platformVideoId: string): number {
   return Number(result.lastInsertRowid);
 }
 
+function insertWeixinPending(platformVideoId: string, sourceUrl: string): number {
+  const result = database
+    .prepare(
+      `INSERT INTO downloads (
+        source_type, source_url, platform, platform_video_id, title,
+        network_mode, archive_layout, status, created_at
+      ) VALUES ('direct', ?, 'weixin', ?, 'Title', 'direct', 'download_directory', 'pending', ?)`,
+    )
+    .run(sourceUrl, platformVideoId, '2026-07-17T11:20:00.000Z');
+  return Number(result.lastInsertRowid);
+}
+
 function job(
   downloadId: number,
   platformVideoId: string,
@@ -151,6 +172,19 @@ function job(
     ...(targetSubdirectory === undefined
       ? {}
       : { targetSubdirectory }),
+  };
+}
+
+function weixinJob(
+  downloadId: number,
+  platformVideoId: string,
+  sourceUrl: string,
+  cookieFilePath: string,
+  proxyUrl?: string,
+): QueuedDownload {
+  return {
+    ...job(downloadId, platformVideoId, sourceUrl, downloadRoot, proxyUrl),
+    weixinCookieFilePath: cookieFilePath,
   };
 }
 
@@ -286,6 +320,7 @@ beforeEach(async () => {
   database = openDatabase(join(sandbox, 'vidharbor.sqlite'));
   migrateDatabase(database);
   taskManager = undefined;
+  vi.mocked(resolveWeixinVideo).mockReset();
 });
 
 afterEach(async () => {
@@ -774,6 +809,234 @@ if (args.includes('--skip-download')) {
     );
     expect(proxyArguments).toEqual([PROXY_URL]);
     expect(invocations[1]).not.toContain('--proxy');
+  });
+
+  it('uses a fresh Weixin resolution on every retry', async () => {
+    const sourceUrl = `https://weixin.qq.com/sph/${FIRST_VIDEO_ID}`;
+    const cookieFilePath = join(sandbox, 'yuanbao.cookies.txt');
+    const downloadId = insertWeixinPending(FIRST_VIDEO_ID, sourceUrl);
+    vi.mocked(resolveWeixinVideo)
+      .mockResolvedValueOnce({
+        platform: 'weixin',
+        platformVideoId: FIRST_VIDEO_ID,
+        title: 'Title',
+        authorNickname: 'Author',
+        videoUrl: 'fixture://worker-exit-failure',
+      })
+      .mockResolvedValueOnce({
+        platform: 'weixin',
+        platformVideoId: FIRST_VIDEO_ID,
+        title: 'Title',
+        authorNickname: 'Author',
+        videoUrl: 'fixture://worker-success',
+      });
+    const worker = createWorker();
+    const queuedDownload = weixinJob(
+      downloadId,
+      FIRST_VIDEO_ID,
+      sourceUrl,
+      cookieFilePath,
+    );
+
+    worker.enqueue(queuedDownload);
+    await worker.waitForIdle();
+    expect(row(downloadId)).toMatchObject({ status: 'failed' });
+    database
+      .prepare(
+        `UPDATE downloads
+         SET status = 'pending', failure_reason = NULL, started_at = NULL,
+             finished_at = NULL, exit_code = NULL
+         WHERE id = ?`,
+      )
+      .run(downloadId);
+
+    worker.enqueue(queuedDownload);
+    await worker.waitForIdle();
+
+    expect(resolveWeixinVideo).toHaveBeenCalledTimes(2);
+    const invocations = (await readFile(join(sandbox, 'argv.log'), 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+    expect(invocations.map((arguments_) => arguments_.at(-1))).toEqual([
+      'fixture://worker-exit-failure',
+      'fixture://worker-success',
+    ]);
+    expect(row(downloadId)).toMatchObject({
+      status: 'completed',
+      source_url: sourceUrl,
+    });
+    expect(JSON.stringify(row(downloadId))).not.toContain('fixture://worker-success');
+  });
+
+  it('isolates Yuanbao cookies from proxied media downloads', async () => {
+    const sourceUrl = `https://weixin.qq.com/sph/${FIRST_VIDEO_ID}`;
+    const cookieFilePath = join(sandbox, 'yuanbao.cookies.txt');
+    const downloadId = insertWeixinPending(FIRST_VIDEO_ID, sourceUrl);
+    vi.mocked(resolveWeixinVideo).mockResolvedValue({
+      platform: 'weixin',
+      platformVideoId: FIRST_VIDEO_ID,
+      title: 'Title',
+      authorNickname: 'Author',
+      videoUrl: 'fixture://worker-success',
+    });
+    const worker = createWorker();
+
+    worker.enqueue(weixinJob(
+      downloadId,
+      FIRST_VIDEO_ID,
+      sourceUrl,
+      cookieFilePath,
+      PROXY_URL,
+    ));
+    await worker.waitForIdle();
+
+    expect(resolveWeixinVideo).toHaveBeenCalledWith({
+      shareUrl: sourceUrl,
+      cookieFilePath,
+      proxyUrl: PROXY_URL,
+      signal: expect.any(AbortSignal),
+    });
+    const invocation = JSON.parse(
+      (await readFile(join(sandbox, 'argv.log'), 'utf8')).trimEnd(),
+    ) as string[];
+    expect(invocation.filter((argument) => argument === '--proxy')).toHaveLength(1);
+    expect(invocation[invocation.indexOf('--proxy') + 1]).toBe(PROXY_URL);
+    expect(invocation).not.toContain('--cookies');
+  });
+
+  it('skips thumbnail download for Weixin tasks', async () => {
+    const sourceUrl = `https://weixin.qq.com/sph/${FIRST_VIDEO_ID}`;
+    const downloadId = insertWeixinPending(FIRST_VIDEO_ID, sourceUrl);
+    vi.mocked(resolveWeixinVideo).mockResolvedValue({
+      platform: 'weixin',
+      platformVideoId: FIRST_VIDEO_ID,
+      title: 'Title',
+      authorNickname: 'Author',
+      videoUrl: 'fixture://worker-success',
+    });
+    const worker = createWorker();
+
+    worker.enqueue(weixinJob(
+      downloadId,
+      FIRST_VIDEO_ID,
+      sourceUrl,
+      join(sandbox, 'yuanbao.cookies.txt'),
+    ));
+    await worker.waitForIdle();
+
+    expect(row(downloadId)).toMatchObject({
+      status: 'completed',
+      thumbnail_path: null,
+    });
+    expect(await readdir(join(downloadRoot, String(downloadId))))
+      .toEqual([`${FIRST_VIDEO_ID}.mp4`]);
+  });
+
+  it('persists a redacted Weixin resolution failure', async () => {
+    const sourceUrl = `https://weixin.qq.com/sph/${FIRST_VIDEO_ID}`;
+    const downloadId = insertWeixinPending(FIRST_VIDEO_ID, sourceUrl);
+    vi.mocked(resolveWeixinVideo).mockRejectedValue(
+      new Error(`resolution failed via ${PROXY_URL}`),
+    );
+    const worker = createWorker();
+
+    worker.enqueue(weixinJob(
+      downloadId,
+      FIRST_VIDEO_ID,
+      sourceUrl,
+      join(sandbox, 'yuanbao.cookies.txt'),
+      PROXY_URL,
+    ));
+    await worker.waitForIdle();
+
+    expect(row(downloadId)).toMatchObject({
+      status: 'failed',
+      output_path: null,
+      failure_reason: 'resolution failed via http://***@proxy.example:8080',
+    });
+    await expect(readFile(join(sandbox, 'argv.log'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expectTaskDirectoryRemoved(downloadId);
+  });
+
+  it('keeps the worker usable after canceling a pending Weixin resolution', async () => {
+    const sourceUrl = `https://weixin.qq.com/sph/${FIRST_VIDEO_ID}`;
+    const canceledId = insertWeixinPending(FIRST_VIDEO_ID, sourceUrl);
+    const successfulId = insertPending(SECOND_VIDEO_ID);
+    let markResolutionStarted!: () => void;
+    const resolutionStarted = new Promise<void>((resolve) => {
+      markResolutionStarted = resolve;
+    });
+    vi.mocked(resolveWeixinVideo).mockImplementation(({ signal }) => {
+      if (signal === undefined) throw new Error('expected a cancellation signal');
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          'abort',
+          () => reject(new BusinessError(
+            'VIDEO_FETCH_FAILED',
+            'Weixin video fetch failed',
+          )),
+          { once: true },
+        );
+        markResolutionStarted();
+      });
+    });
+    const worker = createWorker();
+
+    worker.enqueue(weixinJob(
+      canceledId,
+      FIRST_VIDEO_ID,
+      sourceUrl,
+      join(sandbox, 'yuanbao.cookies.txt'),
+    ));
+    await resolutionStarted;
+    await worker.cancel(canceledId);
+    await worker.waitForIdle();
+
+    expect(row(canceledId)).toMatchObject({
+      status: 'canceled',
+      failure_reason: 'yt-dlp task canceled',
+    });
+    expect(taskManager?.getSnapshot()[0]).toMatchObject({
+      type: 'media_download',
+      status: 'canceled',
+    });
+
+    worker.enqueue(job(
+      successfulId,
+      SECOND_VIDEO_ID,
+      'fixture://worker-second',
+    ));
+    await worker.waitForIdle();
+
+    expect(row(successfulId)).toMatchObject({ status: 'completed' });
+    expect(taskManager?.getSnapshot()[1]).toMatchObject({
+      type: 'media_download',
+      status: 'succeeded',
+    });
+  });
+
+  it('preserves ordinary task download options', async () => {
+    const sourceUrl = 'fixture://worker-success';
+    const cookieFilePath = join(sandbox, 'youtube.cookies.txt');
+    const downloadId = insertPending(FIRST_VIDEO_ID);
+    const worker = createWorker();
+
+    worker.enqueue({
+      ...job(downloadId, FIRST_VIDEO_ID, sourceUrl),
+      cookieFilePath,
+    });
+    await worker.waitForIdle();
+
+    expect(resolveWeixinVideo).not.toHaveBeenCalled();
+    const invocation = JSON.parse(
+      (await readFile(join(sandbox, 'argv.log'), 'utf8')).trimEnd(),
+    ) as string[];
+    expect(invocation.at(-1)).toBe(sourceUrl);
+    expect(invocation[invocation.indexOf('--cookies') + 1]).toBe(cookieFilePath);
+    expect(row(downloadId)).toMatchObject({ status: 'completed' });
   });
 
   it('persists a redacted process failure and continues with the next FIFO item', async () => {

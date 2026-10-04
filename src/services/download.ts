@@ -11,6 +11,11 @@ import {
   validateTargetSubdirectory,
 } from '../filesystem.js';
 import type { YtDlpTaskManager } from '../yt-dlp-task-manager.js';
+import {
+  isWeixinVideoHost,
+  parseWeixinShareUrl,
+  resolveWeixinVideo,
+} from '../weixin.js';
 import type {
   CookieAuthorizationService,
   CookiePlatform,
@@ -43,6 +48,7 @@ export interface QueuedDownload {
   readonly downloadsMountPath: string;
   readonly proxyUrl?: string;
   readonly cookieFilePath?: string;
+  readonly weixinCookieFilePath?: string;
   readonly advancedOptions?: DownloadAdvancedOptions;
   readonly targetSubdirectory?: string;
 }
@@ -120,6 +126,7 @@ interface PreparedDownload {
   readonly proxyName: string | null;
   readonly proxyUrl?: string;
   readonly cookieFilePath?: string;
+  readonly weixinCookieFilePath?: string;
   readonly advancedOptions: DownloadAdvancedOptions | null;
   readonly targetSubdirectory: string | null;
   readonly downloadRoot: string;
@@ -129,6 +136,7 @@ interface RetryDownloadRow {
   readonly id: number;
   readonly source_type: 'channel' | 'direct';
   readonly source_url: string;
+  readonly platform: string;
   readonly authorization_platform: 'youtube' | 'bilibili' | null;
   readonly platform_video_id: string;
   readonly advanced_options_json: string | null;
@@ -140,8 +148,20 @@ interface DirectProbe {
   readonly input: DirectDownloadInput;
   readonly proxy: ProxySelection;
   readonly cookieFilePath?: string;
+  readonly weixinCookieFilePath?: string;
   readonly metadata: Omit<DirectDownloadPreview, 'targetSubdirectory'>;
 }
+
+const DEFAULT_ADVANCED_OPTIONS: DownloadAdvancedOptions = {
+  mediaType: 'video',
+  format: null,
+  quality: null,
+  codec: null,
+  writeSubtitles: false,
+  splitChapters: false,
+  timeRangeStart: null,
+  timeRangeEnd: null,
+};
 
 function persistenceError(): BusinessError {
   return new BusinessError('PERSISTENCE_ERROR', 'download persistence failed');
@@ -303,6 +323,36 @@ function directCookiePlatform(url: string): CookiePlatform | null {
   if (hostMatches(hostname, 'facebook.com')) return 'facebook';
   if (hostMatches(hostname, 'douyin.com')) return 'douyin';
   return null;
+}
+
+function assertWeixinAdvancedOptions(
+  advancedOptions: DownloadAdvancedOptions,
+): void {
+  for (const key of Object.keys(DEFAULT_ADVANCED_OPTIONS) as Array<
+    keyof DownloadAdvancedOptions
+  >) {
+    if (advancedOptions[key] !== DEFAULT_ADVANCED_OPTIONS[key]) {
+      throw new BusinessError(
+        'VALIDATION_ERROR',
+        'Weixin video downloads do not support advanced options',
+      );
+    }
+  }
+}
+
+async function findWeixinCookieFilePath(
+  cookieAuthorizationService: CookieAuthorizationService | undefined,
+): Promise<string> {
+  const cookieFilePath = await cookieAuthorizationService?.findConfiguredFilePath(
+    'yuanbao',
+  );
+  if (cookieFilePath === undefined) {
+    throw new BusinessError(
+      'VALIDATION_ERROR',
+      'Yuanbao cookie configuration is not configured',
+    );
+  }
+  return cookieFilePath;
 }
 
 async function findDirectCookieFilePath(
@@ -637,6 +687,9 @@ function enqueueDownloads(
       ...(value.cookieFilePath === undefined
         ? {}
         : { cookieFilePath: value.cookieFilePath }),
+      ...(value.weixinCookieFilePath === undefined
+        ? {}
+        : { weixinCookieFilePath: value.weixinCookieFilePath }),
       ...(value.advancedOptions === null
         ? {}
         : { advancedOptions: value.advancedOptions }),
@@ -683,7 +736,42 @@ async function probeDirectDownload(
   cookieAuthorizationService?: CookieAuthorizationService,
 ): Promise<DirectProbe> {
   const directInput = parseDirectInput(input);
+  const isWeixin = isWeixinVideoHost(directInput.url);
+  if (isWeixin) {
+    parseWeixinShareUrl(directInput.url);
+    assertWeixinAdvancedOptions(directInput.advancedOptions);
+  }
   const proxy = loadProxy(database, directInput.proxyId);
+  if (isWeixin) {
+    const weixinCookieFilePath = await findWeixinCookieFilePath(
+      cookieAuthorizationService,
+    );
+    const resolved = await resolveWeixinVideo({
+      shareUrl: directInput.url,
+      cookieFilePath: weixinCookieFilePath,
+      ...(proxy.proxyUrl === undefined ? {} : { proxyUrl: proxy.proxyUrl }),
+    });
+    const metadata = {
+      platform: 'weixin' as const,
+      platformVideoId: resolved.platformVideoId,
+      title: resolved.title,
+      durationSeconds: null,
+      suggestedSubdirectory: suggestDirectSubdirectory({
+        uploader: resolved.authorNickname,
+      }),
+    };
+    assertNoExistingDownload(
+      database,
+      metadata.platform,
+      metadata.platformVideoId,
+    );
+    return {
+      input: directInput,
+      proxy,
+      weixinCookieFilePath,
+      metadata,
+    };
+  }
   const cookieFilePath = await findDirectCookieFilePath(
     directInput.url,
     cookieAuthorizationService,
@@ -766,7 +854,11 @@ export async function createDirectDownload(
     proxyName: probe.proxy.proxyName,
     ...(probe.proxy.proxyUrl === undefined ? {} : { proxyUrl: probe.proxy.proxyUrl }),
     ...(probe.cookieFilePath === undefined ? {} : { cookieFilePath: probe.cookieFilePath }),
-    advancedOptions: probe.input.advancedOptions,
+    ...(probe.weixinCookieFilePath === undefined
+      ? {}
+      : { weixinCookieFilePath: probe.weixinCookieFilePath }),
+    advancedOptions:
+      probe.metadata.platform === 'weixin' ? null : probe.input.advancedOptions,
     targetSubdirectory: probe.input.targetSubdirectory,
     downloadRoot,
   };
@@ -1232,7 +1324,8 @@ export async function retryDownload(
   try {
     const row = database
       .prepare(
-        `SELECT d.id, d.source_type, d.source_url, c.authorization_platform,
+        `SELECT d.id, d.source_type, d.source_url, d.platform,
+                c.authorization_platform,
                 d.platform_video_id, d.advanced_options_json, d.proxy_url_snapshot,
                 d.target_subdirectory
          FROM downloads d
@@ -1254,6 +1347,12 @@ export async function retryDownload(
       downloadsMountPath,
       downloadsMountPath,
     );
+    const weixinCookieFilePath = row.platform === 'weixin'
+      ? await findWeixinCookieFilePath(cookieAuthorizationService)
+      : undefined;
+    const cookieFilePath = row.platform === 'weixin'
+      ? undefined
+      : await findRetryCookieFilePath(row, cookieAuthorizationService);
     const updated = database
       .prepare(
         `UPDATE downloads
@@ -1269,10 +1368,6 @@ export async function retryDownload(
     if (updated.changes !== 1) {
       throw new Error('download is missing');
     }
-    const cookieFilePath = await findRetryCookieFilePath(
-      row,
-      cookieAuthorizationService,
-    );
     const retryJob: QueuedDownload = {
       downloadId,
       sourceUrl: row.source_url,
@@ -1283,6 +1378,9 @@ export async function retryDownload(
         ? {}
         : { proxyUrl: row.proxy_url_snapshot }),
       ...(cookieFilePath === undefined ? {} : { cookieFilePath }),
+      ...(weixinCookieFilePath === undefined
+        ? {}
+        : { weixinCookieFilePath }),
       ...(row.target_subdirectory === null
         ? {}
         : { targetSubdirectory: row.target_subdirectory }),

@@ -15,6 +15,8 @@ const directDownloadModal = bootstrap.Modal.getOrCreateInstance(document.querySe
 const directPreviewResult = form.querySelector('[data-direct-preview-result]');
 const directPreviewButton = form.querySelector('[data-direct-preview]');
 const directSubmitButton = form.querySelector('[type="submit"]');
+const directAdvancedOptions = form.querySelector('.direct-advanced-options');
+const weixinModeHelp = form.querySelector('[data-weixin-mode-help]');
 const cards = new Map();
 const downloadState = new Map();
 let selectedTab = 'completed';
@@ -27,13 +29,21 @@ let directPreviewKey = null;
 const labelKeys = { pending: 'status.download.pending', downloading: 'status.download.downloading', running: 'status.download.running', completed: 'status.download.completed', failed: 'status.download.failed', canceled: 'status.download.canceled', interrupted: 'status.download.interrupted', deleting: 'status.download.deleting' };
 const styles = { pending: 'text-bg-secondary', downloading: 'text-bg-primary', running: 'text-bg-primary', completed: 'text-bg-success', failed: 'text-bg-danger', canceled: 'text-bg-warning', interrupted: 'text-bg-warning', deleting: 'text-bg-secondary' };
 const platformLabels = { youtube: 'YouTube', bilibili: 'Bilibili', vimeo: 'Vimeo', twitter: 'X', facebook: 'Facebook', douyin: '抖音' };
+function platformLabel(platform) { return platform === 'weixin' ? t('platform.weixin') : (platformLabels[platform] ?? platform); }
+const WEIXIN_VIDEO_URL_PATTERN = /^https:\/\/weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+$/;
+const DEFAULT_ADVANCED_OPTIONS = Object.freeze({ mediaType: 'video', format: null, quality: null, codec: null, writeSubtitles: false, splitChapters: false, timeRangeStart: null, timeRangeEnd: null });
+const advancedControlNames = ['quality', 'codec', 'writeSubtitles', 'timeRangeStart', 'timeRangeEnd'];
 
 function nullableNumber(value) { return value === '' ? null : Number(value); }
 function nullableText(value) { return value === '' ? null : value; }
-function advancedOptions(form) { return { mediaType: form.elements.mediaType.value, format: null, quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, splitChapters: false, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value) }; }
+function isWeixinVideoUrl(value) { return WEIXIN_VIDEO_URL_PATTERN.test(value); }
+function advancedOptions(form) { return { ...DEFAULT_ADVANCED_OPTIONS, mediaType: form.elements.mediaType.value, quality: nullableText(form.elements.quality.value), codec: nullableText(form.elements.codec.value), writeSubtitles: form.elements.writeSubtitles.checked, timeRangeStart: nullableText(form.elements.timeRangeStart.value), timeRangeEnd: nullableText(form.elements.timeRangeEnd.value) }; }
+function resetAdvancedOptions(form) { form.elements.mediaType.value = DEFAULT_ADVANCED_OPTIONS.mediaType; form.elements.quality.value = ''; form.elements.codec.value = ''; form.elements.writeSubtitles.checked = DEFAULT_ADVANCED_OPTIONS.writeSubtitles; form.elements.timeRangeStart.value = ''; form.elements.timeRangeEnd.value = ''; }
+function setWeixinVideoMode(enabled) { if (enabled) { resetAdvancedOptions(form); directAdvancedOptions.open = false; } form.elements.mediaType.disabled = enabled; for (const name of advancedControlNames) form.elements[name].disabled = enabled; weixinModeHelp.hidden = !enabled; }
 function directPayload() { return { url: form.elements.url.value, proxyId: nullableNumber(form.elements.proxyId.value), targetSubdirectory: nullableText(form.elements.targetSubdirectory.value), advancedOptions: advancedOptions(form) }; }
 function directPayloadKey() { return JSON.stringify(directPayload()); }
 function resetDirectPreview() { directPreviewKey = null; directPreviewResult.hidden = true; directSubmitButton.disabled = true; }
+function updateDirectFormMode() { setWeixinVideoMode(isWeixinVideoUrl(form.elements.url.value)); resetDirectPreview(); }
 function renderDirectPreview(preview) { if (form.elements.targetSubdirectory.value === '' && preview.suggestedSubdirectory !== null) form.elements.targetSubdirectory.value = preview.suggestedSubdirectory; directPreviewResult.textContent = `${t('downloads.previewReady')}: ${preview.title} · ${preview.platform} · ${preview.platformVideoId} · ${formatDuration(preview.durationSeconds)}`; directPreviewResult.hidden = false; directSubmitButton.disabled = false; }
 function fixedValue(values, value) { if (!Object.hasOwn(values, value)) throw new TypeError(`unknown download status: ${String(value)}`); return values[value]; }
 function showError(region, error) { region.textContent = error instanceof Error ? `${t('common.failed')}: ${error.message}` : formatApiError(error); region.hidden = false; }
@@ -162,7 +172,7 @@ function updateDownloadCard(article, previous, download) {
   setField(article, 'title', download.title);
   const thumbnail = article.querySelector('.download-card-thumbnail'); thumbnail.hidden = download.thumbnailUrl === null; if (download.thumbnailUrl !== null && thumbnail.src !== download.thumbnailUrl) thumbnail.src = download.thumbnailUrl;
   setField(article, 'sourceType', t(download.sourceType === 'channel' ? 'downloads.source.channel' : 'downloads.source.direct'));
-  setField(article, 'platform', platformLabels[download.platform] ?? download.platform);
+  setField(article, 'platform', platformLabel(download.platform));
   setField(article, 'progressPercent', download.progressPercent === null ? null : `${download.progressPercent}%`);
   setField(article, 'speedText', download.speedText);
   setField(article, 'etaSeconds', download.etaSeconds === null ? null : `${download.etaSeconds}s`);
@@ -242,8 +252,8 @@ emptyAction.addEventListener('click', () => {
   if (emptyAction.dataset.action === 'active') { setSelectedTab('active'); return; }
   directDownloadModal.show();
 });
-form.addEventListener('input', resetDirectPreview);
-form.addEventListener('change', resetDirectPreview);
+form.addEventListener('input', updateDirectFormMode);
+form.addEventListener('change', updateDirectFormMode);
 directPreviewButton.addEventListener('click', async () => { const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; resetDirectPreview(); directPreviewButton.disabled = true; try { const payload = directPayload(); const result = await request('/api/downloads/direct/preview', 'POST', payload); renderDirectPreview(result.preview); directPreviewKey = directPayloadKey(); } catch (error) { showError(errorRegion, error); } finally { directPreviewButton.disabled = false; } });
-form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; const payload = directPayload(); if (directPreviewKey !== directPayloadKey()) { errorRegion.textContent = t('downloads.previewFirst'); errorRegion.hidden = false; return; } try { await request('/api/downloads/direct', 'POST', payload); directDownloadModal.hide(); form.reset(); resetDirectPreview(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
+form.addEventListener('submit', async (event) => { event.preventDefault(); const errorRegion = form.querySelector('[data-form-error]'); errorRegion.hidden = true; const payload = directPayload(); if (directPreviewKey !== directPayloadKey()) { errorRegion.textContent = t('downloads.previewFirst'); errorRegion.hidden = false; return; } try { await request('/api/downloads/direct', 'POST', payload); directDownloadModal.hide(); form.reset(); updateDirectFormMode(); await refreshDownloads(); } catch (error) { showError(errorRegion, error); } });
 load().catch((error) => showError(pageError, error));
