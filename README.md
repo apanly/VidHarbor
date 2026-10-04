@@ -267,6 +267,14 @@ npm run build
 - 安全策略：`SECURITY.md`
 - 版本记录：`CHANGELOG.md`
 
+## 参考
+
+微信视频号解析参考了以下开源项目，后续接入其他平台或调整解析方式时可回看：
+
+- [samni728/WechatVideoDL](https://github.com/samni728/WechatVideoDL)：自托管的视频号分享链接解析服务，经无头浏览器调用元宝换取 `finder-preview` 地址并截获真实视频地址，最早提出借元宝解析的思路。
+- [firefiy99/yingjie（萤截）](https://github.com/firefiy99/yingjie)：安卓视频提取工具，借元宝网页版接口换取 `exportId` 与 `generalToken`，再调用 `finder-preview` 接口取得视频直链。
+- [ltaoo/wx_channels_download](https://github.com/ltaoo/wx_channels_download)：视频号下载器，`pkg/scraper/wxchannels/yuanbao.go` 以纯 HTTP 两步请求实现元宝解析与 `get_feed_info`，本项目据此确认无需浏览器。
+
 ## 许可证
 
 Copyright (C) 2026 VidHarbor contributors.

@@ -267,6 +267,14 @@ Real-site smoke tests are not part of the default test suite. Before upgrading p
 - Security policy: `SECURITY.md`
 - Changelog: `CHANGELOG.md`
 
+## References
+
+WeChat Channels resolution draws on the following open-source projects. Revisit them when adding other platforms or changing the resolution approach:
+
+- [samni728/WechatVideoDL](https://github.com/samni728/WechatVideoDL): A self-hosted WeChat Channels share-link service that drives Yuanbao through a headless browser to obtain the `finder-preview` URL and capture the real video URL. It first proposed resolving through Yuanbao.
+- [firefiy99/yingjie](https://github.com/firefiy99/yingjie): An Android video extraction tool that uses the Yuanbao web endpoint to obtain `exportId` and `generalToken`, then calls the `finder-preview` endpoint for the direct video URL.
+- [ltaoo/wx_channels_download](https://github.com/ltaoo/wx_channels_download): A WeChat Channels downloader whose `pkg/scraper/wxchannels/yuanbao.go` implements Yuanbao resolution and `get_feed_info` as two plain HTTP requests, which confirmed that this project does not need a browser.
+
 ## License
 
 Copyright (C) 2026 VidHarbor contributors.
